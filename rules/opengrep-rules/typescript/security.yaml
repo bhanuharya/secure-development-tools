@@ -1,0 +1,10 @@
+rules:
+  - id: scp.typescript.injection.eval
+    languages: [typescript]
+    message: eval() executes arbitrary code from its string argument.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-95"]
+      owasp: ["A03:2021 - Injection"]
+    pattern: eval(...)

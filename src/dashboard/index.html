@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Secure SDLC Control Plane</title>
+  <link rel="stylesheet" href="/css/base.css">
+</head>
+<body>
+  <header>
+    <div class="logo">Secure<span>SDLC</span> Control Plane</div>
+    <nav>
+      <a href="/index.html" class="active">Dashboard</a>
+      <a href="/projects.html">Projects</a>
+      <a href="/upload.html">Upload scan</a>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Project selector -->
+    <div class="panel">
+      <h2>Project</h2>
+      <div class="grid-2">
+        <div>
+          <label for="project-select">Repository</label>
+          <select id="project-select"></select>
+        </div>
+        <div style="display:flex;align-items:flex-end;">
+          <button class="secondary" onclick="location.href='/projects.html'">+ Register project</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scan config -->
+    <div class="panel" id="scan-config">
+      <h2>New Scan</h2>
+      <div class="grid-2">
+        <div>
+          <label for="scan-type">Scan type</label>
+          <select id="scan-type">
+            <option value="sast">SAST (Bandit + opengrep)</option>
+            <option value="sca">SCA dependencies (Trivy)</option>
+            <option value="secrets">Secrets (Gitleaks)</option>
+            <option value="dast">DAST (OWASP ZAP)</option>
+          </select>
+
+          <label for="ref-type">Scope</label>
+          <select id="ref-type">
+            <option value="branch">Branch</option>
+            <option value="pr">Pull Request</option>
+          </select>
+
+          <div id="branch-group">
+            <label for="branch-select">Branch</label>
+            <select id="branch-select"></select>
+          </div>
+          <div id="pr-group" class="hidden">
+            <label for="pr-select">Pull Request</label>
+            <select id="pr-select"></select>
+          </div>
+
+          <div id="sast-engines">
+            <label>Engines</label>
+            <div class="engine-list">
+              <label style="margin:0"><input type="checkbox" id="eng-bandit" checked> Bandit</label>
+              <label style="margin:0"><input type="checkbox" id="eng-opengrep" checked> opengrep</label>
+              <label style="margin:0"><input type="checkbox" id="eng-trivy"> Trivy</label>
+              <label style="margin:0"><input type="checkbox" id="eng-gitleaks"> Gitleaks</label>
+            </div>
+          </div>
+
+          <label for="lang-override">Language override (optional)</label>
+          <input id="lang-override" placeholder="python, java, javascript...">
+        </div>
+
+        <div>
+          <div id="dast-config" class="hidden">
+            <label for="target-select">DAST target</label>
+            <select id="target-select"></select>
+            <label for="dast-confirm">
+              <input type="checkbox" id="dast-confirm">
+              I confirm this target is approved for an active scan
+            </label>
+          </div>
+          <div class="btn-row">
+            <button id="start-scan" onclick="startScan()">Start scan</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live progress -->
+    <div class="panel hidden" id="progress-panel">
+      <h2>Scan progress <span id="scan-status-label"></span></h2>
+      <div class="muted" id="progress-note"></div>
+      <div class="engine-list" id="engine-chips"></div>
+      <div id="zap-progress" class="hidden" style="margin-top:10px">
+        <label>ZAP active scan</label>
+        <div class="progress-track"><div class="progress-fill" id="zap-fill"></div></div>
+      </div>
+    </div>
+
+    <!-- Findings -->
+    <div class="panel" id="findings-panel">
+      <h2>Findings <span id="findings-count" class="muted"></span></h2>
+      <div class="filters">
+        <select id="f-status">
+          <option value="">All statuses</option>
+          <option value="new">new</option>
+          <option value="triaged">triaged</option>
+          <option value="fixed">fixed</option>
+          <option value="false_positive">false positive</option>
+          <option value="accepted_risk">accepted risk</option>
+        </select>
+        <select id="f-severity">
+          <option value="">All severities</option>
+          <option value="critical">critical</option>
+          <option value="high">high</option>
+          <option value="medium">medium</option>
+          <option value="low">low</option>
+          <option value="info">info</option>
+        </select>
+        <select id="f-pr">
+          <option value="">All code</option>
+          <option value="1">In PR diff</option>
+          <option value="0">Not in PR diff</option>
+        </select>
+        <button class="secondary" onclick="loadFindings()">Apply</button>
+        <button class="secondary" onclick="generateScanReport()">PDF report</button>
+        <button class="secondary" onclick="generateProjectReport()">Repo PDF</button>
+      </div>
+      <table>
+        <thead>
+          <tr><th>Severity</th><th>Tool</th><th>Rule</th><th>File</th><th>Line</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody id="findings-body"></tbody>
+      </table>
+      <div id="findings-empty" class="muted hidden" style="padding:12px 0">No findings match the current filter.</div>
+    </div>
+  </main>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

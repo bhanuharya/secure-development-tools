@@ -1,0 +1,16 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secrets — never commit
+.env
+.env.*
+
+# Runtime data / scan artifacts
+data/
+scan_work/
+
+# OS/editor
+.DS_Store

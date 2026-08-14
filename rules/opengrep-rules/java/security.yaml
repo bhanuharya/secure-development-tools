@@ -1,0 +1,19 @@
+rules:
+  - id: scp.java.injection.command
+    languages: [java]
+    message: Runtime.exec with untrusted input enables command injection.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021 - Injection"]
+    pattern: Runtime.getRuntime().exec(...)
+
+  - id: scp.java.crypto.weak-md5
+    languages: [java]
+    message: MD5 is broken for security purposes. Use SHA-256 or better.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-328"]
+    pattern: MessageDigest.getInstance("MD5")

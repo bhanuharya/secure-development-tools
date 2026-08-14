@@ -1,0 +1,56 @@
+rules:
+  - id: scp.python.exec.eval
+    languages: [python]
+    message: eval() executes arbitrary code from its string argument. Remove it or use a safe parser.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-95"]
+      owasp: ["A03:2021 - Injection"]
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: exec(...)
+
+  - id: scp.python.crypto.weak-md5
+    languages: [python]
+    message: MD5/SHA1 are cryptographically broken. Use SHA-256 or a password hashing function such as bcrypt/argon2.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-328"]
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.md5(...)
+          - pattern: hashlib.sha1(...)
+
+  - id: scp.python.deserialization.pickle
+    languages: [python]
+    message: Unpickling untrusted data allows arbitrary code execution. Avoid pickle for external input.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-502"]
+      owasp: ["A08:2021 - Software and Data Integrity Failures"]
+    patterns:
+      - pattern-either:
+          - pattern: pickle.load(...)
+          - pattern: pickle.loads(...)
+
+  - id: scp.python.injection.command
+    languages: [python]
+    message: Avoid shell execution with untrusted data. Use subprocess.run with an argument list and shell=False.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021 - Injection"]
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: os.system(...)
+          - pattern: os.popen(...)
+          - pattern: subprocess.call(..., shell=True, ...)
+          - pattern: subprocess.Popen(..., shell=True, ...)

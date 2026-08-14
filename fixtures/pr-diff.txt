@@ -1,0 +1,21 @@
+diff --git a/app.py b/app.py
+index 1a2b3c4..5d6e7f8 100644
+--- a/app.py
++++ b/app.py
+@@ -5,15 +5,4 @@
+ def login(user, password):
+     digest = hashlib.md5(password.encode()).hexdigest()
+     conn = sqlite3.connect("app.db")
+     cur = conn.cursor()
+     query = "SELECT * FROM users WHERE user = '" + user + "'"
+     cur.execute(query)
+-    return digest + str(cur.fetchall())
++    return str(cur.fetchall())
+ 
+ 
+ def session_token():
+     return eval("lambda: 'static-token'")
+ 
+ 
+ def get_api_key():
+     return "sk_live_2f7dNn3Ke8Qb0HkLm9XpRq1ZvYw3AtC5"

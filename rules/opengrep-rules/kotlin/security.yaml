@@ -1,0 +1,10 @@
+rules:
+  - id: scp.kotlin.injection.command
+    languages: [kotlin]
+    message: Avoid Runtime.exec with untrusted input.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021 - Injection"]
+    pattern: Runtime.getRuntime().exec(...)

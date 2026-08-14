@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Projects - Secure SDLC Control Plane</title>
+  <link rel="stylesheet" href="/css/base.css">
+</head>
+<body>
+  <header>
+    <div class="logo">Secure<span>SDLC</span> Control Plane</div>
+    <nav>
+      <a href="/index.html">Dashboard</a>
+      <a href="/projects.html" class="active">Projects</a>
+      <a href="/upload.html">Upload scan</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="panel">
+      <h2>Register Bitbucket Repository</h2>
+      <div class="grid-2">
+        <div>
+          <label for="workspace">Workspace</label>
+          <input id="workspace" placeholder="your-workspace">
+          <label for="repo-list">Repository</label>
+          <select id="repo-list"></select>
+          <div style="margin-top:6px">
+            <button class="secondary" id="load-repos" onclick="loadRepos()">Load repositories</button>
+          </div>
+        </div>
+        <div>
+          <label for="project-name">Display name (optional)</label>
+          <input id="project-name" placeholder="Defaults to repo name">
+          <div style="margin-top:22px">
+            <button id="register-btn" onclick="registerProject()" disabled>Register project</button>
+          </div>
+          <div id="register-msg" class="muted hidden" style="margin-top:10px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>DAST Target <span class="muted">(add a target for a project)</span></h2>
+      <div class="grid-2">
+        <div>
+          <label>Project</label>
+          <select id="target-project"></select>
+          <label for="target-url">Target URL</label>
+          <input id="target-url" placeholder="https://staging.example.com">
+          <label for="target-name">Name (optional)</label>
+          <input id="target-name" placeholder="Staging login portal">
+        </div>
+        <div>
+          <label for="auth-mode">Auth mode</label>
+          <select id="auth-mode">
+            <option value="none">None</option>
+            <option value="form">Login form</option>
+            <option value="context_file">ZAP context file (escape hatch)</option>
+          </select>
+          <div id="form-auth">
+            <label for="login-url">Login URL</label>
+            <input id="login-url" placeholder="https://staging.example.com/login">
+            <div class="grid-2" style="gap:8px">
+              <div><label for="user-field">Username field</label><input id="user-field" value="username"></div>
+              <div><label for="pass-field">Password field</label><input id="pass-field" value="password"></div>
+            </div>
+            <div class="grid-2" style="gap:8px">
+              <div><label for="auth-user">Username</label><input id="auth-user"></div>
+              <div><label for="auth-pass">Password</label><input id="auth-pass" type="password"></div>
+            </div>
+          </div>
+          <div id="context-auth" class="hidden">
+            <label for="context-file">ZAP context file path</label>
+            <input id="context-file" placeholder="/abs/path/to/context.context">
+          </div>
+          <label style="margin-top:10px">
+            <input type="checkbox" id="pre-approved"> Pre-approved target (skip active-scan confirmation)
+          </label>
+          <label>
+            <input type="checkbox" id="is-production"> This is a production target
+          </label>
+          <div class="btn-row">
+            <button onclick="saveTarget()">Add target</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Registered Projects</h2>
+      <table>
+        <thead><tr><th>Project</th><th>Workspace / Repo</th><th>Default branch</th><th>Languages</th><th>Targets</th></tr></thead>
+        <tbody id="projects-body"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/projects.js"></script>
+</body>
+</html>

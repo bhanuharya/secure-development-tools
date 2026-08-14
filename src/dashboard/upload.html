@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Upload Scan - Secure SDLC Control Plane</title>
+  <link rel="stylesheet" href="/css/base.css">
+</head>
+<body>
+  <header>
+    <div class="logo">Secure<span>SDLC</span> Control Plane</div>
+    <nav>
+      <a href="/index.html">Dashboard</a>
+      <a href="/projects.html">Projects</a>
+      <a href="/upload.html" class="active" aria-current="page">Upload scan</a>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Upload repository ZIP -->
+    <div class="panel" id="upload-panel">
+      <h2>Scan an uploaded repository <span class="muted">(no Bitbucket needed)</span></h2>
+
+      <!-- Step 1: choose archive -->
+      <div class="step-head"><span class="step-num">1</span> Choose repository archive</div>
+      <div class="dropzone" id="dropzone">
+        <input id="up-file" type="file" accept=".zip" hidden>
+        <p class="muted" id="drop-hint">Drag a <b>.zip</b> here, or click to browse</p>
+        <p class="muted" style="font-size:11px">GitHub / GitLab / Bitbucket "Download ZIP" exports are supported. Max 100&nbsp;MB.</p>
+      </div>
+      <div class="file-summary hidden" id="file-summary">
+        <span class="mono" id="file-name"></span>
+        <span class="muted" id="file-size"></span>
+        <button class="secondary" id="file-remove" type="button">Remove</button>
+      </div>
+      <label for="up-name">Name (optional)</label>
+      <input id="up-name" placeholder="Defaults to the zip filename">
+
+      <!-- Step 2: choose coverage -->
+      <div class="step-head"><span class="step-num">2</span> Choose coverage</div>
+      <div class="preset-grid" id="preset-grid" role="radiogroup" aria-label="Scan coverage">
+        <label class="preset-card" data-preset="full">
+          <input type="radio" name="preset" value="full" checked>
+          <div class="preset-title">Full scan</div>
+          <div class="preset-desc muted">Code, dependencies and secrets</div>
+          <div class="preset-engines">Bandit · OpenGrep · Trivy · Gitleaks</div>
+        </label>
+        <label class="preset-card" data-preset="sast">
+          <input type="radio" name="preset" value="sast">
+          <div class="preset-title">Code security</div>
+          <div class="preset-desc muted">Insecure code patterns</div>
+          <div class="preset-engines">Bandit · OpenGrep</div>
+        </label>
+        <label class="preset-card" data-preset="dependencies">
+          <input type="radio" name="preset" value="dependencies">
+          <div class="preset-title">Dependencies</div>
+          <div class="preset-desc muted">Vulnerable packages</div>
+          <div class="preset-engines">Trivy</div>
+        </label>
+        <label class="preset-card" data-preset="secrets">
+          <input type="radio" name="preset" value="secrets">
+          <div class="preset-title">Secrets</div>
+          <div class="preset-desc muted">Credentials &amp; tokens</div>
+          <div class="preset-engines">Gitleaks</div>
+        </label>
+      </div>
+
+      <details id="custom-details">
+        <summary>Custom selection &amp; advanced options</summary>
+        <div class="engine-list" id="up-engines">
+          <label class="engine-opt"><input type="checkbox" data-eng="bandit"> Bandit <span class="muted">· Python</span></label>
+          <label class="engine-opt"><input type="checkbox" data-eng="opengrep"> OpenGrep / Semgrep <span class="muted">· multi-language</span></label>
+          <label class="engine-opt"><input type="checkbox" data-eng="trivy"> Trivy <span class="muted">· dependencies</span></label>
+          <label class="engine-opt"><input type="checkbox" data-eng="gitleaks"> Gitleaks <span class="muted">· secrets</span></label>
+        </div>
+        <label for="up-lang">Language override (optional)</label>
+        <input id="up-lang" placeholder="python, java, javascript...">
+        <p class="muted" style="font-size:11px">Leave empty to auto-detect languages from the archive.</p>
+      </details>
+
+      <!-- Step 3: start -->
+      <div class="step-head"><span class="step-num">3</span> Start scan</div>
+      <div class="btn-row">
+        <button id="up-start" onclick="startUpload()">Scan uploaded repo</button>
+      </div>
+      <div id="up-msg" class="muted hidden" style="margin-top:10px" role="alert"></div>
+    </div>
+
+    <!-- Scanner availability -->
+    <div class="panel">
+      <h2>Scanner availability</h2>
+      <div class="engine-list" id="scanner-status"><span class="muted">Checking scanners…</span></div>
+    </div>
+
+    <!-- Direct DAST -->
+    <div class="panel">
+      <details id="dast-details">
+        <summary>DAST scan against a URL <span class="muted">(direct, no project integration)</span></summary>
+        <div class="grid-2">
+          <div>
+            <label for="dast-url">Target URL</label>
+            <input id="dast-url" placeholder="https://staging.example.com">
+            <label for="dast-name">Name (optional)</label>
+            <input id="dast-name" placeholder="Staging portal">
+            <label for="dast-auth-mode">Auth mode</label>
+            <select id="dast-auth-mode">
+              <option value="none">None</option>
+              <option value="form">Login form</option>
+              <option value="context_file">ZAP context file (escape hatch)</option>
+            </select>
+            <div id="dast-form-auth">
+              <label for="dast-login-url">Login URL</label>
+              <input id="dast-login-url" placeholder="https://staging.example.com/login">
+              <div class="grid-2" style="gap:8px">
+                <div><label for="dast-user-field">Username field</label><input id="dast-user-field" value="username"></div>
+                <div><label for="dast-pass-field">Password field</label><input id="dast-pass-field" value="password"></div>
+              </div>
+              <div class="grid-2" style="gap:8px">
+                <div><label for="dast-auth-user">Username</label><input id="dast-auth-user"></div>
+                <div><label for="dast-auth-pass">Password</label><input id="dast-auth-pass" type="password"></div>
+              </div>
+            </div>
+            <div id="dast-context-auth" class="hidden">
+              <label for="dast-context-file">ZAP context file path</label>
+              <input id="dast-context-file" placeholder="/abs/path/to/context.context">
+            </div>
+          </div>
+          <div>
+            <label style="margin-top:22px">
+              <input type="checkbox" id="dast-pre-approved" style="width:auto"> Pre-approved target (skip active-scan confirmation)
+            </label>
+            <label>
+              <input type="checkbox" id="dast-is-production" style="width:auto"> This is a production target
+            </label>
+            <label>
+              <input type="checkbox" id="dast-confirm" style="width:auto">
+              I confirm this target is approved for an active scan
+            </label>
+            <div class="btn-row">
+              <button id="dast-start" onclick="startDast()">Run DAST scan</button>
+            </div>
+            <div id="dast-msg" class="muted hidden" style="margin-top:10px" role="alert"></div>
+          </div>
+        </div>
+      </details>
+    </div>
+
+    <!-- Live progress -->
+    <div class="panel hidden" id="progress-panel">
+      <h2>Scan progress <span id="scan-status-label"></span></h2>
+      <div class="muted" id="progress-note" aria-live="polite"></div>
+      <div id="engine-rows" class="engine-rows"></div>
+      <div id="zap-progress" class="hidden" style="margin-top:10px">
+        <label>ZAP active scan</label>
+        <div class="progress-track"><div class="progress-fill" id="zap-fill"></div></div>
+      </div>
+      <div id="scan-links" class="hidden" style="margin-top:10px">
+        <a id="scan-dash-link" style="color:#38bdf8">Open in dashboard &rarr;</a>
+      </div>
+    </div>
+
+    <!-- Completion summary -->
+    <div class="panel hidden" id="summary-panel">
+      <h2 id="summary-title">Scan summary</h2>
+      <div class="stat-cards" id="summary-cards"></div>
+      <div class="muted" id="summary-note" aria-live="polite"></div>
+    </div>
+
+    <!-- Findings -->
+    <div class="panel" id="findings-panel">
+      <h2>Findings <span id="findings-count" class="muted"></span></h2>
+      <table>
+        <thead>
+          <tr><th>Severity</th><th>Tool</th><th>Rule</th><th>File</th><th>Line</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody id="findings-body"></tbody>
+      </table>
+      <div id="findings-empty" class="muted hidden" style="padding:12px 0">Run a scan to see findings here.</div>
+    </div>
+  </main>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/upload.js"></script>
+</body>
+</html>

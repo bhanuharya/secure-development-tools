@@ -1,0 +1,13 @@
+Vendored from Aikido's open-source OpenGrep rule collection.
+
+Source repository: https://github.com/AikidoSec/opengrep-rules
+License:          MIT (see LICENSE in this directory)
+Pinned revision:  7ac79affecf709eb7263a243b518a417cd7e0ab2 (main)
+Imported:         2026-08-13
+Rules included:
+  - npm_staged_publishing_missing
+  - github_workflow_prompt_injection
+
+Note: this upstream repository currently contains only CI/CD (GitHub Actions /
+NPM) rules. They are kept here as a supplemental, reviewed pack rather than as
+the primary multi-language SAST ruleset.

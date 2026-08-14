@@ -1,0 +1,9 @@
+rules:
+  - id: scp.hcl.aws.sg-open-ingress
+    languages: [generic]
+    message: Security group allows ingress from 0.0.0.0/0, exposing the resource to the internet.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-284"]
+    pattern-regex: 'cidr_blocks\s*=\s*\[\s*"0\.0\.0\.0/0"'
