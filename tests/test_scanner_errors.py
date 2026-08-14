@@ -142,3 +142,22 @@ def test_scanners_reject_missing_required_json_schema(tmp_path, monkeypatch):
     monkeypatch.setattr(TrivyAdapter, "_exec", write_report)
     with pytest.raises(ScannerMalformedOutputError):
         TrivyAdapter(tmp_path)._run()
+
+
+def test_trivy_valid_clean_report_without_results_is_accepted(tmp_path, monkeypatch):
+    def clean_report(self, args, cwd=None, timeout=None):
+        import json
+
+        idx = args.index("--output")
+        with open(args[idx + 1], "w", encoding="utf-8") as fh:
+            json.dump({
+                "SchemaVersion": 2,
+                "CreatedAt": "2026-08-14T00:00:00Z",
+                "ArtifactName": str(tmp_path),
+                "ArtifactType": "filesystem",
+                "Trivy": {"Version": "0.73.0"},
+            }, fh)
+        return _proc(0)
+
+    monkeypatch.setattr(TrivyAdapter, "_exec", clean_report)
+    assert TrivyAdapter(tmp_path)._run() == []

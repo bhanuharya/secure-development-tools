@@ -50,11 +50,20 @@ class TrivyAdapter(Scanner):
                 os.unlink(report_path)
             except OSError:
                 pass
-        if not isinstance(data, dict) or not isinstance(data.get("Results"), list):
-            raise ScannerMalformedOutputError(self.name, "trivy JSON is missing a Results array")
+        if (
+            not isinstance(data, dict)
+            or not isinstance(data.get("SchemaVersion"), int)
+            or not isinstance(data.get("ArtifactName"), str)
+        ):
+            raise ScannerMalformedOutputError(self.name, "trivy JSON is missing required report metadata")
+        results = data.get("Results", [])
+        if results is None:
+            results = []
+        if not isinstance(results, list):
+            raise ScannerMalformedOutputError(self.name, "trivy Results must be an array or null")
 
         findings: list[RawFinding] = []
-        for target in data.get("Results", []):
+        for target in results:
             vulns = target.get("Vulnerabilities", [])
             target_file = target.get("Target", "")
             for v in vulns:

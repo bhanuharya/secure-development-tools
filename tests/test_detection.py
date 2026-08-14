@@ -27,7 +27,7 @@ def test_trivy_adapter_args(tmp_path, monkeypatch):
         captured["args"] = args
         idx = args.index("--output")
         with open(args[idx + 1], "w", encoding="utf-8") as fh:
-            fh.write('{"Results": []}')
+            fh.write('{"SchemaVersion": 2, "ArtifactName": "fixture", "Results": []}')
         return _ok_proc()
 
     monkeypatch.setattr(TrivyAdapter, "_exec", fake_exec)
