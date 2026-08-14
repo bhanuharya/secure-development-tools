@@ -6,8 +6,13 @@ import os
 import subprocess
 from pathlib import Path
 
-from src.config import ENGINE_BINARIES, RULES_PACK_DIR
+from src.config import ENGINE_BINARIES, RULES_PACK_DIR, parse_bool
 from src.scanners.base import RawFinding, Scanner, normalize_severity
+from src.scanners.errors import (
+    ScannerExecutionError,
+    ScannerMalformedOutputError,
+    ScannerRuleError,
+)
 
 log = logging.getLogger(__name__)
 
@@ -70,7 +75,10 @@ class OpengrepAdapter(Scanner):
 
     def _run(self) -> list[RawFinding]:
         rules = self.rule_files()
-        if not rules and not os.getenv("SCP_OPENGREP_ALLOW_REGISTRY"):
+        registry_allowed = parse_bool(
+            os.getenv("SCP_OPENGREP_ALLOW_REGISTRY", ""), name="SCP_OPENGREP_ALLOW_REGISTRY"
+        )
+        if not rules and not registry_allowed:
             log.warning(
                 "no local rules and SCP_OPENGREP_ALLOW_REGISTRY is not set — "
                 "skipping %s (offline-safe)",
@@ -78,7 +86,7 @@ class OpengrepAdapter(Scanner):
             )
             return []
         quiet = "-q" if self._is_opengrep else "--quiet"
-        args = ["scan", "--json", quiet]
+        args = ["scan", "--json", quiet, "--no-git-ignore"]
         if rules:
             for rule in rules:
                 args += ["--config", str(rule)]
@@ -90,11 +98,23 @@ class OpengrepAdapter(Scanner):
         args.append(str(self.workdir))
         proc = self._exec(args, timeout=3600)
         if proc.returncode not in (0, 1):
-            raise RuntimeError(f"{self.name} exited {proc.returncode}: {(proc.stderr or '')[:300]}")
+            # Semgrep/OpenGrep exit codes: 0 clean, 1 findings, 2 usage, 3+ config/rule
+            if proc.returncode in (2, 3, 4, 5, 6, 7, 8):
+                raise ScannerRuleError(
+                    self.name,
+                    f"{self.name} rule/config error (exit {proc.returncode}): {(proc.stderr or '')[:300]}",
+                )
+            raise ScannerExecutionError(
+                self.name, f"{self.name} exited {proc.returncode}: {(proc.stderr or '')[:300]}"
+            )
         try:
             data = json.loads(proc.stdout or "{}")
         except json.JSONDecodeError as exc:
-            raise RuntimeError(f"{self.name} returned invalid JSON") from exc
+            raise ScannerMalformedOutputError(
+                self.name, f"{self.name} returned invalid JSON"
+            ) from exc
+        if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+            raise ScannerMalformedOutputError(self.name, f"{self.name} JSON is missing a results array")
 
         findings: list[RawFinding] = []
         for r in data.get("results", []):
@@ -105,6 +125,8 @@ class OpengrepAdapter(Scanner):
                 severity = "medium"
             start = (r.get("start") or {}).get("line")
             end = (r.get("end") or {}).get("line")
+            col_start = (r.get("start") or {}).get("col")
+            col_end = (r.get("end") or {}).get("col")
             findings.append(
                 RawFinding(
                     tool=self.name,
@@ -115,6 +137,8 @@ class OpengrepAdapter(Scanner):
                     file_path=r.get("path", ""),
                     line_start=start,
                     line_end=end,
+                    col_start=col_start,
+                    col_end=col_end,
                     snippet=_result_snippet(extra.get("lines") or "", self.workdir, r.get("path", ""), start, end),
                     description=extra.get("message", "") or "",
                     remediation=extra.get("fix", "") or "",
@@ -140,8 +164,10 @@ def _read_lines(workdir: Path, path: str, start: int | None, end: int | None) ->
     if not p.is_absolute():
         p = workdir / p
     try:
-        source = p.read_text(errors="replace").splitlines()
-    except OSError:
+        resolved = p.resolve()
+        resolved.relative_to(workdir.resolve())
+        source = resolved.read_text(errors="replace").splitlines()
+    except (OSError, ValueError):
         return ""
     lo = max(1, start)
     hi = min(len(source), (end or start))

@@ -1,0 +1,39 @@
+rules:
+  - id: scp.python.injection.subprocess-shell
+    languages: [python]
+    message: Shell execution interprets metacharacters and can enable command injection. Pass an argument list with shell=False.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021 - Injection"]
+      confidence: HIGH
+      license: MIT
+      references:
+        - https://docs.python.org/3/library/subprocess.html#security-considerations
+      remediation: Use subprocess.run with a fixed executable and an argument list; keep shell=False.
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.run(..., shell=True, ...)
+          - pattern: subprocess.check_call(..., shell=True, ...)
+          - pattern: subprocess.check_output(..., shell=True, ...)
+
+  - id: scp.python.deserialization.unsafe-yaml-load
+    languages: [python]
+    message: Unsafe PyYAML loaders can construct arbitrary Python objects. Use yaml.safe_load for untrusted YAML.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-502"]
+      owasp: ["A08:2021 - Software and Data Integrity Failures"]
+      confidence: HIGH
+      license: MIT
+      references:
+        - https://pyyaml.org/wiki/PyYAMLDocumentation
+      remediation: Replace yaml.unsafe_load or UnsafeLoader/Loader with yaml.safe_load or SafeLoader.
+    pattern-either:
+      - pattern: yaml.unsafe_load(...)
+      - pattern: yaml.load(..., Loader=yaml.UnsafeLoader, ...)
+      - pattern: yaml.load(..., Loader=yaml.Loader, ...)
+      - pattern: yaml.load(..., Loader=yaml.CUnsafeLoader, ...)
+      - pattern: yaml.load(..., Loader=yaml.CLoader, ...)

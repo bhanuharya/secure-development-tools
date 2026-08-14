@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlmodel import Session, select
@@ -46,7 +48,7 @@ def list_findings(
         stmt = stmt.where(
             (Finding.description.contains(q)) | (Finding.rule_id.contains(q)) | (Finding.file_path.contains(q))
         )
-    return session.exec(stmt.limit(limit)).all()
+    return [_serialize_finding(finding) for finding in session.exec(stmt.limit(limit)).all()]
 
 
 @router.get("/{finding_id}")
@@ -54,7 +56,7 @@ def get_finding(finding_id: int, session: Session = Depends(get_session)):
     finding = session.get(Finding, finding_id)
     if not finding:
         raise HTTPException(404, "finding not found")
-    return finding
+    return _serialize_finding(finding)
 
 
 @router.patch("/{finding_id}")
@@ -79,7 +81,7 @@ def update_finding(finding_id: int, body: FindingUpdate, session: Session = Depe
         session.add(finding)
         session.commit()
         session.refresh(finding)
-    return finding
+    return _serialize_finding(finding)
 
 
 @router.get("/{finding_id}/audit")
@@ -89,3 +91,13 @@ def finding_audit(finding_id: int, session: Session = Depends(get_session)):
     return session.exec(
         select(FindingAuditEvent).where(FindingAuditEvent.finding_id == finding_id).order_by(FindingAuditEvent.id.desc())
     ).all()
+
+
+def _serialize_finding(finding: Finding) -> dict:
+    data = finding.model_dump()
+    try:
+        evidence = json.loads(finding.evidence or "{}")
+    except (json.JSONDecodeError, TypeError):
+        evidence = {}
+    data["evidence"] = evidence if isinstance(evidence, dict) else {}
+    return data

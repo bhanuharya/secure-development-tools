@@ -10,6 +10,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from src.config import ENGINE_BINARIES
+from src.scanners.errors import (
+    ScannerExecutionError,
+    ScannerTimeoutError,
+    ScannerUnavailableError,
+)
 
 log = logging.getLogger(__name__)
 
@@ -42,10 +47,15 @@ class RawFinding:
     file_path: str = ""
     line_start: int | None = None
     line_end: int | None = None
+    col_start: int | None = None
+    col_end: int | None = None
     snippet: str = ""
     description: str = ""
     remediation: str = ""
     raw: dict = field(default_factory=dict)
+    # Transient values used only to redact source context. Hidden from repr and
+    # never copied into the Finding row/evidence document.
+    redaction_tokens: list[str] = field(default_factory=list, repr=False)
 
 
 def normalize_severity(value: str | None) -> str:
@@ -78,8 +88,7 @@ class Scanner(abc.ABC):
 
     def run(self) -> list[RawFinding]:
         if not self.available():
-            log.warning("engine %s unavailable — skipping", self.name)
-            return []
+            raise ScannerUnavailableError(self.name, f"{self.name} executable not found")
         return self._run()
 
     @abc.abstractmethod
@@ -87,12 +96,22 @@ class Scanner(abc.ABC):
         ...
 
     def _exec(self, args: list[str], cwd: str | None = None, timeout: int | None = None) -> subprocess.CompletedProcess:
-        assert self.binary is not None
+        if self.binary is None:
+            raise ScannerUnavailableError(self.name, f"{self.name} executable not found")
         cmd = [self.binary, *args]
-        return subprocess.run(
-            cmd,
-            cwd=cwd or str(self.workdir),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        try:
+            return subprocess.run(
+                cmd,
+                cwd=cwd or str(self.workdir),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ScannerTimeoutError(
+                self.name, f"{self.name} timed out after {timeout}s"
+            ) from exc
+        except OSError as exc:
+            raise ScannerExecutionError(
+                self.name, f"{self.name} failed to execute: {exc}"
+            ) from exc

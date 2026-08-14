@@ -63,6 +63,7 @@ class Finding(SQLModel, table=True):
                         description="new|triaged|fixed|false_positive|accepted_risk")
     triage_reason: str = Field(default="")
     in_pr_diff: bool = Field(default=False, index=True)
+    evidence: str = Field(default="{}", description="versioned JSON evidence")
     first_seen: datetime = Field(default_factory=utcnow)
     last_seen: datetime = Field(default_factory=utcnow)
 
@@ -108,6 +109,54 @@ def get_session():
 
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
+    _migrate()
+
+
+def _migrate() -> None:
+    """Idempotent, framework-free schema migrations.
+
+    The project has no Alembic setup yet; add columns here with a guard so the
+    operation is a no-op on databases that already have them.
+    """
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    if "finding" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("finding")}
+    if "evidence" not in columns:
+        from sqlalchemy.exc import OperationalError
+
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE finding ADD COLUMN evidence VARCHAR DEFAULT '{}'")
+                )
+        except OperationalError:
+            # Two workers can observe the column as missing concurrently. Only
+            # suppress the race when another worker actually added it.
+            if "evidence" not in {c["name"] for c in inspect(engine).get_columns("finding")}:
+                raise
+
+
+def recover_incomplete_scans() -> int:
+    """Fail scans that cannot survive a process restart."""
+    from sqlmodel import select
+
+    recovered = 0
+    with Session(engine) as session:
+        rows = session.exec(select(Scan).where(Scan.status.in_(["pending", "running"]))).all()
+        for scan in rows:
+            scan.status = "failed"
+            scan.error = "scan interrupted by service restart"
+            scan.finished_at = utcnow()
+            session.add(scan)
+            recovered += 1
+        if recovered:
+            session.commit()
+    return recovered
 
 
 # Pragmas for concurrent access (WAL) — read-heavy dashboard + writer thread.

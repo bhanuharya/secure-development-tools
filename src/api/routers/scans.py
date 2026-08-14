@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import threading
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -11,6 +10,7 @@ from sqlmodel import Session, select
 
 from src.api.database import Project, Scan, Target, engine, get_session
 from src.api.events import event_bus, sse_format
+from src.scanners.executor import ScanCapacityError, get_executor
 from src.scanners.orchestrator import ALL_ENGINES, ScanRunner
 
 log = logging.getLogger(__name__)
@@ -79,7 +79,14 @@ def create_scan(body: ScanCreate, session: Session = Depends(get_session)):
     session.refresh(scan)
 
     runner = ScanRunner()
-    threading.Thread(target=runner.run_scan, args=(scan.id,), daemon=True).start()
+    try:
+        get_executor().submit(scan.id, runner.run_scan)
+    except ScanCapacityError as exc:
+        scan.status = "failed"
+        scan.error = "scan queue is full"
+        session.add(scan)
+        session.commit()
+        raise HTTPException(503, "scan queue is full") from exc
     return scan
 
 

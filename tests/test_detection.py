@@ -1,8 +1,10 @@
 import subprocess
 
+import pytest
+
 from src.scanners.bandit_adapter import BanditAdapter
 from src.scanners.base import RawFinding, normalize_severity
-from src.scanners.opengrep_adapter import OpengrepAdapter
+from src.scanners.opengrep_adapter import OpengrepAdapter, _read_lines
 from src.scanners.orchestrator import _dedup, _rel_path
 from src.scanners.trivy_adapter import TrivyAdapter
 
@@ -23,6 +25,9 @@ def test_trivy_adapter_args(tmp_path, monkeypatch):
 
     def fake_exec(self, args, cwd=None, timeout=None):
         captured["args"] = args
+        idx = args.index("--output")
+        with open(args[idx + 1], "w", encoding="utf-8") as fh:
+            fh.write('{"Results": []}')
         return _ok_proc()
 
     monkeypatch.setattr(TrivyAdapter, "_exec", fake_exec)
@@ -61,23 +66,52 @@ def test_opengrep_offline_skips_when_no_rules(tmp_path, monkeypatch):
     assert adapter._run() == []
 
 
-def test_bandit_min_severity_args(tmp_path, monkeypatch):
+def test_opengrep_scans_gitignored_staging_workdir(tmp_path, monkeypatch):
+    captured = {}
+    rules = tmp_path / "rules"
+    (rules / "python").mkdir(parents=True)
+    (rules / "python" / "security.yaml").write_text("rules: []\n", encoding="utf-8")
+    monkeypatch.setenv("SCP_RULES_PACK_DIR", str(rules))
+
+    def fake_exec(self, args, cwd=None, timeout=None):
+        captured["args"] = args
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout='{"results": []}', stderr="")
+
+    monkeypatch.setattr(OpengrepAdapter, "_exec", fake_exec)
+    OpengrepAdapter(tmp_path, languages=["python"])._run()
+    assert "--no-git-ignore" in captured["args"]
+
+
+@pytest.mark.parametrize("level", ["low", "medium", "high"])
+def test_bandit_min_severity_args(tmp_path, monkeypatch, level):
     captured = {}
 
     def fake_exec(self, args, cwd=None, timeout=None):
         captured["args"] = args
-        return _ok_proc()
+        return subprocess.CompletedProcess(args=[], returncode=0, stdout='{"results": []}', stderr="")
+
+    monkeypatch.setattr(BanditAdapter, "_exec", fake_exec)
+    adapter = BanditAdapter(tmp_path)
+
+    monkeypatch.setenv("SCP_BANDIT_MIN_SEVERITY", level)
+    adapter._run()
+    assert "--severity-level" in captured["args"]
+    assert captured["args"][captured["args"].index("--severity-level") + 1] == level
+
+
+def test_bandit_no_min_severity_omits_flag(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_exec(self, args, cwd=None, timeout=None):
+        captured["args"] = args
+        return subprocess.CompletedProcess(args=[], returncode=0, stdout='{"results": []}', stderr="")
 
     monkeypatch.setattr(BanditAdapter, "_exec", fake_exec)
     adapter = BanditAdapter(tmp_path)
 
     monkeypatch.delenv("SCP_BANDIT_MIN_SEVERITY", raising=False)
     adapter._run()
-    assert "-lll" not in captured["args"]
-
-    monkeypatch.setenv("SCP_BANDIT_MIN_SEVERITY", "high")
-    adapter._run()
-    assert "-l" in captured["args"]
+    assert "--severity-level" not in captured["args"]
 
 
 def test_orchestrator_dedup_after_path_normalization():
@@ -95,3 +129,13 @@ def test_orchestrator_dedup_after_path_normalization():
         f.file_path = _rel_path(f.file_path, workdir)
         normalized.append(f)
     assert len(_dedup(normalized)) == 1
+
+
+def test_opengrep_snippet_fallback_refuses_outside_workspace(tmp_path):
+    outside = tmp_path.parent / "outside-sensitive.txt"
+    outside.write_text("must-not-be-read\n", encoding="utf-8")
+    workdir = tmp_path / "scan"
+    workdir.mkdir()
+    assert _read_lines(workdir, str(outside), 1, 1) == ""
+    assert _rel_path(str(outside), workdir) == ""
+    assert _rel_path("../outside-sensitive.txt", workdir) == ""

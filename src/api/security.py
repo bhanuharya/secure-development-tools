@@ -21,6 +21,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from src.config import ConfigurationError
+
 # Paths that stay public even when auth is enabled.
 PUBLIC_PATHS = {"/api/health"}
 
@@ -39,8 +41,22 @@ SECURITY_HEADERS = {
 
 
 def auth_enabled() -> bool:
-    """Auth is enforced only when both credential env vars are set."""
-    return bool(os.getenv("SCP_AUTH_USER", "")) and bool(os.getenv("SCP_AUTH_PASS", ""))
+    """Auth is enforced only when both credential env vars are set.
+
+    Partial configuration (exactly one credential set) fails closed by raising
+    :class:`ConfigurationError`: it is never safe to silently run without auth
+    when the operator clearly intended to configure it.
+    """
+    user = os.getenv("SCP_AUTH_USER", "")
+    password = os.getenv("SCP_AUTH_PASS", "")
+    has_user = bool(user)
+    has_pass = bool(password)
+    if has_user != has_pass:
+        raise ConfigurationError(
+            "partial HTTP Basic auth configuration: exactly one of "
+            "SCP_AUTH_USER / SCP_AUTH_PASS is set; set both or neither"
+        )
+    return has_user and has_pass
 
 
 def _credentials_ok(user: str, password: str) -> bool:
@@ -56,7 +72,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
     mount because it runs at the app level."""
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        if not auth_enabled() or request.url.path in PUBLIC_PATHS:
+        try:
+            enabled = auth_enabled()
+        except ConfigurationError as exc:
+            # Partial auth configuration: fail closed. Health stays public so
+            # operators can still observe the misconfigured instance.
+            if request.url.path in PUBLIC_PATHS:
+                return await call_next(request)
+            return JSONResponse(
+                status_code=401,
+                content={"detail": f"misconfigured auth: {exc}"},
+                headers={"WWW-Authenticate": 'Basic realm="Secure SDLC"'},
+            )
+        if not enabled or request.url.path in PUBLIC_PATHS:
             return await call_next(request)
 
         header = request.headers.get("authorization", "")

@@ -22,6 +22,7 @@ from src.config import (
     SCAN_WORK_DIR,
 )
 from src.integrations.bitbucket_client import safe_slug
+from src.scanners.executor import ScanCapacityError, get_executor
 from src.scanners.orchestrator import ALL_ENGINES, ScanRunner
 
 log = logging.getLogger(__name__)
@@ -160,7 +161,13 @@ def _extract_zip(raw: bytes, workdir: Path) -> None:
     (workdir / READY_MARKER).write_text("ok", encoding="utf-8")
 
 
-def _launch(scan: Scan) -> None:
+def _launch(scan_id: int) -> None:
+    runner = ScanRunner()
+    get_executor().submit(scan_id, runner.run_scan)
+
+
+def _launch_dast_legacy(scan: Scan) -> None:
+    """Preserve the pre-existing DAST dispatch path; DAST is out of scope."""
     runner = ScanRunner()
     threading.Thread(target=runner.run_scan, args=(scan.id,), daemon=True).start()
 
@@ -243,7 +250,14 @@ async def upload_repo_scan(
         session.commit()
         raise
 
-    _launch(scan)
+    try:
+        _launch(scan.id)
+    except ScanCapacityError as exc:
+        shutil.rmtree(workdir, ignore_errors=True)
+        session.delete(scan)
+        session.delete(project)
+        session.commit()
+        raise HTTPException(503, "scan queue is full") from exc
     return scan
 
 
@@ -305,5 +319,5 @@ def create_direct_dast(body: DirectDastCreate, session: Session = Depends(get_se
     session.commit()
     session.refresh(scan)
 
-    _launch(scan)
+    _launch_dast_legacy(scan)
     return scan

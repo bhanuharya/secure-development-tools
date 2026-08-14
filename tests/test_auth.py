@@ -6,9 +6,12 @@ time, so every test builds a fresh TestClient after monkeypatching env.
 
 import base64
 
+import pytest
 from fastapi.testclient import TestClient
 
 from src.api.main import app
+from src.api.security import auth_enabled
+from src.config import ConfigurationError
 
 
 def _auth_header(user: str, password: str) -> dict[str, str]:
@@ -68,3 +71,24 @@ def test_security_headers_present(monkeypatch):
             assert headers["x-frame-options"] == "DENY"
             assert headers["referrer-policy"] == "no-referrer"
             assert headers["permissions-policy"].startswith("camera=()")
+
+
+def test_auth_enabled_partial_config_raises(monkeypatch):
+    monkeypatch.setenv("SCP_AUTH_USER", "admin")
+    monkeypatch.delenv("SCP_AUTH_PASS", raising=False)
+    with pytest.raises(ConfigurationError):
+        auth_enabled()
+
+    monkeypatch.delenv("SCP_AUTH_USER", raising=False)
+    monkeypatch.setenv("SCP_AUTH_PASS", "s3cret")
+    with pytest.raises(ConfigurationError):
+        auth_enabled()
+
+
+def test_partial_auth_config_fails_closed(monkeypatch):
+    # exactly one credential set -> deny requests rather than silently allow
+    monkeypatch.setenv("SCP_AUTH_USER", "admin")
+    monkeypatch.delenv("SCP_AUTH_PASS", raising=False)
+    with _client() as c:
+        assert c.get("/").status_code == 401
+        assert c.get("/api/health").status_code == 200  # public health stays open

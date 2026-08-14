@@ -1,9 +1,16 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from src.api.database import Finding, Scan, Target, engine
+from src.api.database import Finding, Scan, Target, engine, recover_incomplete_scans
 from src.api.main import app
+
+
+class _FullExecutor:
+    def submit(self, scan_id, fn):
+        from src.scanners.executor import ScanCapacityError
+
+        raise ScanCapacityError("scan executor capacity is full")
 
 
 @pytest.fixture()
@@ -98,6 +105,34 @@ def test_finding_triage_records_audit(client, project):
     assert audit[0]["reason"] == "known legacy hash"
 
 
+def test_finding_api_returns_structured_evidence(client, project):
+    with Session(engine) as session:
+        scan = _make_scan(session, project["id"], scan_type="sast", ref_type="branch", ref_name="main")
+        finding = Finding(
+            scan_id=scan.id,
+            project_id=project["id"],
+            tool="opengrep",
+            source_type="sast",
+            rule_id="scp.python.test",
+            severity="high",
+            file_path="app.py",
+            line_start=3,
+            fingerprint="fp-evidence",
+            evidence='{"version": 1, "context": [{"line": 3, "text": "danger()", "vulnerable": true}]}',
+        )
+        session.add(finding)
+        session.commit()
+        fid = finding.id
+        scan_id = scan.id
+
+    detail = client.get(f"/api/findings/{fid}")
+    assert detail.status_code == 200
+    assert detail.json()["evidence"]["version"] == 1
+    assert detail.json()["evidence"]["context"][0]["vulnerable"] is True
+    listed = client.get(f"/api/findings?scan_id={scan_id}").json()
+    assert listed[0]["evidence"]["context"][0]["line"] == 3
+
+
 def test_finding_invalid_status_rejected(client, project):
     with Session(engine) as session:
         scan = _make_scan(session, project["id"], scan_type="sast", ref_type="branch", ref_name="main")
@@ -115,6 +150,40 @@ def test_branch_scan_defaults_to_project_branch(client, project):
     resp = client.post("/api/scans", json={"project_id": project["id"], "scan_type": "sast", "ref_type": "branch"})
     assert resp.status_code == 200
     assert resp.json()["ref_name"] == "main"
+
+
+def test_scan_queue_capacity_returns_503_and_marks_scan_failed(client, project, monkeypatch):
+    monkeypatch.setattr("src.api.routers.scans.get_executor", lambda: _FullExecutor())
+    resp = client.post(
+        "/api/scans",
+        json={"project_id": project["id"], "scan_type": "sast", "ref_type": "branch"},
+    )
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == "scan queue is full"
+    with Session(engine) as session:
+        scan = session.exec(select(Scan).order_by(Scan.id.desc())).first()
+        assert scan is not None
+        assert scan.status == "failed"
+        assert scan.error == "scan queue is full"
+
+
+def test_startup_recovery_fails_pending_and_running_scans(project):
+    with Session(engine) as session:
+        scans = [
+            Scan(project_id=project["id"], status="pending", scan_type="sast"),
+            Scan(project_id=project["id"], status="running", scan_type="sast"),
+            Scan(project_id=project["id"], status="succeeded", scan_type="sast"),
+        ]
+        session.add_all(scans)
+        session.commit()
+        ids = [scan.id for scan in scans]
+
+    assert recover_incomplete_scans() == 2
+    with Session(engine) as session:
+        rows = [session.get(Scan, scan_id) for scan_id in ids]
+        assert [row.status for row in rows] == ["failed", "failed", "succeeded"]
+        assert rows[0].error == "scan interrupted by service restart"
+        assert rows[1].finished_at is not None
 
 
 def test_uploaded_project_cannot_be_rescanned_as_branch(client):

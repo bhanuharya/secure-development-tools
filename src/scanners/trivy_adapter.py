@@ -5,7 +5,9 @@ import logging
 import os
 import tempfile
 
+from src.config import parse_bool
 from src.scanners.base import RawFinding, Scanner, normalize_severity
+from src.scanners.errors import ScannerExecutionError, ScannerMalformedOutputError
 
 log = logging.getLogger(__name__)
 
@@ -29,19 +31,27 @@ class TrivyAdapter(Scanner):
             "--output", report_path,
             str(self.workdir),
         ]
-        if os.getenv("SCP_TRIVY_IGNORE_UNFIXED"):
+        if parse_bool(os.getenv("SCP_TRIVY_IGNORE_UNFIXED", ""), name="SCP_TRIVY_IGNORE_UNFIXED"):
             args.insert(-1, "--ignore-unfixed")
-        self._exec(args, timeout=3600)
+        proc = self._exec(args, timeout=3600)
+        if proc.returncode != 0:
+            raise ScannerExecutionError(
+                self.name, f"trivy exited {proc.returncode}: {(proc.stderr or '')[:300]}"
+            )
         try:
             with open(report_path) as fh:
                 data = json.load(fh)
-        except (json.JSONDecodeError, OSError):
-            return []
+        except (json.JSONDecodeError, OSError) as exc:
+            raise ScannerMalformedOutputError(
+                self.name, "trivy produced an unreadable/malformed report"
+            ) from exc
         finally:
             try:
                 os.unlink(report_path)
             except OSError:
                 pass
+        if not isinstance(data, dict) or not isinstance(data.get("Results"), list):
+            raise ScannerMalformedOutputError(self.name, "trivy JSON is missing a Results array")
 
         findings: list[RawFinding] = []
         for target in data.get("Results", []):

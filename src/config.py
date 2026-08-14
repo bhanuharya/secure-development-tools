@@ -1,6 +1,40 @@
 import os
 from pathlib import Path
 
+
+class ConfigurationError(Exception):
+    """Raised when required configuration is missing, partial, or invalid."""
+
+
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+_FALSE_VALUES = {"0", "false", "no", "off"}
+
+
+def parse_bool(value: str | bool | None, *, name: str = "value") -> bool:
+    """Strict shared Boolean parser.
+
+    Accepts ``1/true/yes/on`` (True) and ``0/false/no/off`` (False), case
+    insensitive. Empty/whitespace-only values mean "unset" and parse to False.
+    Anything else raises :class:`ConfigurationError` instead of silently
+    guessing.
+    """
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text == "":
+        return False
+    if text in _TRUE_VALUES:
+        return True
+    if text in _FALSE_VALUES:
+        return False
+    raise ConfigurationError(
+        f"invalid boolean value for {name}: {value!r} "
+        f"(expected one of {sorted(_TRUE_VALUES | _FALSE_VALUES)})"
+    )
+
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.getenv("SCP_DATA_DIR", PROJECT_ROOT / "data"))
 SCAN_WORK_DIR = Path(os.getenv("SCP_SCAN_WORK_DIR", PROJECT_ROOT / "scan_work"))
@@ -32,6 +66,8 @@ SCP_AUTH_USER = os.getenv("SCP_AUTH_USER", "")
 SCP_AUTH_PASS = os.getenv("SCP_AUTH_PASS", "")
 
 MAX_CONCURRENT_ENGINES = int(os.getenv("SCP_MAX_CONCURRENT_ENGINES", "4"))
+MAX_CONCURRENT_SCANS = int(os.getenv("SCP_MAX_CONCURRENT_SCANS", "4"))
+MAX_QUEUED_SCANS = int(os.getenv("SCP_MAX_QUEUED_SCANS", "4"))
 
 # Upload archive limits (source ZIP scans)
 MAX_UPLOAD_BYTES = int(os.getenv("SCP_MAX_UPLOAD_BYTES", str(100 * 1024 * 1024)))

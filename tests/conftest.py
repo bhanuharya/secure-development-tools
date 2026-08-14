@@ -28,6 +28,22 @@ def clean_db():
     db.Session(engine).close()
 
 
+@pytest.fixture(autouse=True)
+def no_background_scans():
+    """Run no background scan threads during tests by default.
+
+    Routers hand scans to the swappable executor; tests use a no-op executor so
+    API calls never spawn threads that outlive the test (which would race with
+    DB teardown). Tests that need synchronous execution opt in via
+    ``set_executor(SyncScanExecutor())``.
+    """
+    from src.scanners.executor import NullScanExecutor, set_executor
+
+    set_executor(NullScanExecutor())
+    yield
+    set_executor(None)
+
+
 @pytest.fixture
 def fixture_repo():
     return Path(__file__).resolve().parent.parent / "fixtures" / "vulnapp"

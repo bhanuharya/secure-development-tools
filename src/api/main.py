@@ -7,9 +7,10 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from src.api.database import init_db
+from src.api.database import init_db, recover_incomplete_scans
 from src.api.routers import bitbucket, findings, projects, reports, scans, uploads
 from src.api.security import AuthMiddleware, SecurityHeadersMiddleware
+from src.scanners.executor import get_executor, set_executor
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("scp")
@@ -20,8 +21,16 @@ DASHBOARD_DIR = Path(__file__).resolve().parent.parent / "dashboard"
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
-    logger.info("control plane database ready")
-    yield
+    recovered = recover_incomplete_scans()
+    logger.info("control plane database ready; recovered %d interrupted scans", recovered)
+    executor = get_executor()
+    try:
+        yield
+    finally:
+        shutdown = getattr(executor, "shutdown", None)
+        if callable(shutdown):
+            shutdown(wait=True)
+        set_executor(None)
 
 
 app = FastAPI(title="Mirae Secure SDLC - Unified SAST/DAST Control Plane", version="0.2.0", lifespan=lifespan)

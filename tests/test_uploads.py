@@ -4,7 +4,7 @@ import zipfile
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from src.api.database import Project, Scan, Target, engine
 from src.api.main import app
@@ -35,6 +35,9 @@ def _noop_runner(monkeypatch):
             calls.append(scan_id)
 
     monkeypatch.setattr("src.api.routers.uploads.ScanRunner", FakeRunner)
+    from src.scanners.executor import SyncScanExecutor
+
+    monkeypatch.setattr("src.api.routers.uploads.get_executor", lambda: SyncScanExecutor())
     return calls
 
 
@@ -102,6 +105,25 @@ def test_upload_repo_scan_creates_standalone_scan(client, monkeypatch):
     assert (workdir / "app.py").exists()
     assert (workdir / "requirements.txt").exists()
     assert (workdir / ".ready").exists()
+
+
+def test_upload_queue_capacity_returns_503_without_orphans(client, monkeypatch):
+    from src.scanners.executor import ScanCapacityError
+
+    def full(_scan_id):
+        raise ScanCapacityError("scan executor capacity is full")
+
+    monkeypatch.setattr("src.api.routers.uploads._launch", full)
+    resp = client.post(
+        "/api/uploads/scan",
+        files={"file": ("queue-full.zip", _make_zip(("app.py", "x = 1")), "application/zip")},
+        data={"scan_type": "sast"},
+    )
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == "scan queue is full"
+    with Session(engine) as session:
+        assert session.exec(select(Project).where(Project.name == "queue-full")).first() is None
+        assert session.exec(select(Scan)).first() is None
 
 
 def test_upload_repo_scan_rejects_traversal(client, monkeypatch):
