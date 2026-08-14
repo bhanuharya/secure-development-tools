@@ -71,6 +71,8 @@ async function registerProject() {
 
 function renderProjects() {
   const body = document.getElementById("projects-body");
+  const empty = document.getElementById("projects-empty");
+  if (empty) empty.classList.toggle("hidden", projState.projects.length > 0);
   body.innerHTML = projState.projects
     .map((p) => {
       const repo = p.workspace
@@ -89,9 +91,11 @@ function renderProjects() {
 
 function renderTargetProjectSelect() {
   const sel = document.getElementById("target-project");
-  sel.innerHTML = projState.projects
-    .map((p) => `<option value="${p.id}">${esc(p.workspace)}/${esc(p.repo_slug)}</option>`)
-    .join("");
+  sel.innerHTML = projState.projects.length
+    ? projState.projects
+        .map((p) => `<option value="${p.id}">${esc(p.workspace)}/${esc(p.repo_slug)}</option>`)
+        .join("")
+    : '<option value="">No projects yet — register one</option>';
 }
 
 function onAuthModeChange() {

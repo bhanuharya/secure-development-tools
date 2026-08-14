@@ -26,6 +26,11 @@ function esc(s) {
 
 function sevClass(s) { return ["critical", "high", "medium", "low", "info"].includes(s) ? s : "info"; }
 
+function setLoading(el, on) {
+  if (!el) return;
+  el.classList.toggle("loading", !!on);
+}
+
 function toast(msg, kind = "") {
   const el = document.createElement("div");
   el.className = "toast " + kind;

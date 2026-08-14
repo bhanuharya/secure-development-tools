@@ -27,6 +27,10 @@ ENGINE_BINARIES = {
 ZAP_API_URL = os.getenv("SCP_ZAP_API_URL", "http://127.0.0.1:8080")
 ZAP_API_KEY = os.getenv("SCP_ZAP_API_KEY", "")
 
+# HTTP Basic auth — enforced only when BOTH are set (see src/api/security.py)
+SCP_AUTH_USER = os.getenv("SCP_AUTH_USER", "")
+SCP_AUTH_PASS = os.getenv("SCP_AUTH_PASS", "")
+
 MAX_CONCURRENT_ENGINES = int(os.getenv("SCP_MAX_CONCURRENT_ENGINES", "4"))
 
 # Upload archive limits (source ZIP scans)
@@ -38,3 +42,9 @@ MAX_COMPRESSION_RATIO = int(os.getenv("SCP_MAX_COMPRESSION_RATIO", "100"))
 
 # Offline local OpenGrep/Semgrep rule pack (relative to PROJECT_ROOT).
 RULES_PACK_DIR = Path(os.getenv("SCP_RULES_PACK_DIR", RULES_DIR / "opengrep-rules"))
+
+# Per-engine tuning knobs (read at call time by the adapters; defaults here mirror them)
+SCP_TRIVY_SEVERITY = os.getenv("SCP_TRIVY_SEVERITY", "CRITICAL,HIGH,MEDIUM")
+SCP_TRIVY_IGNORE_UNFIXED = os.getenv("SCP_TRIVY_IGNORE_UNFIXED", "")
+SCP_OPENGREP_ALLOW_REGISTRY = os.getenv("SCP_OPENGREP_ALLOW_REGISTRY", "")
+SCP_BANDIT_MIN_SEVERITY = os.getenv("SCP_BANDIT_MIN_SEVERITY", "")

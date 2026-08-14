@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 from pathlib import Path
 
@@ -69,6 +70,13 @@ class OpengrepAdapter(Scanner):
 
     def _run(self) -> list[RawFinding]:
         rules = self.rule_files()
+        if not rules and not os.getenv("SCP_OPENGREP_ALLOW_REGISTRY"):
+            log.warning(
+                "no local rules and SCP_OPENGREP_ALLOW_REGISTRY is not set — "
+                "skipping %s (offline-safe)",
+                self.name,
+            )
+            return []
         quiet = "-q" if self._is_opengrep else "--quiet"
         args = ["scan", "--json", quiet]
         if rules:
@@ -77,6 +85,8 @@ class OpengrepAdapter(Scanner):
         else:
             for registry in _REGISTRY_RULES:
                 args += ["--config", registry]
+        if self._is_opengrep:
+            args += ["--timeout", "60", "--max-target-bytes", "5000000"]
         args.append(str(self.workdir))
         proc = self._exec(args, timeout=3600)
         if proc.returncode not in (0, 1):
@@ -167,7 +177,7 @@ def _rule_files(languages: list[str]) -> list[Path]:
     Always loads ``common/`` plus directories matching the detected languages,
     plus any vendored third-party rules. Ordering is deterministic (sorted).
     """
-    pack = Path(RULES_PACK_DIR)
+    pack = Path(os.getenv("SCP_RULES_PACK_DIR", str(RULES_PACK_DIR)))
     files: list[Path] = []
     if pack.is_dir():
         for sub in ["common", *(languages or [])]:

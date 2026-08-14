@@ -24,6 +24,7 @@ class GitleaksAdapter(Scanner):
                     str(self.workdir),
                     "--report-format", "json",
                     "--report-path", report_path,
+                    "--redact",
                     "--no-banner",
                 ],
                 timeout=1800,

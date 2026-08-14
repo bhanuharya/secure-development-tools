@@ -53,7 +53,7 @@ def normalize_severity(value: str | None) -> str:
     mapping = {
         "critical": "critical", "high": "high", "error": "high", "medium": "medium",
         "moderate": "medium", "warning": "medium", "low": "low", "info": "info",
-        "informational": "info", "note": "info",
+        "informational": "info", "note": "info", "unknown": "info",
     }
     return mapping.get(v, "low")
 

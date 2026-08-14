@@ -12,14 +12,17 @@ const state = {
 // ---------------------------------------------------------------- init
 async function init() {
   bindUi();
+  const sel = document.getElementById("project-select");
+  setLoading(sel, true);
   try {
     state.projects = await loadProjects();
     renderProjectSelect();
     applyDeepLink();
   } catch (e) {
     toast(e.message, "error");
-    document.getElementById("project-select").innerHTML =
-      '<option value="">No projects yet</option>';
+    sel.innerHTML = '<option value="">No projects yet — register one</option>';
+  } finally {
+    setLoading(sel, false);
   }
 }
 
@@ -46,7 +49,7 @@ function bindUi() {
 function renderProjectSelect() {
   const sel = document.getElementById("project-select");
   if (!state.projects.length) {
-    sel.innerHTML = '<option value="">No projects registered</option>';
+    sel.innerHTML = '<option value="">No projects yet — register one</option>';
     return;
   }
   sel.innerHTML = state.projects
@@ -151,6 +154,8 @@ async function startScan() {
   if (type === "sast") body.engines = selectedEngines().filter((e) => e !== "zap");
   if (type === "dast") body.dast_target = parseInt(document.getElementById("target-select").value, 10) || null;
 
+  const btn = document.getElementById("start-scan");
+  setLoading(btn, true);
   try {
     const scan = await post("/api/scans", body);
     state.scan = scan;
@@ -158,6 +163,8 @@ async function startScan() {
     watchScan(scan.id);
   } catch (e) {
     toast(e.message, "error");
+  } finally {
+    setLoading(btn, false);
   }
 }
 
@@ -225,10 +232,14 @@ async function loadFindings() {
   if (sev) params.set("severity", sev);
   if (pr !== "") params.set("pr_changed", pr);
   let findings = [];
+  const box = document.getElementById("findings-table");
+  setLoading(box, true);
   try {
     findings = await get(`/api/findings?${params}`);
   } catch (e) {
     findings = [];
+  } finally {
+    setLoading(box, false);
   }
   state.findings = findings;
   renderFindings();

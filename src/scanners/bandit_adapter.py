@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 from src.scanners.base import RawFinding, Scanner, normalize_severity
 
@@ -10,7 +11,12 @@ class BanditAdapter(Scanner):
     source_type = "sast"
 
     def _run(self) -> list[RawFinding]:
-        proc = self._exec(["-f", "json", "-q", "-r", str(self.workdir)], timeout=1800)
+        args = ["-f", "json", "-q", "-r", str(self.workdir)]
+        min_sev = (os.getenv("SCP_BANDIT_MIN_SEVERITY", "") or "").strip().lower()
+        sev_flag = {"low": "-lll", "medium": "-ll", "high": "-l"}.get(min_sev)
+        if sev_flag:
+            args.insert(0, sev_flag)
+        proc = self._exec(args, timeout=1800)
         if proc.returncode not in (0, 1):  # bandit returns 1 when issues found
             return []
         try:

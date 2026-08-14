@@ -134,6 +134,7 @@ async function startUpload() {
   const btn = document.getElementById("up-start");
   btn.disabled = true;
   btn.textContent = "Uploading…";
+  setLoading(btn, true);
   try {
     const scan = await postFile("/api/uploads/scan", fd);
     upState.scan = scan;
@@ -142,6 +143,7 @@ async function startUpload() {
   } catch (e) {
     showMsg("up-msg", e.message, "error");
   } finally {
+    setLoading(btn, false);
     btn.disabled = false;
     btn.textContent = "Scan uploaded repo";
   }
@@ -341,12 +343,16 @@ function renderSummary(scan) {
 // ---------------------------------------------------------------- findings
 async function loadFindings(scanId) {
   let findings = [];
+  const box = document.getElementById("findings-table");
+  setLoading(box, true);
   try {
     findings = await get(`/api/findings?scan_id=${scanId}`);
   } catch (e) {
     document.getElementById("findings-empty").textContent = "Results could not be loaded.";
     document.getElementById("findings-empty").classList.remove("hidden");
     return;
+  } finally {
+    setLoading(box, false);
   }
   upState.findings = findings;
   renderFindings();

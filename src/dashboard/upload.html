@@ -169,13 +169,19 @@
     <!-- Findings -->
     <div class="panel" id="findings-panel">
       <h2>Findings <span id="findings-count" class="muted"></span></h2>
-      <table>
-        <thead>
-          <tr><th>Severity</th><th>Tool</th><th>Rule</th><th>File</th><th>Line</th><th>Status</th><th></th></tr>
-        </thead>
-        <tbody id="findings-body"></tbody>
-      </table>
-      <div id="findings-empty" class="muted hidden" style="padding:12px 0">Run a scan to see findings here.</div>
+      <div class="table-wrap" id="findings-table">
+        <table>
+          <thead>
+            <tr><th>Severity</th><th>Tool</th><th>Rule</th><th>File</th><th>Line</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody id="findings-body"></tbody>
+        </table>
+      </div>
+      <div id="findings-empty" class="empty-state hidden">
+        <span class="empty-glyph" aria-hidden="true">◇</span>
+        <div class="empty-title">No findings for this scan yet</div>
+        <div class="empty-sub">Run a scan or adjust the filters above to see results.</div>
+      </div>
     </div>
   </main>
 

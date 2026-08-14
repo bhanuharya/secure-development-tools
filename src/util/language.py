@@ -19,6 +19,16 @@ EXTENSION_MAP: dict[str, str] = {
     ".json": "json",
     ".html": "html",
     ".xml": "xml",
+    ".rb": "ruby",
+    ".php": "php",
+    ".cs": "csharp",
+    ".rs": "rust",
+    ".c": "c",
+    ".cpp": "cpp",
+    ".h": "cpp",
+    ".sh": "bash",
+    ".swift": "swift",
+    ".vue": "vue",
 }
 
 OPENGREP_LANGS = {

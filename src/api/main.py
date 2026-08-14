@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from src.api.database import init_db
 from src.api.routers import bitbucket, findings, projects, reports, scans, uploads
+from src.api.security import AuthMiddleware, SecurityHeadersMiddleware
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("scp")
@@ -24,6 +25,11 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Mirae Secure SDLC - Unified SAST/DAST Control Plane", version="0.2.0", lifespan=lifespan)
+
+# Last-added middleware runs first: SecurityHeaders wraps everything (incl.
+# auth 401s), Auth sits above the routers and the static dashboard mount.
+app.add_middleware(AuthMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(projects.router)
 app.include_router(bitbucket.router)

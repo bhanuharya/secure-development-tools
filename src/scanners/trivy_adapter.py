@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import tempfile
 
 from src.scanners.base import RawFinding, Scanner, normalize_severity
@@ -16,28 +17,27 @@ class TrivyAdapter(Scanner):
     def _run(self) -> list[RawFinding]:
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
             report_path = tmp.name
-        self._exec(
-            [
-                "fs",
-                "--quiet",
-                "--format", "json",
-                "--severity", "CRITICAL,HIGH,MEDIUM",
-                "--no-progress",
-                "--exit-code", "0",
-                "--skip-dirs", ".git",
-                "--output", report_path,
-                str(self.workdir),
-            ],
-            timeout=3600,
-        )
+        args = [
+            "fs",
+            "--quiet",
+            "--format", "json",
+            "--scanners", "vuln",
+            "--severity", os.getenv("SCP_TRIVY_SEVERITY", "CRITICAL,HIGH,MEDIUM"),
+            "--no-progress",
+            "--exit-code", "0",
+            "--skip-dirs", ".git,node_modules,vendor,dist,build,.venv,venv,target,__pycache__",
+            "--output", report_path,
+            str(self.workdir),
+        ]
+        if os.getenv("SCP_TRIVY_IGNORE_UNFIXED"):
+            args.insert(-1, "--ignore-unfixed")
+        self._exec(args, timeout=3600)
         try:
             with open(report_path) as fh:
                 data = json.load(fh)
         except (json.JSONDecodeError, OSError):
             return []
         finally:
-            import os
-
             try:
                 os.unlink(report_path)
             except OSError:

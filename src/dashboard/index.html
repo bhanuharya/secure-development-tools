@@ -21,7 +21,7 @@
     <div class="panel">
       <h2>Project</h2>
       <div class="grid-2">
-        <div>
+        <div id="project-select-wrap">
           <label for="project-select">Repository</label>
           <select id="project-select"></select>
         </div>
@@ -129,13 +129,19 @@
         <button class="secondary" onclick="generateScanReport()">PDF report</button>
         <button class="secondary" onclick="generateProjectReport()">Repo PDF</button>
       </div>
-      <table>
-        <thead>
-          <tr><th>Severity</th><th>Tool</th><th>Rule</th><th>File</th><th>Line</th><th>Status</th><th></th></tr>
-        </thead>
-        <tbody id="findings-body"></tbody>
-      </table>
-      <div id="findings-empty" class="muted hidden" style="padding:12px 0">No findings match the current filter.</div>
+      <div class="table-wrap" id="findings-table">
+        <table>
+          <thead>
+            <tr><th>Severity</th><th>Tool</th><th>Rule</th><th>File</th><th>Line</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody id="findings-body"></tbody>
+        </table>
+      </div>
+      <div id="findings-empty" class="empty-state hidden">
+        <span class="empty-glyph" aria-hidden="true">◇</span>
+        <div class="empty-title">No findings for this scan yet</div>
+        <div class="empty-sub">Run a scan or adjust the filters above to see results.</div>
+      </div>
     </div>
   </main>
 

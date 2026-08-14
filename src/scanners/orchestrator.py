@@ -159,10 +159,11 @@ class ScanRunner:
                     {"engine": eng, "state": "done", "findings": len(found)},
                 )
 
-        findings = _dedup(findings)
         for f in findings:
             if workdir is not None:
                 f.file_path = _rel_path(f.file_path, workdir)
+        findings = _dedup(findings)
+        for f in findings:
             if parsed_diff is not None and f.source_type == "sast":
                 f.in_pr_diff = _in_pr_diff(parsed_diff, f.file_path, f.line_start, workdir)
 

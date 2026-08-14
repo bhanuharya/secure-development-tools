@@ -89,10 +89,17 @@
 
     <div class="panel">
       <h2>Registered Projects</h2>
-      <table>
-        <thead><tr><th>Project</th><th>Workspace / Repo</th><th>Default branch</th><th>Languages</th><th>Targets</th></tr></thead>
-        <tbody id="projects-body"></tbody>
-      </table>
+      <div class="table-wrap" id="projects-table">
+        <table>
+          <thead><tr><th>Project</th><th>Workspace / Repo</th><th>Default branch</th><th>Languages</th><th>Targets</th></tr></thead>
+          <tbody id="projects-body"></tbody>
+        </table>
+      </div>
+      <div id="projects-empty" class="empty-state hidden">
+        <span class="empty-glyph" aria-hidden="true">◇</span>
+        <div class="empty-title">No projects yet — register one</div>
+        <div class="empty-sub">Register a Bitbucket repository above to get started.</div>
+      </div>
     </div>
   </main>
 
