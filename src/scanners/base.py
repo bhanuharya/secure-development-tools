@@ -77,6 +77,7 @@ class Scanner(abc.ABC):
 
     def __init__(self, workdir: Path) -> None:
         self.workdir = Path(workdir)
+        self.degraded_reason: str = ""
 
     @property
     def binary(self) -> str | None:

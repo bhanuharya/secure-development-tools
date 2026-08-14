@@ -167,10 +167,10 @@ class ScanRunner:
                     continue
                 engine_states[eng] = _eng_state("running")
                 event_bus.publish(scan.id, "engine_status", {"engine": eng, "state": "running"})
-                futures[pool.submit(scanner.run)] = eng
+                futures[pool.submit(scanner.run)] = (eng, scanner)
 
             for fut in as_completed(futures):
-                eng = futures[fut]
+                eng, scanner = futures[fut]
                 try:
                     found = fut.result()
                 except ScannerError as exc:
@@ -197,10 +197,22 @@ class ScanRunner:
                     continue
                 findings.extend(found)
                 completed.add(eng)
-                engine_states[eng] = _eng_state("done", findings=len(found))
+                degraded_reason = getattr(scanner, "degraded_reason", "")
+                engine_states[eng] = _eng_state(
+                    "done",
+                    findings=len(found),
+                    reason=degraded_reason,
+                    kind="degraded" if degraded_reason else "",
+                )
                 event_bus.publish(
                     scan.id, "engine_status",
-                    {"engine": eng, "state": "done", "findings": len(found)},
+                    {
+                        "engine": eng,
+                        "state": "done",
+                        "findings": len(found),
+                        "reason": degraded_reason,
+                        "kind": "degraded" if degraded_reason else "",
+                    },
                 )
 
         for f in findings:

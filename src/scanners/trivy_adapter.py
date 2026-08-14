@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import tempfile
 
 from src.config import parse_bool
@@ -34,6 +35,32 @@ class TrivyAdapter(Scanner):
         if parse_bool(os.getenv("SCP_TRIVY_IGNORE_UNFIXED", ""), name="SCP_TRIVY_IGNORE_UNFIXED"):
             args.insert(-1, "--ignore-unfixed")
         proc = self._exec(args, timeout=3600)
+        if (
+            proc.returncode != 0
+            and _is_maven_rate_limit(proc.stderr or "")
+            and parse_bool(
+                os.getenv("SCP_TRIVY_MAVEN_OFFLINE_FALLBACK", "1"),
+                name="SCP_TRIVY_MAVEN_OFFLINE_FALLBACK",
+            )
+        ):
+            primary_returncode = proc.returncode
+            primary_error = (proc.stderr or "")[:300]
+            retry_after = _retry_after(primary_error)
+            offline_args = [*args]
+            offline_args.insert(-1, "--offline-scan")
+            proc = self._exec(offline_args, timeout=3600)
+            if proc.returncode != 0:
+                raise ScannerExecutionError(
+                    self.name,
+                    f"trivy exited {primary_returncode}: {primary_error} "
+                    f"offline fallback also failed: {(proc.stderr or '')[:120]}",
+                )
+            suffix = f" Retry-After: {retry_after}." if retry_after else ""
+            self.degraded_reason = (
+                "Maven Central rate-limited dependency enrichment; completed one "
+                "offline Trivy fallback with reduced dependency coverage."
+                f"{suffix}"
+            )
         if proc.returncode != 0:
             raise ScannerExecutionError(
                 self.name, f"trivy exited {proc.returncode}: {(proc.stderr or '')[:300]}"
@@ -91,3 +118,16 @@ class TrivyAdapter(Scanner):
                     )
                 )
         return findings
+
+
+def _is_maven_rate_limit(stderr: str) -> bool:
+    lowered = stderr.lower()
+    return (
+        "maven" in lowered
+        and ("returned 429" in lowered or "429 too many requests" in lowered)
+    )
+
+
+def _retry_after(stderr: str) -> str:
+    match = re.search(r"Retry-After:\s*(\d+)", stderr, flags=re.IGNORECASE)
+    return match.group(1) if match else ""

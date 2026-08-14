@@ -189,6 +189,30 @@ def test_scan_fails_when_one_engine_fails_but_others_succeed(fixture_repo, tmp_e
         assert any(f.tool == "gitleaks" for f in findings)
 
 
+def test_trivy_offline_fallback_persists_degraded_coverage(fixture_repo, tmp_env, monkeypatch):
+    from src.scanners.trivy_adapter import TrivyAdapter
+
+    def degraded(self):
+        self.degraded_reason = "Maven rate limit; offline fallback used with reduced dependency coverage."
+        return []
+
+    monkeypatch.setattr(TrivyAdapter, "available", lambda self: True)
+    monkeypatch.setattr(TrivyAdapter, "_run", degraded)
+    with Session(engine) as session:
+        project = make_project(session)
+        scan = make_scan(session, project, scan_type="sca", engines="trivy")
+
+    ScanRunner(FakeBitbucket(fixture_repo)).run_scan(scan.id)
+
+    with Session(engine) as session:
+        scan = session.get(Scan, scan.id)
+        assert scan.status == "succeeded"
+        states = json.loads(scan.engine_statuses)
+        assert states["trivy"]["state"] == "done"
+        assert states["trivy"]["kind"] == "degraded"
+        assert "reduced dependency coverage" in states["trivy"]["reason"]
+
+
 def test_run_scan_cancels_cleanly_when_row_deleted(fixture_repo, tmp_env):
     with Session(engine) as session:
         project = make_project(session)

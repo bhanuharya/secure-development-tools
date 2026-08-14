@@ -161,3 +161,69 @@ def test_trivy_valid_clean_report_without_results_is_accepted(tmp_path, monkeypa
 
     monkeypatch.setattr(TrivyAdapter, "_exec", clean_report)
     assert TrivyAdapter(tmp_path)._run() == []
+
+
+def test_trivy_maven_429_retries_once_offline_and_marks_degraded(tmp_path, monkeypatch):
+    calls = []
+
+    def rate_limited_then_offline(self, args, cwd=None, timeout=None):
+        import json
+
+        calls.append(list(args))
+        if len(calls) == 1:
+            return _proc(
+                1,
+                stderr=(
+                    "FATAL Error remote Maven repository returned 429 Too Many Requests "
+                    "for https://repo.maven.apache.org/example.pom. Retry-After: 1800."
+                ),
+            )
+        idx = args.index("--output")
+        with open(args[idx + 1], "w", encoding="utf-8") as fh:
+            json.dump({"SchemaVersion": 2, "ArtifactName": str(tmp_path)}, fh)
+        return _proc(0)
+
+    monkeypatch.setattr(TrivyAdapter, "_exec", rate_limited_then_offline)
+    adapter = TrivyAdapter(tmp_path)
+
+    assert adapter._run() == []
+    assert len(calls) == 2
+    assert "--offline-scan" not in calls[0]
+    assert "--offline-scan" in calls[1]
+    assert "Retry-After: 1800" in adapter.degraded_reason
+    assert "reduced dependency coverage" in adapter.degraded_reason
+
+
+def test_trivy_non_maven_failure_is_not_retried_offline(tmp_path, monkeypatch):
+    calls = []
+
+    def crash(self, args, cwd=None, timeout=None):
+        calls.append(list(args))
+        return _proc(1, stderr="FATAL database is corrupt")
+
+    monkeypatch.setattr(TrivyAdapter, "_exec", crash)
+    with pytest.raises(ScannerExecutionError, match="database is corrupt"):
+        TrivyAdapter(tmp_path)._run()
+    assert len(calls) == 1
+
+
+def test_trivy_failed_offline_fallback_preserves_maven_429_as_primary(tmp_path, monkeypatch):
+    calls = []
+    primary = (
+        "FATAL Error remote Maven repository returned 429 Too Many Requests "
+        "for https://repo.maven.apache.org/example.pom. Retry-After: 1800."
+    )
+
+    def both_fail(self, args, cwd=None, timeout=None):
+        calls.append(list(args))
+        if len(calls) == 1:
+            return _proc(1, stderr=primary)
+        return _proc(1, stderr="offline analyzer failed")
+
+    monkeypatch.setattr(TrivyAdapter, "_exec", both_fail)
+    with pytest.raises(ScannerExecutionError) as raised:
+        TrivyAdapter(tmp_path)._run()
+    assert len(calls) == 2
+    assert "429 Too Many Requests" in raised.value.message
+    assert "Retry-After: 1800" in raised.value.message
+    assert "offline fallback also failed" in raised.value.message
