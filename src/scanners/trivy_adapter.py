@@ -20,58 +20,59 @@ class TrivyAdapter(Scanner):
     def _run(self) -> list[RawFinding]:
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
             report_path = tmp.name
-        args = [
-            "fs",
-            "--quiet",
-            "--format", "json",
-            "--scanners", "vuln",
-            "--severity", os.getenv("SCP_TRIVY_SEVERITY", "CRITICAL,HIGH,MEDIUM"),
-            "--no-progress",
-            "--exit-code", "0",
-            "--skip-dirs", ".git,node_modules,vendor,dist,build,.venv,venv,target,__pycache__",
-            "--output", report_path,
-            str(self.workdir),
-        ]
-        if parse_bool(os.getenv("SCP_TRIVY_IGNORE_UNFIXED", ""), name="SCP_TRIVY_IGNORE_UNFIXED"):
-            args.insert(-1, "--ignore-unfixed")
-        proc = self._exec(args, timeout=3600)
-        if (
-            proc.returncode != 0
-            and _is_maven_rate_limit(proc.stderr or "")
-            and parse_bool(
-                os.getenv("SCP_TRIVY_MAVEN_OFFLINE_FALLBACK", "1"),
-                name="SCP_TRIVY_MAVEN_OFFLINE_FALLBACK",
-            )
-        ):
-            primary_returncode = proc.returncode
-            primary_error = (proc.stderr or "")[:300]
-            retry_after = _retry_after(primary_error)
-            offline_args = [*args]
-            offline_args.insert(-1, "--offline-scan")
-            proc = self._exec(offline_args, timeout=3600)
+        try:
+            args = [
+                "fs",
+                "--quiet",
+                "--format", "json",
+                "--scanners", "vuln",
+                "--severity", os.getenv("SCP_TRIVY_SEVERITY", "CRITICAL,HIGH,MEDIUM"),
+                "--no-progress",
+                "--exit-code", "0",
+                "--skip-dirs", ".git,node_modules,vendor,dist,build,.venv,venv,target,__pycache__",
+                "--output", report_path,
+                str(self.workdir),
+            ]
+            if parse_bool(os.getenv("SCP_TRIVY_IGNORE_UNFIXED", ""), name="SCP_TRIVY_IGNORE_UNFIXED"):
+                args.insert(-1, "--ignore-unfixed")
+            proc = self._exec(args, timeout=3600)
+            if (
+                proc.returncode != 0
+                and _is_maven_rate_limit(proc.stderr or "")
+                and parse_bool(
+                    os.getenv("SCP_TRIVY_MAVEN_OFFLINE_FALLBACK", "1"),
+                    name="SCP_TRIVY_MAVEN_OFFLINE_FALLBACK",
+                )
+            ):
+                primary_returncode = proc.returncode
+                primary_error = (proc.stderr or "")[:300]
+                retry_after = _retry_after(primary_error)
+                offline_args = [*args]
+                offline_args.insert(-1, "--offline-scan")
+                proc = self._exec(offline_args, timeout=3600)
+                if proc.returncode != 0:
+                    raise ScannerExecutionError(
+                        self.name,
+                        f"trivy exited {primary_returncode}: {primary_error} "
+                        f"offline fallback also failed: {(proc.stderr or '')[:120]}",
+                    )
+                suffix = f" Retry-After: {retry_after}." if retry_after else ""
+                self.degraded_reason = (
+                    "Maven Central rate-limited dependency enrichment; completed one "
+                    "offline Trivy fallback with reduced dependency coverage."
+                    f"{suffix}"
+                )
             if proc.returncode != 0:
                 raise ScannerExecutionError(
-                    self.name,
-                    f"trivy exited {primary_returncode}: {primary_error} "
-                    f"offline fallback also failed: {(proc.stderr or '')[:120]}",
+                    self.name, f"trivy exited {proc.returncode}: {(proc.stderr or '')[:300]}"
                 )
-            suffix = f" Retry-After: {retry_after}." if retry_after else ""
-            self.degraded_reason = (
-                "Maven Central rate-limited dependency enrichment; completed one "
-                "offline Trivy fallback with reduced dependency coverage."
-                f"{suffix}"
-            )
-        if proc.returncode != 0:
-            raise ScannerExecutionError(
-                self.name, f"trivy exited {proc.returncode}: {(proc.stderr or '')[:300]}"
-            )
-        try:
-            with open(report_path) as fh:
-                data = json.load(fh)
-        except (json.JSONDecodeError, OSError) as exc:
-            raise ScannerMalformedOutputError(
-                self.name, "trivy produced an unreadable/malformed report"
-            ) from exc
+            try:
+                with open(report_path) as fh:
+                    data = json.load(fh)
+            except (json.JSONDecodeError, OSError) as exc:
+                raise ScannerMalformedOutputError(
+                    self.name, "trivy produced an unreadable/malformed report"
+                ) from exc
         finally:
             try:
                 os.unlink(report_path)

@@ -1,3 +1,6 @@
+import os
+import subprocess
+
 import httpx
 import pytest
 
@@ -82,6 +85,64 @@ def test_clone_url_token_injection():
     client.token = "secret-token"
     url = client.repo_clone_url("miraworkspace", "order-service")
     assert url == "https://x-token-auth:secret-token@bitbucket.org/miraworkspace/order-service.git"
+
+
+def test_clone_failure_redacts_token_and_url(monkeypatch):
+    token = "sup3r-s3cr3t-token"
+    client = BitbucketClient.__new__(BitbucketClient)
+    client.token = token
+    captured = {}
+    monkeypatch.setenv("SCP_AUTH_PASS", "must-not-reach-git")
+
+    def fake_run(cmd, cwd=None, capture_output=False, text=False, env=None, timeout=None):
+        captured["env"] = env
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=1,
+            stdout="",
+            stderr=(
+                f"fatal: could not read Username for 'https://bitbucket.org': "
+                f"token {token} rejected\n"
+                f"remote: https://x-token-auth:{token}@bitbucket.org/ws/repo.git"
+            ),
+        )
+
+    monkeypatch.setattr("src.integrations.bitbucket_client.subprocess.run", fake_run)
+    with pytest.raises(BitbucketError) as exc:
+        client._run(["git", "clone", f"https://x-token-auth:{token}@bitbucket.org/ws/repo.git", "/tmp/x"])
+
+    msg = str(exc.value)
+    assert token not in msg
+    assert "x-token-auth" not in msg
+    assert "[REDACTED]" in msg
+    assert captured["env"]["GIT_TERMINAL_PROMPT"] == "0"
+    assert captured["env"]["PATH"] == os.environ.get("PATH")
+    assert "SCP_AUTH_PASS" not in captured["env"]
+
+
+def test_clone_repo_disables_symlinks(monkeypatch, tmp_path):
+    src = tmp_path / "src-repo"
+    src.mkdir()
+    subprocess.run(["git", "init", "-q", str(src)], check=True)
+    subprocess.run(["git", "-C", str(src), "config", "user.email", "test@example.com"], check=True)
+    subprocess.run(["git", "-C", str(src), "config", "user.name", "test"], check=True)
+    (src / "file.txt").write_text("hello\n", encoding="utf-8")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret host content\n", encoding="utf-8")
+    os.symlink(str(outside), src / "link")
+    subprocess.run(["git", "-C", str(src), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(src), "commit", "-q", "-m", "init"], check=True)
+
+    client = BitbucketClient.__new__(BitbucketClient)
+    client.token = "test-token"
+    monkeypatch.setattr(client, "repo_clone_url", lambda ws, repo: str(src))
+
+    dest = tmp_path / "dest"
+    client.clone_repo("ws", "repo", "main", str(dest))
+
+    assert (dest / "file.txt").read_text(encoding="utf-8") == "hello\n"
+    assert (dest / "link").exists()
+    assert not (dest / "link").is_symlink()
 
 
 def test_401_raises():

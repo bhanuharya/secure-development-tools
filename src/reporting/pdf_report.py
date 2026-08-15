@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, timezone
+from xml.sax.saxutils import escape as _xml_escape
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -16,6 +17,12 @@ SEVERITY_COLORS = {
     "low": colors.HexColor("#3B6E9B"),
     "info": colors.HexColor("#555555"),
 }
+
+
+def _esc(text: str) -> str:
+    """Escape XML/HTML markup so project/scanner-controlled text renders
+    literally inside a ReportLab ``Paragraph`` instead of being parsed as markup."""
+    return _xml_escape(text if text is not None else "")
 
 
 def _build_styles():
@@ -94,7 +101,7 @@ class PdfReportBuilder:
         self.story.append(Spacer(1, 0.4 * cm))
 
     def _meta(self, rows: list) -> None:
-        table = Table([[Paragraph(k, self.styles["mono_small"]), Paragraph(str(v), self.styles["body"])] for k, v in rows],
+        table = Table([[Paragraph(_esc(k), self.styles["mono_small"]), Paragraph(_esc(str(v)), self.styles["body"])] for k, v in rows],
                       colWidths=[3.5 * cm, 13 * cm])
         table.setStyle(TableStyle([
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -160,14 +167,14 @@ class PdfReportBuilder:
         if f.cwe:
             header += f" | {f.cwe}"
         cells = [
-            Paragraph(header, _sev_style(self.styles, f.severity)),
-            Paragraph(f"Location: {loc}", self.styles["mono_small"]),
-            Paragraph((f.description or "-").strip(), self.styles["body"]),
+            Paragraph(_esc(header), _sev_style(self.styles, f.severity)),
+            Paragraph(_esc(f"Location: {loc}"), self.styles["mono_small"]),
+            Paragraph(_esc((f.description or "-").strip()), self.styles["body"]),
         ]
         if f.snippet:
             cells.append(Preformatted(f.snippet[:1200], self.styles["code"]))
         if f.remediation:
-            cells.append(Paragraph(f"<b>Remediation:</b> {f.remediation.strip()}", self.styles["body"]))
+            cells.append(Paragraph(f"<b>Remediation:</b> {_esc(f.remediation.strip())}", self.styles["body"]))
         table = Table([[c] for c in cells], colWidths=[16 * cm])
         table.setStyle(TableStyle([
             ("LINEBEFORE", (0, 0), (0, -1), 4, color),

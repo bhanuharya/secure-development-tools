@@ -4,9 +4,12 @@ import shutil
 from sqlmodel import Session, select
 
 from src.api.database import Finding, Project, Scan, engine
+from src.api.events import event_bus
 from src.config import SCAN_WORK_DIR
+from src.scanners.base import RawFinding
 from src.scanners.opengrep_adapter import OpengrepAdapter
-from src.scanners.orchestrator import ScanRunner
+from src.scanners.orchestrator import ScanRunner, _sanitize_reason, _snapshot
+from src.util.fingerprint import fingerprint
 from tests.fakes import FakeBitbucket
 
 
@@ -211,6 +214,102 @@ def test_trivy_offline_fallback_persists_degraded_coverage(fixture_repo, tmp_env
         assert states["trivy"]["state"] == "done"
         assert states["trivy"]["kind"] == "degraded"
         assert "reduced dependency coverage" in states["trivy"]["reason"]
+
+
+def test_persist_redacts_secret_snippet_and_fingerprint_input(tmp_env):
+    secret = "sk_live_1234567890abcdef"
+    with Session(engine) as session:
+        project = make_project(session)
+        scan = make_scan(session, project, scan_type="secrets", engines="gitleaks")
+
+    snap = _snapshot(scan)
+    rf = RawFinding(
+        tool="gitleaks",
+        source_type="secrets",
+        rule_id="stripe-access-token",
+        severity="high",
+        file_path="app.py",
+        line_start=3,
+        snippet=f'api_key = "{secret}"',
+        redaction_tokens=[secret],
+    )
+    ScanRunner()._persist(Session(engine), snap, [rf], {"gitleaks": {"state": "done"}})
+
+    with Session(engine) as session:
+        rec = session.exec(select(Finding).where(Finding.scan_id == scan.id)).one()
+        assert secret not in rec.snippet
+        assert "[REDACTED]" in rec.snippet
+        # A plain SHA-256 fingerprint must not become an offline verifier for a
+        # low-entropy secret. Deduplicate on the redacted representation.
+        assert rec.fingerprint == fingerprint(
+            "gitleaks", "stripe-access-token", "app.py", 3, rec.snippet
+        )
+        assert rec.fingerprint != fingerprint(
+            "gitleaks", "stripe-access-token", "app.py", 3, rf.snippet
+        )
+
+
+def test_sanitize_reason_strips_workdir_prefix(tmp_env):
+    prefix = str(SCAN_WORK_DIR)
+    assert _sanitize_reason(f"failed reading {prefix}/p1-s2/app.py") == "failed reading <workdir>/p1-s2/app.py"
+    assert _sanitize_reason("no path here") == "no path here"
+    assert _sanitize_reason("") == ""
+
+
+def test_engine_error_reason_sanitized_in_state_and_events(fixture_repo, tmp_env, monkeypatch):
+    from src.scanners.errors import ScannerExecutionError
+
+    prefix = str(SCAN_WORK_DIR)
+
+    def boom(self):
+        raise ScannerExecutionError("bandit", f"bandit failed reading {prefix}/p1-s2/app.py")
+
+    monkeypatch.setattr("src.scanners.bandit_adapter.BanditAdapter._run", boom)
+    with Session(engine) as session:
+        project = make_project(session)
+        scan = make_scan(session, project, scan_type="sast", engines="bandit")
+        scan_id = scan.id
+
+    ScanRunner(FakeBitbucket(fixture_repo)).run_scan(scan_id)
+
+    with Session(engine) as session:
+        scan = session.get(Scan, scan_id)
+        assert scan.status == "failed"
+        states = json.loads(scan.engine_statuses)
+        assert prefix not in states["bandit"]["reason"]
+        assert "<workdir>" in states["bandit"]["reason"]
+
+    evs, _ = event_bus.events_since(scan_id)
+    engine_events = [e for e in evs if e[1] == "engine_status" and e[2].get("state") == "failed"]
+    assert engine_events
+    assert all(prefix not in e[2].get("reason", "") for e in engine_events)
+
+
+def test_scan_failure_reason_sanitizes_workdir_path(tmp_env, monkeypatch, caplog):
+    prefix = str(SCAN_WORK_DIR)
+
+    def boom(self, session, scan):
+        raise RuntimeError(f"exploded at {prefix}/p1-s2/app.py")
+
+    monkeypatch.setattr(ScanRunner, "_execute", boom)
+    with Session(engine) as session:
+        project = make_project(session)
+        scan = make_scan(session, project, scan_type="sast", engines="bandit")
+        scan_id = scan.id
+
+    ScanRunner().run_scan(scan_id)
+
+    assert prefix not in caplog.text
+
+    with Session(engine) as session:
+        scan = session.get(Scan, scan_id)
+        assert scan.status == "failed"
+        assert prefix not in scan.error
+
+    evs, _ = event_bus.events_since(scan_id)
+    status_events = [e for e in evs if e[1] == "scan_status" and e[2].get("status") == "failed"]
+    assert status_events
+    assert all(prefix not in e[2].get("error", "") for e in status_events)
 
 
 def test_run_scan_cancels_cleanly_when_row_deleted(fixture_repo, tmp_env):

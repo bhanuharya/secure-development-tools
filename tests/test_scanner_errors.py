@@ -1,4 +1,5 @@
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -227,3 +228,53 @@ def test_trivy_failed_offline_fallback_preserves_maven_429_as_primary(tmp_path, 
     assert "429 Too Many Requests" in raised.value.message
     assert "Retry-After: 1800" in raised.value.message
     assert "offline fallback also failed" in raised.value.message
+
+
+def _report_path(args):
+    return Path(args[args.index("--output") + 1])
+
+
+def test_trivy_timeout_leaves_no_temp_report(tmp_path, monkeypatch):
+    captured = {}
+
+    def boom(self, args, cwd=None, timeout=None):
+        captured["report"] = _report_path(args)
+        raise ScannerTimeoutError("trivy", "trivy timed out after 3600s")
+
+    monkeypatch.setattr(TrivyAdapter, "_exec", boom)
+    with pytest.raises(ScannerTimeoutError):
+        TrivyAdapter(tmp_path)._run()
+    assert captured["report"]  # a report path was created
+    assert not captured["report"].exists()
+
+
+def test_trivy_execution_error_leaves_no_temp_report(tmp_path, monkeypatch):
+    captured = {}
+
+    def crash(self, args, cwd=None, timeout=None):
+        captured["report"] = _report_path(args)
+        return _proc(1, stderr="database is corrupt")
+
+    monkeypatch.setattr(TrivyAdapter, "_exec", crash)
+    with pytest.raises(ScannerExecutionError):
+        TrivyAdapter(tmp_path)._run()
+    assert not captured["report"].exists()
+
+
+def test_trivy_failed_offline_fallback_leaves_no_temp_report(tmp_path, monkeypatch):
+    calls = []
+    primary = (
+        "FATAL Error remote Maven repository returned 429 Too Many Requests "
+        "for https://repo.maven.apache.org/example.pom. Retry-After: 1800."
+    )
+
+    def both_fail(self, args, cwd=None, timeout=None):
+        calls.append(list(args))
+        if len(calls) == 1:
+            return _proc(1, stderr=primary)
+        return _proc(1, stderr="offline analyzer failed")
+
+    monkeypatch.setattr(TrivyAdapter, "_exec", both_fail)
+    with pytest.raises(ScannerExecutionError):
+        TrivyAdapter(tmp_path)._run()
+    assert not _report_path(calls[0]).exists()

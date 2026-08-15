@@ -22,7 +22,7 @@ from src.integrations.diff_parser import ParsedDiff, parse_diff
 from src.scanners.bandit_adapter import BanditAdapter
 from src.scanners.base import RawFinding
 from src.scanners.errors import REAL_FAILURE_KINDS, ScannerError
-from src.scanners.evidence import build_evidence
+from src.scanners.evidence import build_evidence, redact_text
 from src.scanners.gitleaks_adapter import GitleaksAdapter
 from src.scanners.opengrep_adapter import OpengrepAdapter
 from src.scanners.trivy_adapter import TrivyAdapter
@@ -89,9 +89,13 @@ class ScanRunner:
             if self._mark(scan_id, status="succeeded", finished=True):
                 event_bus.publish(scan_id, "scan_status", {"status": "succeeded"})
         except Exception as exc:  # noqa: BLE001
-            log.exception("scan %s failed", scan_id)
-            if self._mark(scan_id, status="failed", error=str(exc)[:500], finished=True):
-                event_bus.publish(scan_id, "scan_status", {"status": "failed", "error": str(exc)[:500]})
+            error = _sanitize_reason(str(exc))[:500]
+            # Persist, publish, and log the same sanitized diagnostic. A raw
+            # traceback would reintroduce absolute workspace paths via the
+            # exception text, defeating the API/event redaction below.
+            log.error("scan %s failed: %s", scan_id, error)
+            if self._mark(scan_id, status="failed", error=error, finished=True):
+                event_bus.publish(scan_id, "scan_status", {"status": "failed", "error": error})
 
     def _execute(self, session: Session, scan: _ScanSnapshot) -> bool:
         project = _project_of(session, scan.project_id)
@@ -175,10 +179,11 @@ class ScanRunner:
                     found = fut.result()
                 except ScannerError as exc:
                     state = "unavailable" if exc.kind == "unavailable" else "failed"
-                    engine_states[eng] = _eng_state(state, reason=exc.message, kind=exc.kind)
+                    reason = _sanitize_reason(exc.message)
+                    engine_states[eng] = _eng_state(state, reason=reason, kind=exc.kind)
                     event_bus.publish(
                         scan.id, "engine_status",
-                        {"engine": eng, "state": state, "reason": exc.message, "kind": exc.kind},
+                        {"engine": eng, "state": state, "reason": reason, "kind": exc.kind},
                     )
                     if exc.kind in REAL_FAILURE_KINDS:
                         engine_failure = True
@@ -189,7 +194,7 @@ class ScanRunner:
                     engine_failure = True
                     continue
                 except Exception as exc:  # noqa: BLE001
-                    reason = f"{eng} failed: {str(exc)[:200]}"
+                    reason = _sanitize_reason(f"{eng} failed: {str(exc)[:200]}")
                     log.warning(reason)
                     engine_states[eng] = _eng_state("failed", reason=reason, kind="execution")
                     event_bus.publish(scan.id, "engine_status", {"engine": eng, "state": "failed", "reason": reason, "kind": "execution"})
@@ -273,6 +278,7 @@ class ScanRunner:
             return False
         counts: Counter = Counter()
         for rf in findings:
+            safe_snippet = redact_text(rf.snippet, rf.redaction_tokens)
             rec = Finding(
                 scan_id=scan.id,
                 project_id=scan.project_id,
@@ -284,10 +290,12 @@ class ScanRunner:
                 file_path=rf.file_path,
                 line_start=rf.line_start,
                 line_end=rf.line_end,
-                snippet=rf.snippet,
+                snippet=safe_snippet,
                 description=rf.description,
                 remediation=rf.remediation,
-                fingerprint=fingerprint(rf.tool, rf.rule_id, rf.file_path, rf.line_start, rf.snippet),
+                fingerprint=fingerprint(
+                    rf.tool, rf.rule_id, rf.file_path, rf.line_start, safe_snippet
+                ),
                 status="new",
                 in_pr_diff=getattr(rf, "in_pr_diff", False),
                 evidence=json.dumps(build_evidence(rf, workdir)),
@@ -488,3 +496,16 @@ def _project_of(session: Session, project_id: int):
     from src.api.database import Project
 
     return session.get(Project, project_id)
+
+
+def _sanitize_reason(text: str) -> str:
+    """Strip the configured scan-workdir prefix from an error reason so absolute
+    host paths never persist or are published, while preserving the rest of the
+    diagnostic and the failure classification."""
+    if not text:
+        return text
+    out = text
+    for prefix in (str(SCAN_WORK_DIR.resolve()), str(SCAN_WORK_DIR)):
+        if prefix:
+            out = out.replace(prefix, "<workdir>")
+    return out

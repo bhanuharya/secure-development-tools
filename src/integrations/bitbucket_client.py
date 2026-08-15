@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -14,6 +15,24 @@ from src.config import BITBUCKET_ACCESS_TOKEN, BITBUCKET_API_BASE, BITBUCKET_WOR
 log = logging.getLogger(__name__)
 
 BITBUCKET_CLONE_HOST = "bitbucket.org"
+
+# Git needs process lookup, locale, TLS trust, and (in some environments) proxy
+# settings. Do not pass the complete service environment: it contains unrelated
+# control-plane and scanner credentials that Git and its helpers do not need.
+_GIT_ENV_ALLOWLIST = (
+    "PATH",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "NO_PROXY",
+    "https_proxy",
+    "http_proxy",
+    "no_proxy",
+)
 
 
 class BitbucketError(Exception):
@@ -148,27 +167,42 @@ class BitbucketClient:
         if shutil.which("git") is None:
             raise BitbucketError("git binary not available")
         url = self.repo_clone_url(workspace, repo)
-        cmd = ["git", "clone", "--quiet", "--depth", str(depth)]
+        cmd = ["git", "-c", "core.symlinks=false", "clone", "--quiet", "--depth", str(depth)]
         if re.fullmatch(r"[0-9a-f]{40}", ref or ""):
             # SHA: clone default then checkout detached at sha
             cmd += [url, dest]
             self._run(cmd)
-            self._run(["git", "-C", dest, "checkout", "--quiet", ref])
+            self._run(["git", "-c", "core.symlinks=false", "-C", dest, "checkout", "--quiet", ref])
         else:
             cmd += ["--branch", ref, "--single-branch", url, dest]
             self._run(cmd)
 
     def _run(self, cmd: list[str], cwd: str | None = None) -> str:
+        env = {name: os.environ[name] for name in _GIT_ENV_ALLOWLIST if name in os.environ}
+        env.setdefault("PATH", os.defpath)
+        env["GIT_TERMINAL_PROMPT"] = "0"
         proc = subprocess.run(
             cmd,
             cwd=cwd,
             capture_output=True,
             text=True,
-            env={"GIT_TERMINAL_PROMPT": "0"},
+            env=env,
         )
         if proc.returncode != 0:
-            raise BitbucketError(f"Command failed ({' '.join(cmd[:3])}...): {proc.stderr.strip()[:400]}")
+            raise BitbucketError(
+                f"Command failed ({' '.join(self._redact_secret(part) for part in cmd[:3])}...): "
+                f"{self._redact_secret(proc.stderr).strip()[:400]}"
+            )
         return proc.stdout
+
+    def _redact_secret(self, text: str) -> str:
+        """Remove the access token and any credential-bearing URL form from
+        diagnostics so a failed clone never persists or displays a credential."""
+        out = text
+        if self.token:
+            out = out.replace(self.token, "[REDACTED]")
+        out = re.sub(r"x-token-auth:[^@\s]+@", "[REDACTED]@", out)
+        return out
 
     # ------------------------------------------------------- status reporting (Phase 2)
     def post_commit_status(
