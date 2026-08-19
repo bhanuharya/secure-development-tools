@@ -7,10 +7,14 @@ __pycache__/
 # Secrets — never commit
 .env
 .env.*
+!.env.example
 
-# Runtime data / scan artifacts
+# Runtime data / scan artifacts (may contain findings / scan output)
 data/
 scan_work/
+
+# Local tooling context — plans, prompts, lint results (keep private)
+.hermes/
 
 # OS/editor
 .DS_Store
