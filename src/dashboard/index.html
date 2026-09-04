@@ -39,8 +39,9 @@
           <label for="scan-type">Scan type</label>
           <select id="scan-type">
             <option value="sast">SAST (Bandit + opengrep)</option>
-            <option value="sca">SCA dependencies (Trivy)</option>
+            <option value="sca">SCA dependencies (Trivy + OSV)</option>
             <option value="secrets">Secrets (Gitleaks)</option>
+            <option value="iac">IaC misconfig (Checkov + Trivy)</option>
             <option value="dast">DAST (OWASP ZAP)</option>
           </select>
 
@@ -66,6 +67,8 @@
               <label style="margin:0"><input type="checkbox" id="eng-opengrep" checked> opengrep</label>
               <label style="margin:0"><input type="checkbox" id="eng-trivy"> Trivy</label>
               <label style="margin:0"><input type="checkbox" id="eng-gitleaks"> Gitleaks</label>
+              <label style="margin:0"><input type="checkbox" id="eng-checkov"> Checkov</label>
+              <label style="margin:0"><input type="checkbox" id="eng-osv"> OSV-Scanner</label>
             </div>
           </div>
 
@@ -77,10 +80,10 @@
           <div id="dast-config" class="hidden">
             <label for="target-select">DAST target</label>
             <select id="target-select"></select>
-            <label for="dast-confirm">
-              <input type="checkbox" id="dast-confirm">
-              I confirm this target is approved for an active scan
-            </label>
+            <div class="muted" style="margin-top:8px">
+              Only approved targets can be scanned. Approve a target from the
+              Projects page or <code>POST /api/targets/&lt;id&gt;/approve</code>.
+            </div>
           </div>
           <div class="btn-row">
             <button id="start-scan" onclick="startScan()">Start scan</button>
@@ -104,7 +107,8 @@
     <div class="panel" id="findings-panel">
       <h2>Findings <span id="findings-count" class="muted"></span></h2>
       <div class="filters">
-        <select id="f-status">
+        <input id="f-q" type="search" placeholder="Search rule, file, description" aria-label="Search findings" oninput="loadFindings()">
+        <select id="f-status" aria-label="Filter by status">
           <option value="">All statuses</option>
           <option value="new">new</option>
           <option value="triaged">triaged</option>
@@ -112,7 +116,7 @@
           <option value="false_positive">false positive</option>
           <option value="accepted_risk">accepted risk</option>
         </select>
-        <select id="f-severity">
+        <select id="f-severity" aria-label="Filter by severity">
           <option value="">All severities</option>
           <option value="critical">critical</option>
           <option value="high">high</option>
@@ -120,14 +124,14 @@
           <option value="low">low</option>
           <option value="info">info</option>
         </select>
-        <select id="f-pr">
+        <select id="f-pr" aria-label="Filter by pull request diff">
           <option value="">All code</option>
           <option value="1">In PR diff</option>
           <option value="0">Not in PR diff</option>
         </select>
         <button class="secondary" onclick="loadFindings()">Apply</button>
-        <button class="secondary" onclick="generateScanReport()">PDF report</button>
-        <button class="secondary" onclick="generateProjectReport()">Repo PDF</button>
+        <button id="report-scan" class="secondary" onclick="generateScanReport()">PDF report</button>
+        <button id="report-project" class="secondary" onclick="generateProjectReport()">Repo PDF</button>
       </div>
       <div class="table-wrap" id="findings-table">
         <table>

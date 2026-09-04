@@ -9,10 +9,12 @@ ROOT = Path(__file__).resolve().parent.parent
 RULES = ROOT / "rules" / "opengrep-rules"
 
 
-def test_rule_manifest_is_valid_and_covers_exactly_19_rules():
+def test_rule_manifest_is_valid_and_matches_expected_counts():
+    manifest_doc = yaml.safe_load((ROOT / "rules" / "manifest.yaml").read_text(encoding="utf-8"))
+    expected_total = sum(source["expected_rule_count"] for source in manifest_doc["sources"])
     result = validate_manifest(ROOT / "rules" / "manifest.yaml", RULES)
-    assert result.rule_count == 19
     assert result.errors == []
+    assert result.rule_count == expected_total > 0
 
 
 def test_new_rules_have_required_security_metadata():

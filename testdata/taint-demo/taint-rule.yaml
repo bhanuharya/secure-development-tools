@@ -1,0 +1,24 @@
+# Demo taint-mode rule (test fixture only, NOT shipped in rules/).
+# Fires only when the engine tracks taint across functions in one file:
+# the source (request.GET) lives in get_user_name(), the sink
+# (os.system) lives in greet_view(). Single-function analysis sees
+# neither end connected and stays silent.
+rules:
+  - id: sdt-demo-taint-command
+    languages: [python]
+    severity: ERROR
+    message: Cross-function tainted data reaches os.system.
+    metadata:
+      category: security
+      cwe: ["CWE-78"]
+      confidence: HIGH
+    mode: taint
+    pattern-sources:
+      - patterns:
+          - pattern-inside: |
+              def $VIEW(request, ...):
+                  ...
+          - pattern: request.$W.get(...)
+    pattern-sinks:
+      - patterns:
+          - pattern: os.system(...)

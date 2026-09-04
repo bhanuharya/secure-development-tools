@@ -50,6 +50,10 @@ def validate_manifest(manifest_path: Path, rules_root: Path) -> ValidationResult
     counts: Counter[str] = Counter()
     total = 0
     for path in sorted(rules_root.rglob("*.y*ml")):
+        # Annotated test fixtures (*.test.*) and autofix fixtures
+        # (*.fixed.*) are verified by `sdt rules verify`, not counted here.
+        if ".test." in path.name or ".fixed." in path.name:
+            continue
         relative = path.relative_to(rules_root).as_posix()
         owners = [sid for sid, source in source_by_id.items() if _belongs(relative, source["path_prefixes"])]
         if len(owners) != 1:

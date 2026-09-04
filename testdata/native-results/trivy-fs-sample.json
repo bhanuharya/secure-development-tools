@@ -1,0 +1,33 @@
+{
+  "SchemaVersion": 2,
+  "ArtifactName": "testdata",
+  "Results": [
+    {
+      "Target": "package-lock.json",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2021-12345",
+          "PkgName": "lodash",
+          "InstalledVersion": "4.17.20",
+          "FixedVersion": "4.17.21",
+          "Severity": "CRITICAL",
+          "Description": "Prototype pollution in lodash.",
+          "CweIDs": ["CWE-1321"],
+          "References": ["https://example.invalid/cve-2021-12345"]
+        }
+      ]
+    },
+    {
+      "Target": "main.tf",
+      "Misconfigurations": [
+        {
+          "ID": "AVD-AWS-0001",
+          "Title": "S3 bucket allows public access",
+          "Message": "Block public ACLs on the bucket.",
+          "Severity": "HIGH",
+          "CauseMetadata": {"StartLine": 4, "EndLine": 9}
+        }
+      ]
+    }
+  ]
+}

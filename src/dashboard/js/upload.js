@@ -3,15 +3,18 @@ const upState = { scan: null, sse: null, findings: [], pollTimer: null, engineRo
 const ENGINE_INFO = {
   bandit: { name: "Bandit", desc: "Python code security" },
   opengrep: { name: "OpenGrep / Semgrep", desc: "Multi-language code security" },
-  trivy: { name: "Trivy", desc: "Dependency vulnerabilities" },
+  trivy: { name: "Trivy", desc: "Dependency + IaC vulnerabilities" },
   gitleaks: { name: "Gitleaks", desc: "Secrets & credentials" },
+  checkov: { name: "Checkov", desc: "IaC misconfiguration scanning" },
+  "osv-scanner": { name: "OSV-Scanner", desc: "Dependency vulnerabilities (OSV)" },
 };
 
 const PRESETS = {
-  full: { label: "Full scan", engines: ["bandit", "opengrep", "trivy", "gitleaks"] },
+  full: { label: "Full scan", engines: ["bandit", "opengrep", "trivy", "gitleaks", "checkov", "osv-scanner"] },
   sast: { label: "Code security", engines: ["bandit", "opengrep"] },
-  dependencies: { label: "Dependencies", engines: ["trivy"] },
+  dependencies: { label: "Dependencies", engines: ["trivy", "osv-scanner"] },
   secrets: { label: "Secrets", engines: ["gitleaks"] },
+  iac: { label: "IaC", engines: ["checkov", "trivy"] },
 };
 
 // ---------------------------------------------------------------- init
@@ -149,7 +152,45 @@ async function startUpload() {
   }
 }
 
+// ---------------------------------------------------------------- local folder
+async function startFolder() {
+  const path = document.getElementById("folder-path").value.trim();
+  if (!path) return showMsg("folder-msg", "Enter a local folder path", "error");
+  const preset = selectedPreset();
+  const body = {
+    path,
+    name: document.getElementById("up-name").value.trim(),
+    language_override: document.getElementById("up-lang").value.trim(),
+  };
+  if (preset === "custom") {
+    body.preset = "custom";
+    body.scan_type = "full";
+    const checked = [...document.querySelectorAll("#up-engines input:checked")].map((c) => c.dataset.eng);
+    if (!checked.length) return showMsg("folder-msg", "Select at least one engine", "error");
+    body.engines = checked;
+  } else {
+    body.preset = preset;
+  }
+
+  const btn = document.getElementById("folder-start");
+  btn.disabled = true;
+  setLoading(btn, true);
+  try {
+    const scan = await post("/api/uploads/folder", body);
+    upState.scan = scan;
+    beginProgress(scan);
+    showMsg("folder-msg", `Scan #${scan.id} started for local folder.`, "success");
+  } catch (e) {
+    showMsg("folder-msg", e.message, "error");
+  } finally {
+    setLoading(btn, false);
+    btn.disabled = false;
+  }
+}
+
 // ---------------------------------------------------------------- direct dast
+let pendingDastTarget = null;
+
 async function startDast() {
   const url = document.getElementById("dast-url").value.trim();
   if (!url) return toast("Target URL is required", "error");
@@ -159,8 +200,6 @@ async function startDast() {
     url,
     auth_mode: mode,
     is_production: document.getElementById("dast-is-production").checked,
-    pre_approved: document.getElementById("dast-pre-approved").checked,
-    dast_confirmed: document.getElementById("dast-confirm").checked,
   };
   if (mode === "form") {
     body.login_url = document.getElementById("dast-login-url").value.trim() || url;
@@ -173,10 +212,37 @@ async function startDast() {
     body.context_file_path = document.getElementById("dast-context-file").value.trim();
   }
   try {
-    const scan = await post("/api/uploads/dast", body);
+    const target = await post("/api/uploads/dast", body);
+    pendingDastTarget = target;
+    document.getElementById("dast-approve").classList.remove("hidden");
+    showMsg("dast-msg",
+      `Target #${target.id} registered for ${esc(url)}. Review it, then approve to scan.`, "success");
+  } catch (e) {
+    pendingDastTarget = null;
+    document.getElementById("dast-approve").classList.add("hidden");
+    showMsg("dast-msg", e.message, "error");
+  }
+}
+
+async function approveAndRunDast() {
+  if (!pendingDastTarget) return;
+  const t = pendingDastTarget;
+  const productionAck = t.is_production
+    ? confirm("This is a PRODUCTION target. Acknowledge and approve active scanning?")
+    : true;
+  if (!productionAck) return;
+  try {
+    await post(`/api/targets/${t.id}/approve`, { reason: "dashboard", production_ack: t.is_production });
+    const scan = await post("/api/scans", {
+      project_id: t.project_id,
+      scan_type: "dast",
+      dast_target: t.id,
+    });
+    pendingDastTarget = null;
+    document.getElementById("dast-approve").classList.add("hidden");
     upState.scan = scan;
     beginProgress(scan);
-    showMsg("dast-msg", `DAST scan #${scan.id} started against ${esc(url)}.`, "success");
+    showMsg("dast-msg", `DAST scan #${scan.id} started against ${esc(t.url)}.`, "success");
   } catch (e) {
     showMsg("dast-msg", e.message, "error");
   }
@@ -378,10 +444,14 @@ function renderFindings() {
   }).join("");
 }
 
-function openFindingModal(id) {
-  const f = upState.findings.find((x) => x.id === id);
-  if (!f) return;
-  showFindingModal(f, (status) => triageUpFinding(id, status));
+async function openFindingModal(id) {
+  // The list endpoint omits evidence; fetch the full record for the modal.
+  try {
+    const f = await get(`/api/findings/${id}`);
+    showFindingModal(f, (status) => triageUpFinding(id, status));
+  } catch (e) {
+    toast(`Could not load finding: ${e.message}`, "error");
+  }
 }
 
 async function triageUpFinding(id, status) {

@@ -63,6 +63,12 @@
           <div class="preset-desc muted">Credentials &amp; tokens</div>
           <div class="preset-engines">Gitleaks</div>
         </label>
+        <label class="preset-card" data-preset="iac">
+          <input type="radio" name="preset" value="iac">
+          <div class="preset-title">IaC</div>
+          <div class="preset-desc muted">Infra-as-code misconfig</div>
+          <div class="preset-engines">Checkov · Trivy</div>
+        </label>
       </div>
 
       <details id="custom-details">
@@ -70,8 +76,10 @@
         <div class="engine-list" id="up-engines">
           <label class="engine-opt"><input type="checkbox" data-eng="bandit"> Bandit <span class="muted">· Python</span></label>
           <label class="engine-opt"><input type="checkbox" data-eng="opengrep"> OpenGrep / Semgrep <span class="muted">· multi-language</span></label>
-          <label class="engine-opt"><input type="checkbox" data-eng="trivy"> Trivy <span class="muted">· dependencies</span></label>
+          <label class="engine-opt"><input type="checkbox" data-eng="trivy"> Trivy <span class="muted">· dependencies + IaC</span></label>
           <label class="engine-opt"><input type="checkbox" data-eng="gitleaks"> Gitleaks <span class="muted">· secrets</span></label>
+          <label class="engine-opt"><input type="checkbox" data-eng="checkov"> Checkov <span class="muted">· IaC</span></label>
+          <label class="engine-opt"><input type="checkbox" data-eng="osv-scanner"> OSV-Scanner <span class="muted">· dependencies</span></label>
         </div>
         <label for="up-lang">Language override (optional)</label>
         <input id="up-lang" placeholder="python, java, javascript...">
@@ -84,6 +92,22 @@
         <button id="up-start" onclick="startUpload()">Scan uploaded repo</button>
       </div>
       <div id="up-msg" class="muted hidden" style="margin-top:10px" role="alert"></div>
+    </div>
+
+    <!-- Scan a local folder -->
+    <div class="panel">
+      <h2>Scan a local folder <span class="muted">(on this host)</span></h2>
+      <p class="muted" style="font-size:12px;margin-bottom:10px">
+        Scan a directory on the server. The path must be inside a directory
+        allowlisted by the operator (<code>SCP_LOCAL_SCAN_ROOTS</code>). Reuses
+        the coverage selection above.
+      </p>
+      <label for="folder-path">Folder path</label>
+      <input id="folder-path" placeholder="/srv/repos/my-app">
+      <div class="btn-row" style="margin-top:10px">
+        <button id="folder-start" onclick="startFolder()">Scan local folder</button>
+      </div>
+      <div id="folder-msg" class="muted hidden" style="margin-top:10px" role="alert"></div>
     </div>
 
     <!-- Scanner availability -->
@@ -127,19 +151,17 @@
           </div>
           <div>
             <label style="margin-top:22px">
-              <input type="checkbox" id="dast-pre-approved" style="width:auto"> Pre-approved target (skip active-scan confirmation)
-            </label>
-            <label>
               <input type="checkbox" id="dast-is-production" style="width:auto"> This is a production target
             </label>
-            <label>
-              <input type="checkbox" id="dast-confirm" style="width:auto">
-              I confirm this target is approved for an active scan
-            </label>
             <div class="btn-row">
-              <button id="dast-start" onclick="startDast()">Run DAST scan</button>
+              <button id="dast-start" onclick="startDast()">Register target</button>
+              <button id="dast-approve" onclick="approveAndRunDast()" class="hidden">Approve &amp; run scan</button>
             </div>
             <div id="dast-msg" class="muted hidden" style="margin-top:10px" role="alert"></div>
+            <div class="muted" style="margin-top:8px">
+              Registering a target never launches a scan. Review it, then approve —
+              approval is recorded in the target's audit trail.
+            </div>
           </div>
         </div>
       </details>

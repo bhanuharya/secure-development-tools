@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from src.scanners.base import RawFinding
 from src.scanners.evidence import (
     EVIDENCE_VERSION,
@@ -9,6 +11,12 @@ from src.scanners.evidence import (
     build_evidence,
     collect_context,
     redact_text,
+)
+
+
+_SLACK_BOT_TOKEN = "xox" + "b-" + ("s" * 12)
+_SLACK_WEBHOOK = (
+    "https://" + "hooks" + ".slack.com/services/" + "T" + ("0" * 8) + "/B" + ("0" * 8) + "/" + ("X" * 24)
 )
 
 
@@ -144,3 +152,57 @@ def test_collect_context_does_not_use_unbounded_read_bytes(tmp_path, monkeypatch
     context = collect_context(tmp_path, str(source.relative_to(tmp_path)), 20001, 20001)
     assert context[-1]["text"] == "danger = True"
     assert len(json.dumps(context).encode()) <= MAX_CONTEXT_BYTES + 2048
+
+
+# ---------------------------------------------------------------- vendor tokens
+@pytest.mark.parametrize(
+    "raw_secret",
+    [
+        "AKIAIOSFODNN7EXAMPLE",                     # AWS long-term  # gitleaks:allow — synthetic redaction canary
+        "ASIAIOSFODNN7EXAMPLE",                     # AWS temporary  # gitleaks:allow — synthetic redaction canary
+        "ghp_16C7e42F292c6912E7710c838347Ae178B4a", # GitHub classic PAT  # gitleaks:allow — synthetic redaction canary
+        "github_pat_11AABBCC01234567890_aBcD",      # GitHub fine-grained  # gitleaks:allow — synthetic redaction canary
+        _SLACK_BOT_TOKEN,  # Slack bot assembled at runtime; synthetic redaction canary
+        _SLACK_WEBHOOK,  # Slack webhook assembled at runtime; synthetic redaction canary
+        "AIzaSyA1bC2dE3fG4hI5jK6lM7nO8pQ9rS0tU1v",  # Google API key  # gitleaks:allow — synthetic redaction canary
+        "1//03abc-def_ghijklmnopqrstuvwxyz123456",  # Google refresh token  # gitleaks:allow — synthetic redaction canary
+        "glpat-AbCdEfGhIjKlMnOpQrStUv",             # GitLab PAT  # gitleaks:allow — synthetic redaction canary
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",  # JWT  # gitleaks:allow — synthetic redaction canary
+        "sk-ant-api03-abcdef0123456789abcdef",     # Anthropic  # gitleaks:allow — synthetic redaction canary
+        "sk-proj-abcdefghij0123456789ABCDEFGH",     # OpenAI project  # gitleaks:allow — synthetic redaction canary
+    ],
+)
+def test_redact_text_masks_known_vendor_tokens(raw_secret):
+    out = redact_text(f"token = {raw_secret}\n")
+    assert raw_secret not in out
+    assert "[REDACTED]" in out
+
+
+def test_redact_text_masks_authorization_headers():
+    out = redact_text("Authorization: Bearer abcdef1234567890abcdef")
+    assert "abcdef1234567890abcdef" not in out
+    out = redact_text("Authorization: Basic dXNlcjpwYXNzd29yZA==")
+    assert "dXNlcjpwYXNzd29yZA==" not in out
+
+
+def test_redact_text_masks_composed_key_names():
+    out = redact_text("aws_secret_access_key = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'")
+    assert "wJalrXUtnFEMI" not in out
+    out = redact_text('CLIENT_TOKEN="8f3j2lk9sjd92lak3"')
+    assert "8f3j2lk9sjd92lak3" not in out
+
+
+def test_redact_text_keeps_ordinary_code():
+    line = "keyboard_count = 42  # not a credential"
+    assert redact_text(line) == line
+
+
+def test_evidence_context_masks_flagged_tokens(tmp_path):
+    secret = "ghp_16C7e42F292c6912E7710c838347Ae178B4a"  # gitleaks:allow — synthetic redaction canary
+    _write(tmp_path, "deploy.py", f"import os\nos.environ['GITHUB_TOKEN'] = '{secret}'\n")
+    rf = RawFinding(
+        tool="opengrep", source_type="sast", rule_id="scp.generic.env",
+        severity="medium", file_path="deploy.py", line_start=2, line_end=2,
+    )
+    dumped = json.dumps(build_evidence(rf, tmp_path))
+    assert secret not in dumped

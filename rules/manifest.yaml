@@ -27,3 +27,95 @@ sources:
     hashes:
       vendor/aikido/rules/github_workflow_prompt_injection/github_workflow_prompt_injection.yaml: 255f3141210edc0e8ac8b2663214e3e6e9a1e7523d69782020b4d6eea98eac3f
       vendor/aikido/rules/npm_staged_publishing_missing/npm_staged_publishing_missing.yaml: e93747ca1faafec062844f29490987aa94109c443df73e2e6dfa0d2d11ec1b83
+  # Wave 1: curated semgrep-rules lang/security subsets (audit/ excluded).
+  # License: Semgrep Rules License v1.0 (rules/LICENSE.semgrep-rules),
+  # internal business use. Shadow-triaged 2026-09-04: 26 findings on own
+  # repo, all warn-level or fixture TPs; 0 drops. TS covered via JS rules
+  # declaring both languages.
+  - id: semgrep-python
+    repository: https://github.com/semgrep/semgrep-rules
+    license: Semgrep-Rules-License-1.0
+    revision: 40b8c63f75dc7c22c8a77482d73bfb864b146f7e
+    profile: high-signal
+    path_prefixes:
+      - vendor/semgrep/python
+    expected_rule_count: 24
+    bundle_sha256: 2c4224831b79ebb4e855e795e70a03b0c02faba015bfbc966012d84bc1edc430
+  - id: semgrep-javascript
+    repository: https://github.com/semgrep/semgrep-rules
+    license: Semgrep-Rules-License-1.0
+    revision: 40b8c63f75dc7c22c8a77482d73bfb864b146f7e
+    profile: high-signal
+    path_prefixes:
+      - vendor/semgrep/javascript
+    expected_rule_count: 10
+    bundle_sha256: 9549e04146c1395323a0c330990140708ec72fcc0f328b129947c9a23a8c94fb
+  - id: semgrep-go
+    repository: https://github.com/semgrep/semgrep-rules
+    license: Semgrep-Rules-License-1.0
+    revision: 40b8c63f75dc7c22c8a77482d73bfb864b146f7e
+    profile: high-signal
+    path_prefixes:
+      - vendor/semgrep/go
+    expected_rule_count: 11
+    bundle_sha256: 6816baea5bcdbd9b578ca20ba8064d95a2aa4fc1977addb73f904ae763a66c26
+  # Wave 2: kotlin/java core, Kubernetes + GitHub Actions hygiene, AWS JSON.
+  # Terraform provider rules deliberately excluded (Trivy owns IaC).
+  # Shadow-triaged 2026-09-04 with Wave 1: harness green, 0 drops.
+  - id: semgrep-kotlin
+    repository: https://github.com/semgrep/semgrep-rules
+    license: Semgrep-Rules-License-1.0
+    revision: 40b8c63f75dc7c22c8a77482d73bfb864b146f7e
+    profile: high-signal
+    path_prefixes:
+      - vendor/semgrep/kotlin
+    expected_rule_count: 14
+    bundle_sha256: 8e9c8218ab34462e5cd3b9ca4dc6ad76385fc96f0b50d4868215b839d0feddb6
+  - id: semgrep-java
+    repository: https://github.com/semgrep/semgrep-rules
+    license: Semgrep-Rules-License-1.0
+    revision: 40b8c63f75dc7c22c8a77482d73bfb864b146f7e
+    profile: high-signal
+    path_prefixes:
+      - vendor/semgrep/java
+    expected_rule_count: 13
+    bundle_sha256: 2ab423e2c9ff8dff81b295622104ac48e3469fb72981adda35ab667eeee0565d
+  - id: semgrep-yaml
+    repository: https://github.com/semgrep/semgrep-rules
+    license: Semgrep-Rules-License-1.0
+    revision: 40b8c63f75dc7c22c8a77482d73bfb864b146f7e
+    profile: high-signal
+    path_prefixes:
+      - vendor/semgrep/yaml
+    expected_rule_count: 31
+    bundle_sha256: 5b3656d4b25c91dd810eaae6a2dc339ec0860c60b4660451da5287edcd0c2169
+  - id: semgrep-json
+    repository: https://github.com/semgrep/semgrep-rules
+    license: Semgrep-Rules-License-1.0
+    revision: 40b8c63f75dc7c22c8a77482d73bfb864b146f7e
+    profile: high-signal
+    path_prefixes:
+      - vendor/semgrep/json
+    expected_rule_count: 3
+    bundle_sha256: 503b2e6d53f9b96f3b1e582163285f3f8e85b0ed5366689f90cfd0a1115b7879
+  # Probed 2026-09-04: per-rule annotated tests pass under opengrep 1.29.0
+  # (whole-pack `opengrep test` mis-pairs; the sdt harness runs per rule).
+  # C memory-safety rules need intra-file taint (enabled in the adapter).
+  - id: semgrep-c
+    repository: https://github.com/semgrep/semgrep-rules
+    license: Semgrep-Rules-License-1.0
+    revision: 40b8c63f75dc7c22c8a77482d73bfb864b146f7e
+    profile: high-signal
+    path_prefixes:
+      - vendor/semgrep/c
+    expected_rule_count: 12
+    bundle_sha256: 2ea1258ac54e2291322c05e4426a7d9d6cee07607c4d02da9c9e25b5db620b23
+  - id: semgrep-rust
+    repository: https://github.com/semgrep/semgrep-rules
+    license: Semgrep-Rules-License-1.0
+    revision: 40b8c63f75dc7c22c8a77482d73bfb864b146f7e
+    profile: high-signal
+    path_prefixes:
+      - vendor/semgrep/rust
+    expected_rule_count: 10
+    bundle_sha256: 4430adc11bcff15379d13908f8a902eae7e22a52509d5bb6f80217668238f1e8

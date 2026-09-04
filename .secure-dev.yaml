@@ -1,0 +1,38 @@
+# SDT repository configuration (secure-dev/v1alpha1).
+# See schemas/config-v1alpha1.json and `sdt config validate`.
+apiVersion: secure-dev/v1alpha1
+kind: ScanConfiguration
+metadata:
+  name: secure-development-tools
+project:
+  root: .
+  defaultBranch: main
+  exclude:
+    - ".git/**"
+    - "vendor/**"
+    - "generated/**"
+    - "reports/**"
+    - ".cache/**"
+profiles:
+  pr:
+    mode: changed
+    scanners: [opengrep, gitleaks, trivy-fs]
+    requiredScanners: [opengrep, gitleaks, trivy-fs]
+    timeout: 15m
+    parallelism: 3
+    missingHistory: fail
+  full:
+    mode: repository
+    scanners: [opengrep, gitleaks, trivy-fs]
+    requiredScanners: [opengrep, gitleaks, trivy-fs]
+    timeout: 45m
+    parallelism: 3
+    missingHistory: fail
+  release:
+    mode: repository
+    scanners: [opengrep, gitleaks, trivy-fs, trivy-image]
+    requiredScanners: [opengrep, gitleaks, trivy-fs, trivy-image]
+    requireImage: true
+    timeout: 60m
+    parallelism: 2
+    updateMode: locked

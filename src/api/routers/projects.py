@@ -5,7 +5,10 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from src.api.database import Project, Target, get_session
+from src.config import ConfigurationError
 from src.integrations.bitbucket_client import BitbucketClient, BitbucketError
+from src.util.dastgate import validate_dast_context, validate_dast_url
+from src.util.secretbox import encrypt_secret
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -21,7 +24,6 @@ class TargetCreate(BaseModel):
     name: str = ""
     url: str = Field(min_length=1)
     is_production: bool = False
-    pre_approved: bool = False
     auth_mode: str = "none"  # none | form | context_file
     login_url: str = ""
     username_field: str = ""
@@ -32,7 +34,6 @@ class TargetCreate(BaseModel):
 
 
 class TargetUpdate(BaseModel):
-    pre_approved: bool | None = None
     is_production: bool | None = None
     auth_mode: str | None = None
     login_url: str | None = None
@@ -95,7 +96,19 @@ def get_project(project_id: int, session: Session = Depends(get_session)):
 def create_target(project_id: int, body: TargetCreate, session: Session = Depends(get_session)):
     if not session.get(Project, project_id):
         raise HTTPException(404, "project not found")
-    target = Target(project_id=project_id, **body.model_dump())
+    try:
+        validate_dast_url(body.url)
+        if body.login_url:
+            validate_dast_url(body.login_url)
+        if body.context_file_path:
+            body.context_file_path = validate_dast_context(body.context_file_path)
+        password = encrypt_secret(body.auth_password)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except ConfigurationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    data = body.model_dump(exclude={"auth_password", "project_id"})
+    target = Target(project_id=project_id, auth_password=password, **data)
     session.add(target)
     session.commit()
     session.refresh(target)
@@ -107,7 +120,22 @@ def update_target(target_id: int, body: TargetUpdate, session: Session = Depends
     target = session.get(Target, target_id)
     if not target:
         raise HTTPException(404, "target not found")
-    for k, v in body.model_dump(exclude_unset=True).items():
+    data = body.model_dump(exclude_unset=True)
+    if "url" in data:
+        try:
+            validate_dast_url(data["url"])
+            if data.get("login_url"):
+                validate_dast_url(data["login_url"])
+            if data.get("context_file_path"):
+                data["context_file_path"] = validate_dast_context(data["context_file_path"])
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    if data.get("auth_password"):
+        try:
+            data["auth_password"] = encrypt_secret(data["auth_password"])
+        except ConfigurationError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    for k, v in data.items():
         setattr(target, k, v)
     session.add(target)
     session.commit()

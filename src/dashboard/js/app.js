@@ -7,6 +7,7 @@ const state = {
   scan: null,
   findings: [],
   sse: null,
+  pollTimer: null,
 };
 
 // ---------------------------------------------------------------- init
@@ -80,33 +81,58 @@ async function onProjectChange() {
 
 async function loadBranches() {
   const p = state.project;
-  const data = await get(`/api/bitbucket/${p.workspace}/${p.repo_slug}/branches`);
-  state.branches = data.branches;
   const sel = document.getElementById("branch-select");
-  sel.innerHTML = state.branches
-    .map((b) => `<option value="${esc(b.name)}">${esc(b.name)}</option>`)
-    .join("");
+  setLoading(sel, true);
+  try {
+    const data = await get(`/api/bitbucket/${p.workspace}/${p.repo_slug}/branches`);
+    state.branches = data.branches;
+    sel.innerHTML = state.branches
+      .map((b) => `<option value="${esc(b.name)}">${esc(b.name)}</option>`)
+      .join("");
+  } catch (e) {
+    toast(`Could not load branches: ${e.message}`, "error");
+    sel.innerHTML = '<option value="">-</option>';
+  } finally {
+    setLoading(sel, false);
+  }
 }
 
 async function loadPullRequests() {
   const p = state.project;
-  const data = await get(`/api/bitbucket/${p.workspace}/${p.repo_slug}/pullrequests`);
-  state.prs = data.pullrequests;
   const sel = document.getElementById("pr-select");
-  sel.innerHTML = state.prs.length
-    ? state.prs.map((pr) =>
-        `<option value="${pr.id}">#${pr.id} ${esc(pr.title || "")} (${esc(pr.source || "")})</option>`).join("")
-    : '<option value="">No open PRs</option>';
+  setLoading(sel, true);
+  try {
+    const data = await get(`/api/bitbucket/${p.workspace}/${p.repo_slug}/pullrequests`);
+    state.prs = data.pullrequests;
+    sel.innerHTML = state.prs.length
+      ? state.prs.map((pr) =>
+          `<option value="${pr.id}">#${pr.id} ${esc(pr.title || "")} (${esc(pr.source || "")})</option>`).join("")
+      : '<option value="">No open PRs</option>';
+  } catch (e) {
+    toast(`Could not load pull requests: ${e.message}`, "error");
+    sel.innerHTML = '<option value="">No open PRs</option>';
+  } finally {
+    setLoading(sel, false);
+  }
 }
 
 async function loadTargets() {
-  const data = await get(`/api/projects/${state.project.id}`);
-  state.targets = data.targets || [];
   const sel = document.getElementById("target-select");
-  sel.innerHTML = state.targets.length
-    ? state.targets.map((t) =>
-        `<option value="${t.id}">${esc(t.name || t.url)}${t.is_production ? " [PROD]" : ""}</option>`).join("")
-    : '<option value="">No targets configured</option>';
+  setLoading(sel, true);
+  try {
+    const data = await get(`/api/projects/${state.project.id}`);
+    state.targets = data.targets || [];
+    const scannable = state.targets.filter((t) => t.pre_approved);
+    sel.innerHTML = scannable.length
+      ? scannable.map((t) =>
+          `<option value="${t.id}">${esc(t.name || t.url)}${t.is_production ? " [PROD]" : ""}</option>`).join("")
+      : '<option value="">No approved targets — approve one first</option>';
+  } catch (e) {
+    toast(`Could not load targets: ${e.message}`, "error");
+    sel.innerHTML = '<option value="">No targets configured</option>';
+  } finally {
+    setLoading(sel, false);
+  }
 }
 
 // ---------------------------------------------------------------- config UI
@@ -133,6 +159,8 @@ function selectedEngines() {
   if (document.getElementById("eng-opengrep").checked) list.push("opengrep");
   if (document.getElementById("eng-trivy").checked) list.push("trivy");
   if (document.getElementById("eng-gitleaks").checked) list.push("gitleaks");
+  if (document.getElementById("eng-checkov").checked) list.push("checkov");
+  if (document.getElementById("eng-osv").checked) list.push("osv-scanner");
   return list;
 }
 
@@ -149,7 +177,6 @@ async function startScan() {
       ? document.getElementById("pr-select").value
       : document.getElementById("branch-select").value,
     language_override: document.getElementById("lang-override").value.trim(),
-    dast_confirmed: document.getElementById("dast-confirm").checked,
   };
   if (type === "sast") body.engines = selectedEngines().filter((e) => e !== "zap");
   if (type === "dast") body.dast_target = parseInt(document.getElementById("target-select").value, 10) || null;
@@ -219,6 +246,27 @@ function watchScan(scanId) {
     loadScans();
     loadFindings();
   });
+  src.onerror = () => {
+    // EventSource auto-retries; fall back to polling after a short grace period.
+    if (state.pollTimer) return;
+    state.pollTimer = setInterval(() => pollScan(scanId), 3000);
+  };
+}
+
+async function pollScan(scanId) {
+  let scan;
+  try {
+    scan = await get(`/api/scans/${scanId}`);
+  } catch (e) {
+    return;
+  }
+  if (scan && ["succeeded", "failed", "aborted"].includes(scan.status)) {
+    clearInterval(state.pollTimer);
+    state.pollTimer = null;
+    document.getElementById("progress-note").textContent = "Scan finished.";
+    loadScans();
+    loadFindings();
+  }
 }
 
 // ---------------------------------------------------------------- findings
@@ -228,16 +276,23 @@ async function loadFindings() {
   const st = document.getElementById("f-status").value;
   const sev = document.getElementById("f-severity").value;
   const pr = document.getElementById("f-pr").value;
+  const q = document.getElementById("f-q").value.trim();
   if (st) params.set("status", st);
   if (sev) params.set("severity", sev);
   if (pr !== "") params.set("pr_changed", pr);
+  if (q) params.set("q", q);
   let findings = [];
   const box = document.getElementById("findings-table");
   setLoading(box, true);
   try {
     findings = await get(`/api/findings?${params}`);
   } catch (e) {
-    findings = [];
+    toast(`Could not load findings: ${e.message}`, "error");
+    document.getElementById("findings-empty").textContent = "Results could not be loaded.";
+    document.getElementById("findings-empty").classList.remove("hidden");
+    state.findings = [];
+    renderFindings();
+    return;
   } finally {
     setLoading(box, false);
   }
@@ -265,10 +320,15 @@ function renderFindings() {
   }).join("");
 }
 
-function openFindingModal(id) {
-  const f = state.findings.find((x) => x.id === id);
-  if (!f) return;
-  showFindingModal(f, (status) => triage(id, status));
+async function openFindingModal(id) {
+  // The list endpoint omits evidence (it can be 8 KiB per finding); fetch the
+  // full record for the drill-down modal.
+  try {
+    const f = await get(`/api/findings/${id}`);
+    showFindingModal(f, (status) => triage(id, status));
+  } catch (e) {
+    toast(`Could not load finding: ${e.message}`, "error");
+  }
 }
 
 async function triage(id, status) {
@@ -284,21 +344,33 @@ async function triage(id, status) {
 // ---------------------------------------------------------------- reports
 async function generateScanReport() {
   if (!state.scan) return toast("Run a scan first", "error");
+  const btn = document.getElementById("report-scan");
+  setLoading(btn, true);
+  btn.disabled = true;
   try {
     const res = await post(`/api/reports/scan/${state.scan.id}`, {});
     window.open(res.file, "_blank");
   } catch (e) {
     toast(e.message, "error");
+  } finally {
+    setLoading(btn, false);
+    btn.disabled = false;
   }
 }
 
 async function generateProjectReport() {
   if (!state.project) return toast("Select a project first", "error");
+  const btn = document.getElementById("report-project");
+  setLoading(btn, true);
+  btn.disabled = true;
   try {
     const res = await post(`/api/reports/project/${state.project.id}`, { pr_only: false });
     window.open(res.file, "_blank");
   } catch (e) {
     toast(e.message, "error");
+  } finally {
+    setLoading(btn, false);
+    btn.disabled = false;
   }
 }
 

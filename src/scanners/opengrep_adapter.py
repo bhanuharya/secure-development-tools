@@ -205,16 +205,25 @@ def _rule_files(languages: list[str]) -> list[Path]:
     """
     pack = Path(os.getenv("SCP_RULES_PACK_DIR", str(RULES_PACK_DIR)))
     files: list[Path] = []
+
+    def is_rule_file(name: str) -> bool:
+        # Annotated test fixtures (*.test.*) and autofix fixtures
+        # (*.fixed.*) are never engine configs: a multi-doc test target
+        # passed as --config fails the whole run.
+        if ".test." in name or ".fixed." in name:
+            return False
+        return name.endswith(".yaml") or name.endswith(".yml")
+
     if pack.is_dir():
         for sub in ["common", *(languages or [])]:
             d = pack / sub
             if d.is_dir():
-                files.extend(sorted(d.glob("*.yaml")))
-                files.extend(sorted(d.glob("*.yml")))
+                files.extend(sorted(p for p in d.glob("*.yaml") if is_rule_file(p.name)))
+                files.extend(sorted(p for p in d.glob("*.yml") if is_rule_file(p.name)))
         vendor = pack / "vendor"
         if vendor.is_dir():
-            files.extend(sorted(vendor.glob("**/*.yaml")))
-            files.extend(sorted(vendor.glob("**/*.yml")))
+            files.extend(sorted(p for p in vendor.glob("**/*.yaml") if is_rule_file(p.name)))
+            files.extend(sorted(p for p in vendor.glob("**/*.yml") if is_rule_file(p.name)))
 
     seen: set[str] = set()
     out: list[Path] = []

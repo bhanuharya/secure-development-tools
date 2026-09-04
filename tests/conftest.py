@@ -11,17 +11,28 @@ os.environ["SCP_REPORT_DIR"] = str(_TMP / "reports")
 # Use the committed local rule pack so OpenGrep/Semgrep scans stay offline and
 # deterministic in tests.
 os.environ["SCP_RULES_DIR"] = str(Path(__file__).resolve().parent.parent / "rules")
+# DAST credential encryption key for tests (read at call time; tests may
+# override with monkeypatch to exercise the fail-closed path).
+os.environ.setdefault("SCP_SECRET_KEY", "test-fernet-passphrase")
 
 import src.api.database as db  # noqa: E402
-from src.api.database import Finding, Project, Scan, Target, engine, init_db  # noqa: E402
+from src.api.database import (  # noqa: E402
+    Finding,
+    Project,
+    Scan,
+    Target,
+    TargetAuditEvent,
+    engine,
+    init_db,
+)
 
 
 @pytest.fixture(autouse=True)
 def clean_db():
     init_db()
     with db.Session(engine) as session:
-        # truncate between tests for isolation
-        for table in (Finding, Scan, Target, Project):
+        # truncate between tests for isolation (children first for FK hygiene)
+        for table in (db.FindingAuditEvent, Finding, Scan, TargetAuditEvent, Target, Project):
             session.exec(table.__table__.delete())
         session.commit()
     yield
