@@ -57,7 +57,7 @@ func planTasksFull(cfg *config.ScanConfiguration, profile string, ctx *sdtctx.Sc
 			continue
 		}
 		app := a.Detect(root, facts.Languages)
-		if app.State == "not_applicable" {
+		if app.State != "applicable" {
 			skipped = append(skipped, plan.Skip{Adapter: id, Reason: app.Reason})
 			continue
 		}
@@ -153,6 +153,22 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 		return ExitInternalError, err
 	}
 
+	// Changed-scan merge-base guard: a "changed" profile without a resolved
+	// merge base has no defined changed set. Refuse the silent tree
+	// fallback here (fail closed); staged mode carries its own index scope.
+	if prof.Mode == "changed" && !ctx.Staged && ctx.MergeBase == "" {
+		msg := fmt.Sprintf("profile %q mode changed requires a merge base (--base or SDT_BASE resolving to a merge-base with --head); refusing unbounded fallback", g.Profile)
+		health, recs := skippedTaskRecords(skipped)
+		return finalize(cmd, cfg, p, runID, started, nil, nil, recs, health, map[string]string{}, "invalid_input", ExitInvalidInput, msg)
+	}
+
+	// Zero effective scanners: a scan that scans nothing must not pass.
+	if len(tasks) == 0 {
+		msg := fmt.Sprintf("profile %q produced zero effective scanners; refusing empty pass", g.Profile)
+		health, recs := skippedTaskRecords(skipped)
+		return finalize(cmd, cfg, p, runID, started, nil, nil, recs, health, map[string]string{}, "invalid_input", ExitInvalidInput, msg)
+	}
+
 	// Shallow-history guard (CTX-003).
 	if ctx.Shallow && (ctx.BaseRevision != "" || prof.Mode == "repository") {
 		switch prof.MissingHistory {
@@ -164,7 +180,8 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 		}
 	}
 
-	// Execute.
+	// Execute within the profile timeout (fail closed: an overrun run is
+	// inconclusive/execution_failed, never a silent pass).
 	parallelism := prof.Parallelism
 	if parallelism < 1 {
 		parallelism = 3
@@ -182,10 +199,17 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 		})
 	}
 	ectx, cancel := context.WithCancel(context.Background())
+	if d, ok := profileTimeout(prof.Timeout); ok {
+		var pcancel context.CancelFunc
+		ectx, pcancel = context.WithTimeout(ectx, d)
+		defer pcancel()
+	}
 	defer cancel()
 	results := execute.RunAll(ectx, execTasks, parallelism, func(s string) string { return report.Redact(s) })
 
-	// Parse + normalize.
+	// Parse + normalize. Execution health is authoritative: a timeout,
+	// cancellation, or exec/report error is never downgraded to completed
+	// by a lenient parser. Parse output only refines a clean execution.
 	var findings []*finding.Finding
 	health := map[string]string{}
 	taskRecords := []report.TaskRecord{}
@@ -193,20 +217,34 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 	n := 0
 	for _, r := range results {
 		a := adapters[r.Adapter]
-		health[r.Adapter] = string(r.Classify())
-		rec := report.TaskRecord{Adapter: r.Adapter, State: string(r.Classify()), NativeExit: r.NativeExit, DurationMS: r.Duration.Milliseconds()}
+		execHealth := string(r.Classify())
+		health[r.Adapter] = execHealth
+		rec := report.TaskRecord{Adapter: r.Adapter, State: execHealth, NativeExit: r.NativeExit, DurationMS: r.Duration.Milliseconds()}
+		if r.Err != nil {
+			diagnostics = append(diagnostics, fmt.Sprintf("%s execution error: %v", r.Adapter, r.Err))
+			rec.Diagnostic = truncateJoin([]string{r.Err.Error()}, 300)
+		}
 		if a == nil {
-			rec.Diagnostic = "no adapter"
+			if rec.Diagnostic == "" {
+				rec.Diagnostic = "no adapter"
+			}
 			taskRecords = append(taskRecords, rec)
 			continue
 		}
 		pr := a.Parse(toolVersions[r.Adapter], root, r.Stdout, r.StderrRedacted, r.NativeExit)
-		health[r.Adapter] = string(pr.Health)
-		rec.State = string(pr.Health)
-		diagnostics = append(diagnostics, pr.Diagnostics...)
-		if len(pr.Diagnostics) > 0 {
-			rec.Diagnostic = truncateJoin(pr.Diagnostics, 300)
+		if execHealth == string(scanner.HealthCompleted) {
+			health[r.Adapter] = string(pr.Health)
+			rec.State = string(pr.Health)
+		} else {
+			// Keep the execution verdict; still record parse diagnostics
+			// and any partial findings the tool managed to emit.
+			if len(pr.Diagnostics) > 0 && rec.Diagnostic == "" {
+				rec.Diagnostic = truncateJoin(pr.Diagnostics, 300)
+			} else if len(pr.Diagnostics) > 0 {
+				rec.Diagnostic = truncateJoin([]string{rec.Diagnostic + "; " + truncateJoin(pr.Diagnostics, 200)}, 300)
+			}
 		}
+		diagnostics = append(diagnostics, pr.Diagnostics...)
 		taskRecords = append(taskRecords, rec)
 		for _, f := range pr.Findings {
 			n++
@@ -302,10 +340,18 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 		return finalize(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, "invalid_input", ExitInvalidInput, err.Error())
 	}
 	bl.Apply(findings)
-	applyExceptions(cfg, findings, time.Now())
+	if err := applyExceptions(cfg, findings, time.Now()); err != nil {
+		return finalize(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, "invalid_input", ExitInvalidInput, err.Error())
+	}
+
+	// Policy sees only unsuppressed findings: validated exceptions scope
+	// suppression before evaluation so an approved exception can never
+	// still block, and an unapproved finding can never be silently dropped
+	// from reports (suppressed items remain in artifacts with markers).
+	active := unsuppressed(findings)
 
 	// Policy.
-	out := policy.Evaluate(cfg, findings)
+	out := policy.Evaluate(cfg, active)
 	status := out.Status
 	exitCode := ExitPassed
 	if status == "policy_failed" {
@@ -315,35 +361,56 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 	return finalizeOutcome(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, out, status, exitCode, extra)
 }
 
-func applyExceptions(cfg *config.ScanConfiguration, findings []*finding.Finding, nowTime time.Time) {
+func applyExceptions(cfg *config.ScanConfiguration, findings []*finding.Finding, nowTime time.Time) error {
 	path := cfg.Exceptions.File
 	if path == "" {
-		return
+		return nil
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read exceptions %s: %w", path, err)
 	}
 	var doc struct {
 		Exceptions []baseline.Exception `yaml:"exceptions"`
 	}
-	// Support both {exceptions: [...]} and bare list.
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		return
-	}
+	// Support both {exceptions: [...]} and bare list. A file that parses
+	// as neither is malformed: fail closed rather than scanning as if no
+	// exceptions were requested.
 	var list []baseline.Exception
-	if len(doc.Exceptions) > 0 {
+	if derr := yaml.Unmarshal(raw, &doc); derr == nil && len(doc.Exceptions) > 0 {
 		list = doc.Exceptions
 	} else {
-		_ = yaml.Unmarshal(raw, &list)
-	}
-	for _, e := range list {
-		expired, err := baseline.ValidateException(e, nowTime)
-		if err != nil || expired {
-			continue
+		var bare []baseline.Exception
+		if berr := yaml.Unmarshal(raw, &bare); berr != nil {
+			first := ""
+			if derr != nil {
+				first = derr.Error()
+			} else {
+				first = "no exceptions list found"
+			}
+			return fmt.Errorf("parse exceptions %s: %s / %v", path, first, berr)
 		}
-		if len(e.Fingerprints) == 0 {
-			continue // broad path/rule exceptions recorded but only fingerprint suppresses for now
+		list = bare
+	}
+	seen := map[string]bool{}
+	for _, e := range list {
+		if e.ID != "" {
+			if seen[e.ID] {
+				return fmt.Errorf("invalid exception %q: duplicate id", e.ID)
+			}
+			seen[e.ID] = true
+		}
+		expired, verr := baseline.ValidateException(e, nowTime)
+		if verr != nil {
+			// Malformed exception entry: fail closed so a typo'd
+			// suppression is never mistaken for "no exceptions".
+			return fmt.Errorf("invalid exception %q: %w", e.ID, verr)
+		}
+		if expired {
+			continue
 		}
 		for _, f := range findings {
 			if e.Matches(f) {
@@ -354,22 +421,29 @@ func applyExceptions(cfg *config.ScanConfiguration, findings []*finding.Finding,
 			}
 		}
 	}
-	// Remove suppressed findings from policy consideration by marking existing?
-	// Policy still sees them; suppress action handled by caller filtering.
-	_ = list
+	return nil
+}
+
+// unsuppressed returns findings without an approved suppression for policy
+// evaluation. Suppressed items stay in artifacts with markers; they just
+// cannot block.
+func unsuppressed(findings []*finding.Finding) []*finding.Finding {
+	out := make([]*finding.Finding, 0, len(findings))
+	for _, f := range findings {
+		if f.Suppression == nil {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // finalizeOutcome writes all artifacts then returns the exit code.
+// findings includes suppressed items (with markers) for audit; the policy
+// outcome passed in was already evaluated over unsuppressed findings only.
 func finalizeOutcome(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.Plan, runID string, started time.Time, findings []*finding.Finding, diagnostics []string, taskRecords []report.TaskRecord, health map[string]string, toolVersions map[string]string, out policy.Outcome, status string, exitCode int, extra []extraArtifact) (int, error) {
-	// Filter suppressed findings out of blocking consideration.
-	active := findings[:0]
-	for _, f := range findings {
-		if f.Suppression == nil {
-			active = append(active, f)
-		}
+	if err := writeArtifacts(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, out, status, exitCode, extra); err != nil {
+		return ExitInternalError, &ExitError{Code: ExitInternalError, Msg: fmt.Sprintf("sdt: artifact finalization failed: %v", err)}
 	}
-	_ = active
-	writeArtifacts(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, out, status, exitCode, extra)
 	fmt.Fprint(cmd.OutOrStdout(), report.Summary(status, findings, out, health))
 	if exitCode == ExitPassed {
 		return exitCode, nil
@@ -380,7 +454,9 @@ func finalizeOutcome(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.
 func finalize(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.Plan, runID string, started time.Time, findings []*finding.Finding, diagnostics []string, taskRecords []report.TaskRecord, health map[string]string, toolVersions map[string]string, status string, exitCode int, msg string) (int, error) {
 	out := policy.Outcome{Status: status, Trace: []policy.TraceEntry{}}
 	diagnostics = append(diagnostics, msg)
-	writeArtifacts(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, out, status, exitCode, nil)
+	if err := writeArtifacts(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, out, status, exitCode, nil); err != nil {
+		return ExitInternalError, &ExitError{Code: ExitInternalError, Msg: fmt.Sprintf("sdt: artifact finalization failed: %v", err)}
+	}
 	fmt.Fprint(cmd.OutOrStdout(), report.Summary(status, findings, out, health))
 	fmt.Fprintln(cmd.ErrOrStderr(), "sdt: "+msg)
 	return exitCode, &ExitError{Code: exitCode, Msg: "sdt: " + status}
@@ -390,7 +466,7 @@ func finalizeEmpty(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.Pl
 	return finalize(cmd, cfg, p, runID, started, nil, nil, nil, map[string]string{}, map[string]string{}, status, ExitInconclusive, msg)
 }
 
-func writeArtifacts(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.Plan, runID string, started time.Time, findings []*finding.Finding, diagnostics []string, taskRecords []report.TaskRecord, health map[string]string, toolVersions map[string]string, out policy.Outcome, status string, exitCode int, extra []extraArtifact) {
+func writeArtifacts(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.Plan, runID string, started time.Time, findings []*finding.Finding, diagnostics []string, taskRecords []report.TaskRecord, health map[string]string, toolVersions map[string]string, out policy.Outcome, status string, exitCode int, extra []extraArtifact) error {
 	if findings == nil {
 		findings = []*finding.Finding{}
 	}
@@ -398,8 +474,12 @@ func writeArtifacts(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.P
 	if outDir == "" {
 		outDir = "reports"
 	}
-	_ = os.MkdirAll(outDir, 0o755)
-	_ = os.MkdirAll(cfg.Runtime.CacheDirectory, 0o755)
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return fmt.Errorf("create output dir %s: %w", outDir, err)
+	}
+	if err := os.MkdirAll(cfg.Runtime.CacheDirectory, 0o755); err != nil {
+		return fmt.Errorf("create cache dir %s: %w", cfg.Runtime.CacheDirectory, err)
+	}
 
 	canonical := report.CanonicalReport{
 		SchemaVersion: "secure-dev/report/v1alpha1",
@@ -476,28 +556,40 @@ func writeArtifacts(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.P
 		}{e.name, e.data, e.media, e.schema})
 	}
 	var recs []report.ArtifactRec
+	var firstErr error
 	for _, a := range artifacts {
 		full := filepath.Join(outDir, a.name)
 		st := "generated"
 		if err := report.WriteAtomic(full, a.data, 0o644); err != nil {
 			st = "failed: " + err.Error()
-			fmt.Fprintln(cmd.ErrOrStderr(), "warning: "+st)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("write %s: %w", a.name, err)
+			}
 		}
 		recs = append(recs, report.ArtifactRec{Path: a.name, MediaType: a.media, Schema: a.schema, Checksum: report.Checksum(a.data), Status: st})
 	}
 	// Summary artifact.
 	summary := report.Summary(status, findings, out, health)
 	sumPath := filepath.Join(outDir, "summary.txt")
-	if err := report.WriteAtomic(sumPath, []byte(summary), 0o644); err == nil {
+	if err := report.WriteAtomic(sumPath, []byte(summary), 0o644); err != nil {
+		if firstErr == nil {
+			firstErr = fmt.Errorf("write summary.txt: %w", err)
+		}
+		recs = append(recs, report.ArtifactRec{Path: "summary.txt", MediaType: "text/plain", Checksum: report.Checksum([]byte(summary)), Status: "failed: " + err.Error()})
+	} else {
 		recs = append(recs, report.ArtifactRec{Path: "summary.txt", MediaType: "text/plain", Checksum: report.Checksum([]byte(summary)), Status: "generated"})
 	}
 	manifest.Artifacts = recs
 	mJSON, _ := json.MarshalIndent(manifest, "", "  ")
 	mPath := filepath.Join(outDir, "run-manifest.json")
 	if err := report.WriteAtomic(mPath, append(mJSON, '\n'), 0o644); err != nil {
-		fmt.Fprintln(cmd.ErrOrStderr(), "warning: manifest write failed: "+err.Error())
+		if firstErr == nil {
+			firstErr = fmt.Errorf("write run-manifest.json: %w", err)
+		}
+		return firstErr
 	}
 	_ = diagnostics
+	return firstErr
 }
 
 func wantsFormat(cfg *config.ScanConfiguration, name string) bool {
@@ -544,4 +636,30 @@ func truncateJoin(ss []string, n int) string {
 		}
 	}
 	return out
+}
+
+// skippedTaskRecords renders capability skips as health + task records so
+// fail-closed early exits still report what was (not) planned.
+func skippedTaskRecords(skipped []plan.Skip) (map[string]string, []report.TaskRecord) {
+	health := map[string]string{}
+	var recs []report.TaskRecord
+	for _, s := range skipped {
+		health[s.Adapter] = "skipped: " + s.Reason
+		recs = append(recs, report.TaskRecord{Adapter: s.Adapter, State: "skipped", Diagnostic: s.Reason})
+	}
+	return health, recs
+}
+
+// profileTimeout parses a profile timeout string ("15m", "45m", "60m").
+// Empty means the caller intentionally has no profile-specific override; an
+// invalid value receives a conservative enforced default as defense in depth.
+func profileTimeout(s string) (time.Duration, bool) {
+	if s == "" {
+		return 0, false
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil || d <= 0 {
+		return 45 * time.Minute, true
+	}
+	return d, true
 }

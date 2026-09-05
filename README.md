@@ -48,8 +48,9 @@ chmod +x ~/.local/bin/opengrep
 
 Gitleaks history modes: `pr`/`changed` profiles scan the explicit
 `base..head` commit range, `full`/`release` scan `--all` history, and a
-missing base visibly falls back to current-tree (`--no-git`). Shallow
-clones follow the profile `missingHistory` policy (`fail`/`warn`).
+missing or unresolvable base fails closed rather than silently widening to a
+current-tree scan. Shallow clones follow the profile `missingHistory` policy
+(`fail`/`warn`).
 
 SAST depth: 147 pinned rules (hand-written + curated semgrep-rules subsets
 for Python, JS/TS, Go, Kotlin, Java, C, Rust, K8s/GitHub-Actions YAML, AWS

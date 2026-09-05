@@ -5,7 +5,7 @@ package policy
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
+	"encoding/json"
 
 	"github.com/bhanuharya/secure-development-tools/internal/config"
 	"github.com/bhanuharya/secure-development-tools/internal/finding"
@@ -79,14 +79,18 @@ func applyRules(cfg *config.ScanConfiguration, f *finding.Finding) (string, stri
 	return cfg.Policy.DefaultActionOr("report"), ""
 }
 
-// Digest is the stable policy digest.
+// Digest is the stable policy digest over complete policy inputs
+// (default action, required-scanner behavior, and every rule with its full
+// match clause and action). Any policy change alters the digest.
 func Digest(cfg *config.ScanConfiguration) string {
-	h := sha256.New()
-	fmt.Fprintf(h, "%s|%s|", cfg.Policy.DefaultAction, cfg.Policy.BehaviorOnRequiredScannerError)
-	for _, r := range cfg.Policy.Rules {
-		fmt.Fprintf(h, "%s=%s;", r.ID, r.Action)
+	raw, err := json.Marshal(cfg.Policy)
+	if err != nil {
+		h := sha256.New()
+		h.Write([]byte(cfg.Policy.DefaultAction + "|" + cfg.Policy.BehaviorOnRequiredScannerError))
+		return "sha256:" + hex.EncodeToString(h.Sum(nil))
 	}
-	return "sha256:" + hex.EncodeToString(h.Sum(nil))
+	h := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(h[:])
 }
 
 func matchRule(r config.PolicyRule, f *finding.Finding) bool {

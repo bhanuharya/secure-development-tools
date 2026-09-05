@@ -43,6 +43,10 @@ RULES_DIR = Path(os.getenv("SCP_RULES_DIR", PROJECT_ROOT / "rules"))
 
 for _d in (DATA_DIR, SCAN_WORK_DIR, REPORT_DIR, RULES_DIR):
     _d.mkdir(parents=True, exist_ok=True)
+try:
+    os.chmod(SCAN_WORK_DIR, 0o700)
+except OSError:
+    pass
 
 DATABASE_URL = os.getenv("SCP_DATABASE_URL", f"sqlite:///{DATA_DIR / 'controlplane.db'}")
 

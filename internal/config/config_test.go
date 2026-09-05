@@ -1,12 +1,27 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"testing"
 )
 
+// policyDigestLocal mirrors internal/policy.Digest (JSON over the full
+// policy section) without creating an import cycle in tests.
+func policyDigestLocal(cfg *ScanConfiguration) string {
+	raw, err := json.Marshal(cfg.Policy)
+	if err != nil {
+		h := sha256.Sum256([]byte(cfg.Policy.DefaultAction))
+		return "sha256:" + hex.EncodeToString(h[:])
+	}
+	h := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(h[:])
+}
+
 func TestParseValid(t *testing.T) {
-	raw := []byte("apiVersion: secure-dev/v1alpha1\nkind: ScanConfiguration\nmetadata:\n  name: t\nprofiles:\n  pr:\n    mode: changed\n    scanners: [gitleaks]\n")
+	raw := []byte("apiVersion: secure-dev/v1alpha1\nkind: ScanConfiguration\nmetadata:\n  name: t\nprofiles:\n  pr:\n    mode: changed\n    scanners: [gitleaks]\n    requiredScanners: [gitleaks]\n")
 	cfg, digest, err := Parse(raw, "test")
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +85,8 @@ func TestMergeOverlaysPublishAndAI(t *testing.T) {
 
 func TestEnvOverlayNeverTouchesPolicy(t *testing.T) {
 	cfg := Defaults()
-	before := EffectiveDigest(cfg)
+	beforeEffective := EffectiveDigest(cfg)
+	beforePolicy := policyDigestLocal(cfg)
 	ApplyEnvOverlay(cfg, func(k string) string {
 		if k == "SDT_OUTPUT_DIR" {
 			return "out-x"
@@ -80,7 +96,12 @@ func TestEnvOverlayNeverTouchesPolicy(t *testing.T) {
 	if cfg.Outputs.Directory != "out-x" {
 		t.Fatal("output overlay not applied")
 	}
-	if EffectiveDigest(cfg) != before {
+	// Neutral runtime overlays change the effective config digest but must
+	// never change the policy digest.
+	if EffectiveDigest(cfg) == beforeEffective {
+		t.Fatal("effective digest must reflect the output overlay")
+	}
+	if policyDigestLocal(cfg) != beforePolicy {
 		t.Fatal("policy digest must not change via env overlay")
 	}
 }

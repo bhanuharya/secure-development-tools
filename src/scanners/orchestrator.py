@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import subprocess
 from collections import Counter
@@ -91,13 +92,15 @@ class ScanRunner:
             if self._mark(scan_id, status="succeeded", finished=True):
                 event_bus.publish(scan_id, "scan_status", {"status": "succeeded"})
         except Exception as exc:  # noqa: BLE001
-            error = _sanitize_reason(str(exc))[:500]
+            error = redact_text(_sanitize_reason(str(exc))[:500])
             # Persist, publish, and log the same sanitized diagnostic. A raw
             # traceback would reintroduce absolute workspace paths via the
             # exception text, defeating the API/event redaction below.
             log.error("scan %s failed: %s", scan_id, error)
             if self._mark(scan_id, status="failed", error=error, finished=True):
                 event_bus.publish(scan_id, "scan_status", {"status": "failed", "error": error})
+        finally:
+            _cleanup_scan_workdir(scan)
 
     def _execute(self, session: Session, scan: _ScanSnapshot) -> bool:
         project = _project_of(session, scan.project_id)
@@ -110,12 +113,23 @@ class ScanRunner:
         engines = _resolve_engines(scan)
         # Re-read the approval and the complete target configuration immediately
         # before starting ZAP. This closes the queued-scan revocation window.
+        # The bound digest pins an immutable validated snapshot; scope/DNS is
+        # revalidated here so a re-pointed host or credential-bearing URL can
+        # never launch even with a stale approval.
         if scan.scan_type == "dast":
+            from src.util.dastgate import validate_dast_url
+
             target = session.get(Target, int(scan.dast_target or 0))
             if (not target or not target.pre_approved or
                     (target.is_production and not target.production_confirmed) or
                     _target_digest(target) != scan.dast_target_digest):
                 raise RuntimeError("DAST target approval or configuration was revoked")
+            try:
+                validate_dast_url(target.url)
+                if target.login_url:
+                    validate_dast_url(target.login_url)
+            except ValueError as exc:
+                raise RuntimeError(f"DAST target scope revoked: {exc}") from exc
         # Uploaded archives and local folders don't touch Bitbucket at all, so
         # skip instantiating the client (which requires a token).
         staged = scan.ref_type in ("upload", "folder")
@@ -149,9 +163,38 @@ class ScanRunner:
             workdir = SCAN_WORK_DIR / f"p{project_id}-s{scan.id}"
             if workdir.exists():
                 shutil.rmtree(workdir, ignore_errors=True)
-            ref = scan.commit_sha or scan.ref_name
+            # git clone creates the destination itself; only ensure the
+            # parent work root exists (0700) then harden the checkout after.
+            try:
+                import os as _os
+
+                SCAN_WORK_DIR.mkdir(parents=True, exist_ok=True)
+                _os.chmod(SCAN_WORK_DIR, 0o700)
+            except OSError:
+                pass
+            ref = scan.commit_sha
+            if scan.ref_type == "branch":
+                if bb is None:
+                    raise RuntimeError("Bitbucket client unavailable for branch scan")
+                ref = bb.branch_head_sha(workspace, repo_slug, scan.ref_name)
+                if not re.fullmatch(r"[0-9a-fA-F]{40}", ref or ""):
+                    raise RuntimeError("Bitbucket returned an invalid branch head SHA")
+                live_scan = session.get(Scan, scan.id)
+                if live_scan is None:
+                    return False
+                live_scan.commit_sha = ref
+                session.add(live_scan)
+                session.commit()
+            if not ref:
+                ref = scan.ref_name
             event_bus.publish(scan.id, "clone", {"status": "running"})
             bb.clone_repo(workspace, repo_slug, ref, str(workdir))
+            try:
+                import os as _os
+
+                _os.chmod(workdir, 0o700)
+            except OSError:
+                pass
             event_bus.publish(scan.id, "clone", {"status": "done"})
 
         lang_override = scan.language_override
@@ -190,7 +233,7 @@ class ScanRunner:
                     found = fut.result()
                 except ScannerError as exc:
                     state = "unavailable" if exc.kind == "unavailable" else "failed"
-                    reason = _sanitize_reason(exc.message)
+                    reason = redact_text(_sanitize_reason(exc.message))
                     engine_states[eng] = _eng_state(state, reason=reason, kind=exc.kind)
                     event_bus.publish(
                         scan.id, "engine_status",
@@ -205,7 +248,7 @@ class ScanRunner:
                     engine_failure = True
                     continue
                 except Exception as exc:  # noqa: BLE001
-                    reason = _sanitize_reason(f"{eng} failed: {str(exc)[:200]}")
+                    reason = redact_text(_sanitize_reason(f"{eng} failed: {str(exc)[:200]}"))
                     log.warning(reason)
                     engine_states[eng] = _eng_state("failed", reason=reason, kind="execution")
                     event_bus.publish(scan.id, "engine_status", {"engine": eng, "state": "failed", "reason": reason, "kind": "execution"})
@@ -213,7 +256,7 @@ class ScanRunner:
                     continue
                 findings.extend(found)
                 completed.add(eng)
-                degraded_reason = getattr(scanner, "degraded_reason", "")
+                degraded_reason = redact_text(getattr(scanner, "degraded_reason", "") or "")
                 engine_states[eng] = _eng_state(
                     "done",
                     findings=len(found),
@@ -273,7 +316,13 @@ class ScanRunner:
             return False
         counts: Counter = Counter()
         for rf in findings:
+            # Every untrusted scanner-controlled field is redacted before it
+            # is persisted or emitted: snippets, descriptions, remediation,
+            # references/URLs (inside raw/evidence), and file paths.
             safe_snippet = redact_text(rf.snippet, rf.redaction_tokens)
+            safe_description = redact_text(rf.description, rf.redaction_tokens)
+            safe_remediation = redact_text(rf.remediation, rf.redaction_tokens)
+            safe_path = redact_text(rf.file_path, rf.redaction_tokens)
             # Normalize severity at ingest so filtering and severity-ranked
             # ordering never miss a scanner reporting "HIGH" or an odd label.
             severity = (rf.severity or "").strip().lower()
@@ -287,14 +336,14 @@ class ScanRunner:
                 rule_id=rf.rule_id,
                 severity=severity,
                 cwe=rf.cwe,
-                file_path=rf.file_path,
+                file_path=safe_path,
                 line_start=rf.line_start,
                 line_end=rf.line_end,
                 snippet=safe_snippet,
-                description=rf.description,
-                remediation=rf.remediation,
+                description=safe_description,
+                remediation=safe_remediation,
                 fingerprint=fingerprint(
-                    rf.tool, rf.rule_id, rf.file_path, rf.line_start, safe_snippet
+                    rf.tool, rf.rule_id, safe_path, rf.line_start, safe_snippet
                 ),
                 status="new",
                 in_pr_diff=getattr(rf, "in_pr_diff", False),
@@ -346,6 +395,17 @@ class ScanRunner:
 
 
 # ------------------------------------------------------------------ helpers
+def _cleanup_scan_workdir(scan: _ScanSnapshot) -> None:
+    if scan.ref_type not in ("upload", "folder", "branch", "pr"):
+        return
+    workdir = SCAN_WORK_DIR / f"p{scan.project_id}-s{scan.id}"
+    try:
+        if workdir.exists():
+            shutil.rmtree(workdir)
+    except OSError:
+        log.warning("unable to remove scan workdir for scan %s", scan.id)
+
+
 def _snapshot(scan: Scan) -> _ScanSnapshot:
     if scan.id is None:
         raise ValueError("scan must be persisted before execution")

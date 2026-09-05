@@ -51,8 +51,9 @@ func (a *TrivyFSAdapter) Parse(toolVersion string, root string, stdout []byte, s
 	if nativeExit != 0 {
 		return ParseResult{Health: HealthFailed, Diagnostics: []string{fmt.Sprintf("trivy exited %d: %s", nativeExit, truncate(stderrRedacted, 300))}}
 	}
+	// A missing/empty native report is a failure, never a silent zero-finding pass.
 	if len(stdout) == 0 {
-		return ParseResult{Health: HealthCompleted}
+		return ParseResult{Health: HealthMalformed, Diagnostics: []string{"trivy produced no native report (missing/empty output)"}}
 	}
 	var data struct {
 		SchemaVersion int    `json:"SchemaVersion"`

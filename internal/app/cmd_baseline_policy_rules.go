@@ -159,8 +159,9 @@ func newRulesCmd() *cobra.Command {
 			}
 			// Manifest enforcement: expected counts, per-file and bundle hashes.
 			cwd, _ := os.Getwd()
-			manifestProblems := []string{"manifest missing: rules/manifest.yaml"}
-			if m, err := rules.LoadManifest("rules/manifest.yaml"); err != nil {
+			manifestPath := rules.RuleManifestPath()
+			manifestProblems := []string{"manifest missing: " + manifestPath}
+			if m, err := rules.LoadManifest(manifestPath); err != nil {
 				fmt.Fprintln(cmd.ErrOrStderr(), "warning: "+err.Error())
 			} else {
 				manifestProblems = rules.EnforceManifest(cwd, files, m)

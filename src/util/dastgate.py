@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 import socket
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -27,19 +28,101 @@ def allowed_hosts() -> tuple[str, ...]:
 
 def _host_matches(host: str, pattern: str) -> bool:
     if pattern.startswith("*."):
-        suffix = pattern[1:]  # ".example.com"
-        return host.endswith(suffix) and len(host) > len(suffix)
+        suffix = pattern[2:]
+        suffix_with_dot = "." + suffix
+        # The documented wildcard is exactly one additional label, not an
+        # arbitrary-depth descendant wildcard.
+        return (
+            bool(suffix)
+            and host.endswith(suffix_with_dot)
+            and host.count(".") == suffix.count(".") + 1
+        )
     return host == pattern
+
+
+# Credential material must never ride in a DAST URL query/fragment (it would
+# persist in the DB, logs, and ZAP scope). Match key=value pairs for common
+# credential names.
+_CREDENTIAL_QUERY_RE = re.compile(
+    r"(?i)(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|auth|session|"
+    r"sessionid|access[_-]?token|client[_-]?secret)\s*="
+)
+
+AUTH_MODES = ("none", "form", "context_file")
+
+
+def validate_auth_mode(mode: str) -> str:
+    """Validate the ZAP authentication mode."""
+    if mode not in AUTH_MODES:
+        raise ValueError(f"auth_mode must be one of {list(AUTH_MODES)}")
+    return mode
+
+
+def validate_dast_auth_fields(
+    auth_mode: str,
+    login_url: str = "",
+    context_file_path: str = "",
+    username_field: str = "username",
+    password_field: str = "password",
+) -> None:
+    """Validate login_url/context_file_path coherence for an auth mode.
+
+    form requires a validated login_url; context_file requires a validated
+    context path; none forbids both so credentials cannot linger on an
+    allegedly unauthenticated target.
+    """
+    validate_auth_mode(auth_mode)
+    if auth_mode == "form":
+        if not login_url:
+            raise ValueError("login_url is required when auth_mode=form")
+        if not username_field or not password_field:
+            raise ValueError("username_field and password_field are required when auth_mode=form")
+        validate_dast_url(login_url)
+    elif auth_mode == "context_file":
+        if not context_file_path:
+            raise ValueError("context_file_path is required when auth_mode=context_file")
+    else:  # none
+        if login_url:
+            raise ValueError("login_url must be empty when auth_mode=none")
+        if context_file_path:
+            raise ValueError("context_file_path must be empty when auth_mode=none")
+
+
+def require_dast_control_auth() -> None:
+    """Fail closed when DAST is requested on an unauthenticated service.
+
+    Active DAST is an attack primitive: it must never be operable on a
+    control plane without authentication (HTTP Basic or API token).
+    """
+    from src.api.security import auth_enabled
+
+    try:
+        enabled = auth_enabled()
+    except Exception as exc:
+        raise ValueError(f"misconfigured auth: {exc}") from exc
+    if not enabled:
+        raise ValueError(
+            "DAST requires control-plane authentication: set SCP_AUTH_USER/SCP_AUTH_PASS or SCP_API_TOKEN"
+        )
 
 
 def validate_dast_url(url: str) -> str:
     """Validate a DAST target URL against the allowlist; return its hostname.
 
+    Rejects URL userinfo (credentials in the authority) and credential-bearing
+    query/fragment material, then enforces the host allowlist and DNS safety.
     Raises ``ValueError`` with an operator-friendly message on any violation.
     """
+    if not url or not isinstance(url, str):
+        raise ValueError("target URL must be an absolute http(s) URL")
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise ValueError(f"target URL must be an absolute http(s) URL: {url!r}")
+    if parts.username or parts.password or "@" in (parts.netloc or ""):
+        raise ValueError("target URL must not contain userinfo/credentials")
+    haystack = f"{parts.query or ''}\n{parts.fragment or ''}"
+    if haystack.strip() and _CREDENTIAL_QUERY_RE.search(haystack):
+        raise ValueError("target URL must not carry credentials in query/fragment")
     host = parts.hostname.lower()
     patterns = allowed_hosts()
     if not patterns or not any(_host_matches(host, p) for p in patterns):

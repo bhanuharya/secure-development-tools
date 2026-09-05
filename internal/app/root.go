@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -102,16 +104,19 @@ func effectiveConfig() (*config.ScanConfiguration, string, string, []string, err
 		warns := config.ApplyEnvOverlay(base, os.Getenv)
 		return base, "", config.EffectiveDigest(base), warns, nil
 	}
-	parsed, digest, err := config.Parse(raw, path)
+	parsed, _, err := config.Parse(raw, path)
 	if err != nil {
 		return nil, "", "", nil, &ExitError{Code: ExitInvalidInput, Msg: err.Error()}
 	}
 	merged := config.Merge(base, parsed)
 	warns := config.ApplyEnvOverlay(merged, os.Getenv)
-	return merged, path, digest, warns, nil
+	return merged, path, config.EffectiveDigest(merged), warns, nil
 }
 
 // ScanRoot resolves the repository root for scanning (project.root or CWD).
+// The resolved root must exist, must resolve inside the authorized checkout
+// (the git top-level containing CWD, or CWD itself outside git), and must
+// not escape via symlinks. Anything else fails closed.
 func ScanRoot(cfg *config.ScanConfiguration) (string, error) {
 	root, err := os.Getwd()
 	if err != nil {
@@ -128,7 +133,22 @@ func ScanRoot(cfg *config.ScanConfiguration) (string, error) {
 	if err != nil {
 		return "", &ExitError{Code: ExitInvalidInput, Msg: fmt.Sprintf("bad project root: %v", err)}
 	}
-	return abs, nil
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", &ExitError{Code: ExitInvalidInput, Msg: fmt.Sprintf("bad project root %q: %v", root, err)}
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || !info.IsDir() {
+		return "", &ExitError{Code: ExitInvalidInput, Msg: fmt.Sprintf("project root %q is not a directory", root)}
+	}
+	anchor, err := checkoutAnchor()
+	if err != nil {
+		return "", &ExitError{Code: ExitInternalError, Msg: err.Error()}
+	}
+	if resolved != anchor && !isWithin(resolved, anchor) {
+		return "", &ExitError{Code: ExitInvalidInput, Msg: fmt.Sprintf("project root %q escapes the authorized checkout %q", root, anchor)}
+	}
+	return resolved, nil
 }
 
 // resolveContext builds the neutral context from globals.
@@ -160,6 +180,36 @@ func newRunID() string {
 
 func failf(code int, format string, args ...any) error {
 	return &ExitError{Code: code, Msg: fmt.Sprintf(format, args...)}
+}
+
+// checkoutAnchor returns the authorized checkout root: the git top-level
+// containing CWD when inside a repository, otherwise CWD itself (symlinks
+// resolved). Scan roots outside this anchor are refused.
+func checkoutAnchor() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		resolved, rerr := filepath.EvalSymlinks(cwd)
+		if rerr != nil {
+			return cwd, nil
+		}
+		return resolved, nil
+	}
+	top := strings.TrimSpace(string(out))
+	if top == "" {
+		return cwd, nil
+	}
+	if resolved, rerr := filepath.EvalSymlinks(top); rerr == nil {
+		return resolved, nil
+	}
+	return top, nil
+}
+
+func isWithin(candidate, anchor string) bool {
+	return candidate == anchor || strings.HasPrefix(candidate, anchor+string(filepath.Separator))
 }
 
 var _ = version.CLI

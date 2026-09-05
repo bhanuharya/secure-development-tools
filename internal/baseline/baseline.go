@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/bhanuharya/secure-development-tools/internal/finding"
@@ -102,9 +104,16 @@ func Create(path string, findings []*finding.Finding, configDigest, revision str
 }
 
 // ValidateException enforces owner/reason/expiry; expired never suppresses.
+// Every entry requires a stable id and at least one suppression scope
+// (fingerprints, rules, or paths); scope-only entries are valid and matched
+// by Matches, never silently ignored.
 func ValidateException(e Exception, now time.Time) (expired bool, err error) {
 	if e.Reason == "" || e.Owner == "" || e.ExpiresAt == "" {
-		return false, fmt.Errorf("exception %q requires reason, owner, expiresAt", e.ID)
+		id := e.ID
+		if id == "" {
+			id = "(missing id)"
+		}
+		return false, fmt.Errorf("exception %q requires reason, owner, expiresAt", id)
 	}
 	exp, err := time.Parse("2006-01-02", e.ExpiresAt)
 	if err != nil {
@@ -113,15 +122,61 @@ func ValidateException(e Exception, now time.Time) (expired bool, err error) {
 	if !exp.After(now) {
 		return true, nil
 	}
+	if e.ID == "" {
+		return false, fmt.Errorf("exception requires id")
+	}
+	if len(e.Fingerprints) == 0 && len(e.Rules) == 0 && len(e.Paths) == 0 {
+		return false, fmt.Errorf("exception %q requires at least one scope: fingerprints, rules, or paths", e.ID)
+	}
 	return false, nil
 }
 
 // Matches reports whether an exception covers a finding.
+// Fingerprint, rule, and path scopes are unioned: any configured scope that
+// matches suppresses. Path patterns match the finding's repo-relative
+// location (exact, directory-prefix "dir/*", or path.Match glob).
 func (e Exception) Matches(f *finding.Finding) bool {
 	for _, fp := range e.Fingerprints {
-		if fp == f.Fingerprint.Value {
+		if fp != "" && fp == f.Fingerprint.Value {
 			return true
 		}
+	}
+	for _, r := range e.Rules {
+		if r != "" && r == f.Rule.ID {
+			return true
+		}
+	}
+	if len(e.Paths) > 0 {
+		loc := ""
+		if f.Location != nil {
+			loc = f.Location.Path
+		}
+		if loc == "" && f.Artifact != nil {
+			loc = f.Artifact.Target
+		}
+		for _, p := range e.Paths {
+			if matchExceptionPath(p, loc) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func matchExceptionPath(pattern, loc string) bool {
+	if pattern == "" || loc == "" {
+		return false
+	}
+	p := path.Clean(strings.TrimSpace(pattern))
+	l := path.Clean(strings.TrimSpace(loc))
+	if p == l {
+		return true
+	}
+	if strings.HasSuffix(p, "/*") && strings.HasPrefix(l, strings.TrimSuffix(p, "*")) {
+		return true
+	}
+	if ok, err := path.Match(p, l); err == nil && ok {
+		return true
 	}
 	return false
 }

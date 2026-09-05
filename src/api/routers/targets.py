@@ -14,6 +14,7 @@ from sqlmodel import Session, select
 
 from src.api.database import Target, TargetAuditEvent, get_session, utcnow
 from src.api.routers.projects import _mask
+from src.util.dastgate import require_dast_control_auth
 
 router = APIRouter(prefix="/api/targets", tags=["targets"])
 
@@ -27,6 +28,10 @@ class ApproveRequest(BaseModel):
 @router.post("/{target_id}/approve")
 def approve_target(target_id: int, body: ApproveRequest, session: Session = Depends(get_session)):
     """Mark a target as approved for active scanning (audited)."""
+    try:
+        require_dast_control_auth()
+    except ValueError as exc:
+        raise HTTPException(403, str(exc)) from exc
     target = session.get(Target, target_id)
     if not target:
         raise HTTPException(404, "target not found")
@@ -56,6 +61,10 @@ def approve_target(target_id: int, body: ApproveRequest, session: Session = Depe
 @router.post("/{target_id}/revoke")
 def revoke_target(target_id: int, body: ApproveRequest, session: Session = Depends(get_session)):
     """Withdraw approval; pending/new scans of this target will be refused."""
+    try:
+        require_dast_control_auth()
+    except ValueError as exc:
+        raise HTTPException(403, str(exc)) from exc
     target = session.get(Target, target_id)
     if not target:
         raise HTTPException(404, "target not found")
@@ -76,6 +85,10 @@ def revoke_target(target_id: int, body: ApproveRequest, session: Session = Depen
 
 @router.get("/{target_id}/audit")
 def target_audit(target_id: int, session: Session = Depends(get_session)):
+    try:
+        require_dast_control_auth()
+    except ValueError as exc:
+        raise HTTPException(403, str(exc)) from exc
     if not session.get(Target, target_id):
         raise HTTPException(404, "target not found")
     return session.exec(

@@ -26,6 +26,15 @@ function esc(s) {
 
 function sevClass(s) { return ["critical", "high", "medium", "low", "info"].includes(s) ? s : "info"; }
 
+// Only http(s) findings references become links: scanner-controlled URLs
+// with javascript:/data: schemes must render as inert text, never as
+// clickable links.
+function safeRefHref(r) {
+  const s = String(r ?? "").trim();
+  if (/^https?:\/\//i.test(s)) return s;
+  return "";
+}
+
 function setLoading(el, on) {
   if (!el) return;
   el.classList.toggle("loading", !!on);
@@ -130,7 +139,7 @@ function showFindingModal(f, triageFn) {
       ${f.description ? `<div class="explain-block"><div class="explain-label">// what is this</div><p class="modal-desc">${esc(f.description)}</p></div>` : ""}
       ${renderEvidence(f)}
       ${f.remediation ? `<div class="explain-block"><div class="explain-label">// how to fix</div><p>${esc(f.remediation)}</p></div>` : ""}
-      ${refs.length ? `<div class="explain-block"><div class="explain-label">// references</div><ul class="ref-list">${refs.map((r) => `<li><a href="${esc(r)}" target="_blank" rel="noopener noreferrer">${esc(r)}</a></li>`).join("")}</ul></div>` : ""}
+      ${refs.length ? `<div class="explain-block"><div class="explain-label">// references</div><ul class="ref-list">${refs.map((r) => { const h = safeRefHref(r); return h ? `<li><a href="${esc(h)}" target="_blank" rel="noopener noreferrer">${esc(r)}</a></li>` : `<li>${esc(r)}</li>`; }).join("")}</ul></div>` : ""}
       <div class="triage">
         <button onclick="triageModal(this, 'triaged')">triaged</button>
         <button onclick="triageModal(this, 'fixed')">fixed</button>

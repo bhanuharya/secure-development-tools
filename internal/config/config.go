@@ -11,11 +11,12 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -236,7 +237,7 @@ func LoadFile(path string) (*ScanConfiguration, string, error) {
 	return Parse(raw, path)
 }
 
-// Parse strictly decodes YAML: unknown top-level keys fail.
+// Parse strictly decodes YAML: unknown keys fail at every nesting level.
 func Parse(raw []byte, source string) (*ScanConfiguration, string, error) {
 	var node yaml.Node
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
@@ -257,6 +258,15 @@ func Parse(raw []byte, source string) (*ScanConfiguration, string, error) {
 			}
 		}
 	}
+	// Nested unknown keys fail closed: strict struct decoding rejects any
+	// field the typed model does not declare (a typo'd control must never
+	// silently fall back to a default).
+	strict := yaml.NewDecoder(bytes.NewReader(raw))
+	strict.KnownFields(true)
+	var strictCfg ScanConfiguration
+	if err := strict.Decode(&strictCfg); err != nil {
+		return nil, "", fmt.Errorf("parse %s: %w (strict schema; see schemas/config-v1alpha1.json)", source, err)
+	}
 	var cfg ScanConfiguration
 	if err := node.Decode(&cfg); err != nil {
 		return nil, "", fmt.Errorf("decode %s: %w", source, err)
@@ -275,9 +285,28 @@ func Parse(raw []byte, source string) (*ScanConfiguration, string, error) {
 }
 
 // Validate checks semantic constraints (no shell-capable fields exist by construction).
+// Every assurance-relevant control fails closed: unknown scanners, empty
+// scanner sets, invalid policy actions, unrecognized match dimensions, and
+// unsupported weakening controls are all rejected here rather than silently
+// defaulted at runtime.
 func Validate(cfg *ScanConfiguration) error {
 	if len(cfg.Profiles) == 0 {
 		return fmt.Errorf("config must define at least one profile")
+	}
+	if len(cfg.Extends) > 0 {
+		return fmt.Errorf("extends is not supported until inherited configuration provenance is verified")
+	}
+	// Project scope controls have no supported filtering semantics yet:
+	// only the default full-tree scope is accepted. Anything else fails
+	// closed rather than silently scanning a different scope.
+	if len(cfg.Project.Include) > 0 && !(len(cfg.Project.Include) == 1 && cfg.Project.Include[0] == "**") {
+		return fmt.Errorf("project.include %q unsupported (only default [\"**\"] scans the full tree)", cfg.Project.Include)
+	}
+	if len(cfg.Project.Exclude) > 0 {
+		return fmt.Errorf("project.exclude %q unsupported (exclusions are not implemented; refusing narrowed scope)", cfg.Project.Exclude)
+	}
+	if scannerConfigPresent(cfg.Scanners) {
+		return fmt.Errorf("scanner-level configuration is not supported; refusing silently ignored assurance controls")
 	}
 	for name, p := range cfg.Profiles {
 		if p.Mode != "" && p.Mode != "changed" && p.Mode != "repository" {
@@ -293,6 +322,61 @@ func Validate(cfg *ScanConfiguration) error {
 				return fmt.Errorf("profile %q: unknown scanner %q", name, s)
 			}
 		}
+		if len(p.Scanners) == 0 {
+			return fmt.Errorf("profile %q: no effective scanners (a scan that scans nothing must not pass)", name)
+		}
+		if len(p.RequiredScanners) == 0 {
+			return fmt.Errorf("profile %q: requiredScanners must not be empty", name)
+		}
+		for _, required := range p.RequiredScanners {
+			found := false
+			for _, selected := range p.Scanners {
+				if required == selected {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("profile %q: required scanner %q is not selected", name, required)
+			}
+		}
+		for _, selected := range p.Scanners {
+			found := false
+			for _, required := range p.RequiredScanners {
+				if selected == required {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("profile %q: selected scanner %q must be required until optional health semantics are implemented", name, selected)
+			}
+		}
+		if len(p.PolicyOverlay) > 0 {
+			return fmt.Errorf("profile %q: policyOverlay is not supported; refusing an unimplemented policy override", name)
+		}
+		if p.Timeout != "" {
+			if d, err := time.ParseDuration(p.Timeout); err != nil || d <= 0 {
+				return fmt.Errorf("profile %q: invalid timeout %q (want a positive Go duration like \"15m\")", name, p.Timeout)
+			}
+		}
+	}
+	if cfg.Policy.DefaultAction != "" {
+		switch cfg.Policy.DefaultAction {
+		case "fail", "warn", "report":
+		default:
+			return fmt.Errorf("policy: invalid defaultAction %q (want fail|warn|report)", cfg.Policy.DefaultAction)
+		}
+	}
+	if len(cfg.Policy.Rules) > 0 && cfg.Policy.DefaultAction == "" {
+		return fmt.Errorf("policy: defaultAction is required when policy rules are provided")
+	}
+	if cfg.Policy.BehaviorOnRequiredScannerError != "" {
+		switch cfg.Policy.BehaviorOnRequiredScannerError {
+		case "fail", "inconclusive":
+		default:
+			return fmt.Errorf("policy: invalid behaviorOnRequiredScannerError %q (want fail|inconclusive)", cfg.Policy.BehaviorOnRequiredScannerError)
+		}
 	}
 	for _, r := range cfg.Policy.Rules {
 		if r.ID == "" {
@@ -303,6 +387,51 @@ func Validate(cfg *ScanConfiguration) error {
 		default:
 			return fmt.Errorf("policy rule %q: invalid action %q", r.ID, r.Action)
 		}
+		for _, c := range r.Match.Categories {
+			switch c {
+			case "sast", "secret", "dependency-vulnerability", "image-vulnerability", "misconfiguration":
+			default:
+				return fmt.Errorf("policy rule %q: unknown category %q", r.ID, c)
+			}
+		}
+		for _, s := range r.Match.Severities {
+			switch s {
+			case "critical", "high", "medium", "low", "info", "unknown":
+			default:
+				return fmt.Errorf("policy rule %q: unknown severity %q", r.ID, s)
+			}
+		}
+		for _, s := range r.Match.BaselineStates {
+			switch s {
+			case "new", "existing", "resolved-reference", "unknown":
+			default:
+				return fmt.Errorf("policy rule %q: unknown baselineState %q", r.ID, s)
+			}
+		}
+		for _, v := range r.Match.Reachable {
+			switch v {
+			case "reachable", "unreachable":
+			default:
+				return fmt.Errorf("policy rule %q: unknown reachable %q (want reachable|unreachable)", r.ID, v)
+			}
+		}
+	}
+	// Assurance-sensitive controls with no supported weakening semantics.
+	if cfg.AI.SendSecretFindings {
+		return fmt.Errorf("ai.sendSecretFindings is unsupported: secret findings must never leave the local boundary")
+	}
+	if cfg.AI.Mode != "" && cfg.AI.Mode != "explain-only" {
+		return fmt.Errorf("ai.mode %q unsupported (want explain-only)", cfg.AI.Mode)
+	}
+	if cfg.Publish.Enabled {
+		switch cfg.Publish.Provider {
+		case "", "auto", "github", "gitlab", "bitbucket":
+		default:
+			return fmt.Errorf("publish.provider %q unsupported (want auto|github|gitlab|bitbucket)", cfg.Publish.Provider)
+		}
+	}
+	if cfg.Baseline.OnIncompatibleFingerprintVersion != "" && cfg.Baseline.OnIncompatibleFingerprintVersion != "fail" {
+		return fmt.Errorf("baseline.onIncompatibleFingerprintVersion %q unsupported (want fail)", cfg.Baseline.OnIncompatibleFingerprintVersion)
 	}
 	return nil
 }
@@ -342,8 +471,14 @@ func Merge(base, over *ScanConfiguration) *ScanConfiguration {
 	if !scannersEmpty(over.Scanners) {
 		out.Scanners = over.Scanners
 	}
-	if over.Policy.DefaultAction != "" || len(over.Policy.Rules) > 0 || over.Policy.BehaviorOnRequiredScannerError != "" {
-		out.Policy = over.Policy
+	if over.Policy.DefaultAction != "" {
+		out.Policy.DefaultAction = over.Policy.DefaultAction
+	}
+	if over.Policy.BehaviorOnRequiredScannerError != "" {
+		out.Policy.BehaviorOnRequiredScannerError = over.Policy.BehaviorOnRequiredScannerError
+	}
+	if len(over.Policy.Rules) > 0 {
+		out.Policy.Rules = over.Policy.Rules
 	}
 	if over.Baseline.File != "" || over.Baseline.OnIncompatibleFingerprintVersion != "" || over.Baseline.ReportResolved {
 		out.Baseline = over.Baseline
@@ -391,6 +526,13 @@ func scannersEmpty(s Scanners) bool {
 		s.Gitleaks.Type == "" && s.TrivyFS.Type == "" && s.TrivyImage.Type == ""
 }
 
+func scannerConfigPresent(s Scanners) bool {
+	return s.Opengrep.Type != "" || len(s.Opengrep.Rules.Bundles) > 0 || len(s.Opengrep.Rules.Paths) > 0 || len(s.Opengrep.Exclude) > 0 || s.Opengrep.Timeout != "" ||
+		s.Gitleaks.Type != "" || len(s.Gitleaks.History) > 0 || s.Gitleaks.Redact != "" || s.Gitleaks.Config != "" || s.Gitleaks.Timeout != "" ||
+		s.TrivyFS.Type != "" || len(s.TrivyFS.Scanners) > 0 || len(s.TrivyFS.Severities) > 0 || s.TrivyFS.IgnoreUnfixed || s.TrivyFS.Timeout != "" ||
+		s.TrivyImage.Type != "" || len(s.TrivyImage.Scanners) > 0 || len(s.TrivyImage.Severities) > 0 || s.TrivyImage.IgnoreUnfixed || s.TrivyImage.Timeout != ""
+}
+
 // ApplyEnvOverlay applies allowed SDT_* neutral overrides (PRD layer 5).
 // Only runtime/context values; never policy thresholds.
 func ApplyEnvOverlay(cfg *ScanConfiguration, getenv func(string) string) []string {
@@ -421,22 +563,16 @@ func Digest(b []byte) string {
 	return "sha256:" + hex.EncodeToString(h[:])
 }
 
-// EffectiveDigest digests the merged effective config deterministically.
+// EffectiveDigest digests the complete merged effective config
+// deterministically. encoding/json sorts map keys, so the digest is stable
+// for identical inputs and sensitive to every effective field (profiles,
+// scanners, policy, baseline, exceptions, outputs, runtime, publish, AI).
 func EffectiveDigest(cfg *ScanConfiguration) string {
-	var keys []string
-	for k := range cfg.Profiles {
-		keys = append(keys, k)
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		// Fallback: digest the API identity so a marshal failure can never
+		// yield an empty or colliding digest.
+		return Digest([]byte(cfg.APIVersion + "/" + cfg.Kind + "/" + cfg.Metadata.Name))
 	}
-	sort.Strings(keys)
-	var sb strings.Builder
-	sb.WriteString(cfg.APIVersion + "/" + cfg.Kind + "/" + cfg.Metadata.Name + "|")
-	for _, k := range keys {
-		p := cfg.Profiles[k]
-		sb.WriteString(k + "=" + p.Mode + "," + strings.Join(p.Scanners, "+") + "," + p.Timeout + ";")
-	}
-	sb.WriteString("|policy=" + cfg.Policy.DefaultAction + "/" + cfg.Policy.BehaviorOnRequiredScannerError)
-	for _, r := range cfg.Policy.Rules {
-		sb.WriteString(";" + r.ID + ":" + r.Action)
-	}
-	return Digest([]byte(sb.String()))
+	return Digest(raw)
 }

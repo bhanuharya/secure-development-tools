@@ -15,6 +15,7 @@ from src.api.database import Project, Scan, Target, engine, get_session
 from src.api.events import event_bus, sse_format
 from src.scanners.executor import ScanCapacityError, get_executor
 from src.scanners.orchestrator import ALL_ENGINES, ScanRunner
+from src.util.dastgate import require_dast_control_auth, validate_dast_url
 
 
 def _target_digest(target: Target) -> str:
@@ -74,6 +75,10 @@ def create_scan(body: ScanCreate, session: Session = Depends(get_session)):
     # target is a separate, audited action (POST /api/targets/{id}/approve).
     dast_target_id = body.dast_target
     if body.scan_type == "dast":
+        try:
+            require_dast_control_auth()
+        except ValueError as exc:
+            raise HTTPException(403, str(exc)) from exc
         if dast_target_id is None:
             raise HTTPException(400, "dast scans require a configured target")
         target = session.get(Target, dast_target_id)
@@ -91,6 +96,15 @@ def create_scan(body: ScanCreate, session: Session = Depends(get_session)):
                 "target is production: approval with production_ack=true is "
                 "required before scanning",
             )
+        # Revalidate scope/DNS at request time against the immutable
+        # snapshot bound to this scan: a stale approval never launches
+        # against a re-pointed or credential-bearing URL.
+        try:
+            validate_dast_url(target.url)
+            if target.login_url:
+                validate_dast_url(target.login_url)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     scan = Scan(
         project_id=body.project_id,

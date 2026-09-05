@@ -52,6 +52,12 @@ def _allow_test_dast_hosts(monkeypatch):
     )
 
 
+def _dast_auth(monkeypatch):
+    """Enable control-plane auth for DAST endpoints (required)."""
+    monkeypatch.setenv("SCP_API_TOKEN", "test-dast-token")
+    return {"Authorization": "Bearer test-dast-token"}
+
+
 def test_upload_repo_scan_rejects_non_zip(client):
     resp = client.post("/api/uploads/scan", files={"file": ("repo.txt", b"not a zip", "text/plain")})
     assert resp.status_code == 400
@@ -184,8 +190,9 @@ def test_upload_repo_scan_preset_full(client, monkeypatch):
 def test_direct_dast_register_does_not_launch(client, monkeypatch):
     """Registration alone must never create or start a scan."""
     _allow_test_dast_hosts(monkeypatch)
+    headers = _dast_auth(monkeypatch)
     calls = _noop_runner(monkeypatch)
-    resp = client.post("/api/uploads/dast", json={"url": "https://staging.example.com"})
+    resp = client.post("/api/uploads/dast", json={"url": "https://staging.example.com"}, headers=headers)
     assert resp.status_code == 200, resp.text
     target = resp.json()
     assert "next_step" in target
@@ -196,6 +203,7 @@ def test_direct_dast_register_does_not_launch(client, monkeypatch):
 
 def test_direct_dast_register_approve_scan_flow(client, monkeypatch):
     _allow_test_dast_hosts(monkeypatch)
+    headers = _dast_auth(monkeypatch)
     calls = _noop_runner(monkeypatch)
     resp = client.post("/api/uploads/dast", json={
         "name": "Staging portal",
@@ -206,22 +214,26 @@ def test_direct_dast_register_approve_scan_flow(client, monkeypatch):
         "password_field": "password",
         "auth_username": "alice",
         "auth_password": "s3cr3t",
-    })
+    }, headers=headers)
     assert resp.status_code == 200, resp.text
     target = resp.json()
 
     # scan before approval -> refused
     resp = client.post("/api/scans", json={
         "project_id": target["project_id"], "scan_type": "dast", "dast_target": target["id"],
-    })
+    }, headers=headers)
     assert resp.status_code == 400
 
-    resp = client.post(f"/api/targets/{target['id']}/approve", json={"reason": "test"})
+    resp = client.post(
+        f"/api/targets/{target['id']}/approve",
+        json={"reason": "test", "production_ack": True},
+        headers=headers,
+    )
     assert resp.status_code == 200, resp.text
 
     resp = client.post("/api/scans", json={
         "project_id": target["project_id"], "scan_type": "dast", "dast_target": target["id"],
-    })
+    }, headers=headers)
     assert resp.status_code == 200, resp.text
     scan = resp.json()
     assert scan["scan_type"] == "dast"
@@ -244,10 +256,12 @@ def test_direct_dast_register_approve_scan_flow(client, monkeypatch):
 
 def test_dast_password_requires_secret_key(client, monkeypatch):
     _allow_test_dast_hosts(monkeypatch)
+    headers = _dast_auth(monkeypatch)
     monkeypatch.delenv("SCP_SECRET_KEY", raising=False)
     resp = client.post("/api/uploads/dast", json={
-        "url": "https://staging.example.com", "auth_mode": "form", "auth_password": "s3cr3t",
-    })
+        "url": "https://staging.example.com", "auth_mode": "form",
+        "login_url": "https://staging.example.com/login", "auth_password": "s3cr3t",
+    }, headers=headers)
     assert resp.status_code == 400
     assert "SCP_SECRET_KEY" in resp.json()["detail"]
 
@@ -259,23 +273,27 @@ def test_dast_url_allowlist(client, monkeypatch):
         "getaddrinfo",
         lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))],
     )
-    ok = client.post("/api/uploads/dast", json={"url": "https://app.internal.corp/login?next=/"})
+    headers = _dast_auth(monkeypatch)
+    ok = client.post("/api/uploads/dast", json={"url": "https://app.internal.corp/login?next=/"}, headers=headers)
     assert ok.status_code == 200, ok.text
-    exact = client.post("/api/uploads/dast", json={"url": "https://staging.example.com"})
+    exact = client.post("/api/uploads/dast", json={"url": "https://staging.example.com"}, headers=headers)
     assert exact.status_code == 200
-    denied = client.post("/api/uploads/dast", json={"url": "https://payments.example.org"})
+    denied = client.post("/api/uploads/dast", json={"url": "https://payments.example.org"}, headers=headers)
     assert denied.status_code == 400
     assert "SCP_DAST_ALLOWED_HOSTS" in denied.json()["detail"]
     # wildcard covers subdomains but not the bare apex or deeper tricks
-    apex = client.post("/api/uploads/dast", json={"url": "https://internal.corp"})
+    apex = client.post("/api/uploads/dast", json={"url": "https://internal.corp"}, headers=headers)
     assert apex.status_code == 400
-    scheme = client.post("/api/uploads/dast", json={"url": "ftp://staging.example.com"})
+    scheme = client.post("/api/uploads/dast", json={"url": "ftp://staging.example.com"}, headers=headers)
     assert scheme.status_code == 400
 
 
 def test_dast_upload_scan_runs_without_staged_repo(client, monkeypatch):
     """DAST scans use ref_type='upload' but must NOT require a staged ZIP (.ready)."""
     from src.scanners.orchestrator import ScanRunner
+
+    _allow_test_dast_hosts(monkeypatch)
+    _dast_auth(monkeypatch)
 
     class FakeZap:
         def available(self):

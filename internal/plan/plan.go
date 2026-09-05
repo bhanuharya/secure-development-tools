@@ -10,6 +10,7 @@ import (
 
 	"github.com/bhanuharya/secure-development-tools/internal/config"
 	sdtctx "github.com/bhanuharya/secure-development-tools/internal/context"
+	"github.com/bhanuharya/secure-development-tools/internal/policy"
 )
 
 const SchemaVersion = "secure-dev/plan/v1alpha1"
@@ -80,6 +81,7 @@ func Build(cfg *config.ScanConfiguration, profileName string, ctx *sdtctx.ScanCo
 		Mode:          mode,
 		ContextDigest: ctx.Digest(),
 		ConfigDigest:  config.EffectiveDigest(cfg),
+		PolicyDigest:  policy.Digest(cfg),
 		Tasks:         tasks,
 		Skipped:       skipped,
 		Outputs:       outputs,
@@ -88,8 +90,6 @@ func Build(cfg *config.ScanConfiguration, profileName string, ctx *sdtctx.ScanCo
 	}
 	p.PlanID = p.computeDigest()
 	p.PlanDigest = p.PlanID
-	// Policy digest: reuse config digest slice for correlation.
-	p.PolicyDigest = config.EffectiveDigest(cfg)
 	return p, nil
 }
 
@@ -100,10 +100,11 @@ func (p *Plan) computeDigest() string {
 		Mode    string   `json:"mode"`
 		Ctx     string   `json:"ctx"`
 		Cfg     string   `json:"cfg"`
+		Pol     string   `json:"pol"`
 		Tasks   []Task   `json:"tasks"`
 		Skip    []Skip   `json:"skip"`
 		Out     []string `json:"out"`
-	}{p.SchemaVersion, p.Profile, p.Mode, p.ContextDigest, p.ConfigDigest, p.Tasks, p.Skipped, p.Outputs})
+	}{p.SchemaVersion, p.Profile, p.Mode, p.ContextDigest, p.ConfigDigest, p.PolicyDigest, p.Tasks, p.Skipped, p.Outputs})
 	h := sha256.Sum256(canonical)
 	return "sha256:" + hex.EncodeToString(h[:])
 }

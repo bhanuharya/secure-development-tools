@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -49,16 +50,17 @@ const (
 )
 
 // RunAll executes tasks with max parallelism; one failure never erases others.
+// Results are returned in input task order (deterministic) regardless of
+// completion order.
 func RunAll(ctx context.Context, tasks []Task, parallelism int, redact func(string) string) []Result {
 	if parallelism < 1 {
 		parallelism = 1
 	}
 	sem := make(chan struct{}, parallelism)
-	var mu sync.Mutex
-	results := make([]Result, 0, len(tasks))
+	results := make([]Result, len(tasks))
 	var wg sync.WaitGroup
-	for _, t := range tasks {
-		t := t
+	for i, t := range tasks {
+		i, t := i, t
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -66,15 +68,10 @@ func RunAll(ctx context.Context, tasks []Task, parallelism int, redact func(stri
 			case sem <- struct{}{}:
 				defer func() { <-sem }()
 			case <-ctx.Done():
-				mu.Lock()
-				results = append(results, Result{Adapter: t.Adapter, Err: ctx.Err()})
-				mu.Unlock()
+				results[i] = Result{Adapter: t.Adapter, Err: ctx.Err()}
 				return
 			}
-			r := RunOne(ctx, t, redact)
-			mu.Lock()
-			results = append(results, r)
-			mu.Unlock()
+			results[i] = RunOne(ctx, t, redact)
 		}()
 	}
 	wg.Wait()
@@ -101,9 +98,23 @@ func RunOne(ctx context.Context, t Task, redact func(string) string) Result {
 	err := cmd.Run()
 	dur := time.Since(start)
 	r := Result{Adapter: t.Adapter, Duration: dur}
+	r.Stdout = stdout.Bytes()
+	if redact != nil {
+		r.StderrRedacted = redact(stderr.String())
+	} else {
+		r.StderrRedacted = stderr.String()
+	}
+	// Timeout/cancellation is authoritative: never lose it beneath a later
+	// parse or exit-code check. Preserve partial output for diagnostics.
 	if cctx.Err() == context.DeadlineExceeded {
 		r.TimedOut = true
 		r.Err = fmt.Errorf("%s timed out after %s", t.Adapter, timeout)
+		return r
+	}
+	if ctx.Err() != nil {
+		// Parent cancellation (e.g. profile timeout): authoritative even
+		// when the child already exited. Never report completed.
+		r.Err = fmt.Errorf("%s cancelled: %w", t.Adapter, ctx.Err())
 		return r
 	}
 	if err != nil {
@@ -114,16 +125,23 @@ func RunOne(ctx context.Context, t Task, redact func(string) string) Result {
 			r.Err = err
 		}
 	}
-	r.Stdout = stdout.Bytes()
+	// Native report contract: adapters that declare a ReportPath must
+	// produce a non-empty machine-output file. The file is authoritative:
+	// a missing/empty report is an execution failure even when the tool
+	// also wrote stdout (stdout never promotes it back to success).
 	if t.ReportPath != "" {
-		if data, err := readFile(t.ReportPath); err == nil {
+		data, rerr := readFile(t.ReportPath)
+		if rerr != nil {
+			if r.Err == nil {
+				r.Err = fmt.Errorf("%s: missing native report %s: %v", t.Adapter, t.ReportPath, rerr)
+			}
+		} else if len(data) == 0 {
+			if r.Err == nil {
+				r.Err = fmt.Errorf("%s: empty native report %s", t.Adapter, t.ReportPath)
+			}
+		} else {
 			r.Stdout = data
 		}
-	}
-	if redact != nil {
-		r.StderrRedacted = redact(stderr.String())
-	} else {
-		r.StderrRedacted = stderr.String()
 	}
 	return r
 }
@@ -134,6 +152,11 @@ func (r Result) Classify() Health {
 		return HealthTimeout
 	}
 	if r.Err != nil {
+		// A missing/empty native report is a hard failure: preserved
+		// stdout is diagnostic only and never softens it to partial.
+		if strings.Contains(r.Err.Error(), "native report") {
+			return HealthFailed
+		}
 		if r.NativeExit == 0 && len(r.Stdout) > 0 {
 			return HealthPartial
 		}

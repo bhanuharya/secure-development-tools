@@ -58,9 +58,27 @@ func LoadManifest(path string) (*Manifest, error) {
 	return &m, nil
 }
 
+// RulePackDir is the configured OpenGrep rule directory. Relative paths are
+// resolved by the caller's working directory, matching scanner behavior.
+func RulePackDir() string {
+	if pack := os.Getenv("SDT_RULES_PACK_DIR"); pack != "" {
+		return pack
+	}
+	return "rules/opengrep-rules"
+}
+
+// RuleManifestPath returns the manifest adjacent to the configured rule pack.
+func RuleManifestPath() string {
+	pack := RulePackDir()
+	if filepath.Base(filepath.Clean(pack)) == "opengrep-rules" {
+		return filepath.Join(filepath.Dir(pack), "manifest.yaml")
+	}
+	return filepath.Join(pack, "manifest.yaml")
+}
+
 // RuleRoots are the scanned rule trees.
 func RuleRoots() []string {
-	return []string{"rules/opengrep-rules", ".secure-dev/rules"}
+	return []string{RulePackDir(), ".secure-dev/rules"}
 }
 
 // DiscoverRuleFiles returns sorted rule yamls under roots, excluding
@@ -114,7 +132,16 @@ func CountRules(files []string) (total int, invalid []string) {
 // manifest path_prefixes, matched against rules/opengrep-rules/<prefix>).
 // Matching is CWD-independent: any file path with that infix qualifies.
 func CountRulesIn(files []string, prefix string) int {
-	needle := "rules/opengrep-rules/" + prefix
+	packRoot := RulePackDir()
+	count := countRulesInRoot(files, packRoot, prefix)
+	if count > 0 || os.Getenv("SDT_RULES_PACK_DIR") != "" || packRoot != "rules/opengrep-rules" {
+		return count
+	}
+	return countRulesInCanonical(files, prefix)
+}
+
+func countRulesInCanonical(files []string, prefix string) int {
+	needle := "rules/opengrep-rules/" + strings.Trim(filepath.ToSlash(prefix), "/")
 	n := 0
 	for _, f := range files {
 		slashed := filepath.ToSlash(f)
@@ -137,6 +164,32 @@ func CountRulesIn(files []string, prefix string) int {
 			continue
 		}
 		n += len(doc.Rules)
+	}
+	return n
+}
+
+func countRulesInRoot(files []string, packRoot, prefix string) int {
+	prefix = strings.Trim(filepath.ToSlash(prefix), "/")
+	n := 0
+	for _, f := range files {
+		rel, err := filepath.Rel(packRoot, f)
+		if err != nil {
+			continue
+		}
+		rel = filepath.ToSlash(rel)
+		if rel != prefix && !strings.HasPrefix(rel, prefix+"/") {
+			continue
+		}
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		var doc struct {
+			Rules []any `yaml:"rules"`
+		}
+		if err := yaml.Unmarshal(raw, &doc); err == nil {
+			n += len(doc.Rules)
+		}
 	}
 	return n
 }
@@ -295,12 +348,15 @@ func FindTests(ruleFile string) []string {
 // It returns human-readable problems (empty = clean).
 func EnforceManifest(repoRoot string, files []string, m *Manifest) []string {
 	var problems []string
-	packRoot := filepath.Join(repoRoot, "rules", "opengrep-rules")
+	packRoot := RulePackDir()
+	if !filepath.IsAbs(packRoot) {
+		packRoot = filepath.Join(repoRoot, packRoot)
+	}
 	for _, s := range m.Sources {
 		// Count across all prefixes of this source.
 		total := 0
 		for _, prefix := range s.PathPrefixes {
-			total += CountRulesIn(files, prefix)
+			total += countRulesInRoot(files, packRoot, prefix)
 		}
 		if s.ExpectedRuleCount != 0 && total != s.ExpectedRuleCount {
 			problems = append(problems, fmt.Sprintf("source %q: want %d rules, found %d", s.ID, s.ExpectedRuleCount, total))

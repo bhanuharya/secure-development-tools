@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 import shutil
 import uuid
 import zipfile
@@ -24,7 +25,13 @@ from src.config import (
 from src.integrations.bitbucket_client import safe_slug
 from src.api.routers.projects import _mask
 from src.scanners.executor import ScanCapacityError, get_executor
-from src.util.dastgate import validate_dast_context, validate_dast_url
+from src.util.dastgate import (
+    require_dast_control_auth,
+    validate_auth_mode,
+    validate_dast_auth_fields,
+    validate_dast_context,
+    validate_dast_url,
+)
 from src.util.secretbox import encrypt_secret
 from src.scanners.orchestrator import ALL_ENGINES, ScanRunner
 
@@ -116,6 +123,10 @@ def _plan_extraction(zf: zipfile.ZipFile) -> list[tuple[zipfile.ZipInfo, str]]:
     members = zf.infolist()
     if not members:
         raise HTTPException(400, "zip archive is empty")
+    # Cap total entries (files + dirs + anything else) so a directory-flood
+    # cannot bypass the file cap and exhaust memory/time.
+    if len(members) > MAX_FILES:
+        raise HTTPException(413, f"archive has too many entries (max {MAX_FILES})")
 
     # reject unsafe names first
     for m in members:
@@ -238,7 +249,11 @@ async def upload_repo_scan(
     workdir = SCAN_WORK_DIR / f"p{project.id}-s{scan.id}"
     if workdir.exists():
         shutil.rmtree(workdir, ignore_errors=True)
-    workdir.mkdir(parents=True, exist_ok=True)
+    workdir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.chmod(workdir, 0o700)
+    except OSError:
+        pass
     try:
         _extract_zip(raw, workdir)
     except Exception:
@@ -263,7 +278,8 @@ async def upload_repo_scan(
 class DirectDastCreate(BaseModel):
     name: str = ""
     url: str = Field(min_length=1)
-    is_production: bool = False
+    # Unknown targets default to production (fail closed).
+    is_production: bool = True
     auth_mode: str = "none"  # none | form | context_file
     login_url: str = ""
     username_field: str = "username"
@@ -283,7 +299,24 @@ def create_direct_dast(body: DirectDastCreate, session: Session = Depends(get_se
     itself is requested through ``POST /api/scans``.
     """
     try:
+        require_dast_control_auth()
+    except ValueError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    if body.is_production is False:
+        raise HTTPException(
+            400,
+            "is_production cannot be lowered by the caller; targets require trusted operator classification",
+        )
+    try:
         validate_dast_url(body.url)
+        validate_auth_mode(body.auth_mode)
+        validate_dast_auth_fields(
+            body.auth_mode,
+            body.login_url,
+            body.context_file_path,
+            body.username_field,
+            body.password_field,
+        )
         if body.login_url:
             validate_dast_url(body.login_url)
         if body.context_file_path:
@@ -476,7 +509,11 @@ def upload_folder_scan(body: FolderScanCreate, session: Session = Depends(get_se
     workdir = SCAN_WORK_DIR / f"p{project.id}-s{scan.id}"
     if workdir.exists():
         shutil.rmtree(workdir, ignore_errors=True)
-    workdir.mkdir(parents=True, exist_ok=True)
+    workdir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.chmod(workdir, 0o700)
+    except OSError:
+        pass
     try:
         _stage_folder(source, workdir)
     except Exception:

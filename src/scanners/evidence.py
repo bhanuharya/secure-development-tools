@@ -153,7 +153,7 @@ def build_evidence(rf: RawFinding, workdir: Path | None) -> dict:
     """Build a version-1 evidence document for a raw finding."""
     evidence: dict = {"version": EVIDENCE_VERSION}
     if rf.file_path:
-        evidence["file"] = rf.file_path
+        evidence["file"] = redact_text(rf.file_path, _secrets_of(rf))
 
     if rf.line_start is not None:
         evidence["start"] = {"line": rf.line_start, "column": rf.col_start}
@@ -185,7 +185,8 @@ def build_evidence(rf: RawFinding, workdir: Path | None) -> dict:
         meta["owasp"] = owasp
     references = _extract_references(rf)
     if references:
-        meta["references"] = references
+        secrets = _secrets_of(rf)
+        meta["references"] = [redact_text(r, secrets) for r in references]
     evidence["rule"] = {"id": rf.rule_id, "tool": rf.tool}
     evidence.update(meta)
     return evidence

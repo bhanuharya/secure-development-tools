@@ -91,6 +91,14 @@ func newPlanCmd() *cobra.Command {
 			}
 			pendingReportPaths = map[string]string{}
 			tasks, skipped := planTasks(cfg, g.Profile, ctx, root)
+			// Fail closed like scan: changed profiles need a merge base,
+			// and an empty task set must never read as a clean plan.
+			if prof.Mode == "changed" && !ctx.Staged && ctx.MergeBase == "" {
+				return failf(ExitInvalidInput, "profile %q mode changed requires a merge base (--base or SDT_BASE resolving to a merge-base with --head); refusing unbounded fallback", g.Profile)
+			}
+			if len(tasks) == 0 {
+				return failf(ExitInvalidInput, "profile %q produced zero effective scanners; refusing empty plan", g.Profile)
+			}
 			// Planning must not execute anything: drop the empty report
 			// placeholders created while resolving task arguments.
 			for _, rp := range pendingReportPaths {

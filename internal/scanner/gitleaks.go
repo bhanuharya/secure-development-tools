@@ -89,10 +89,11 @@ func (a *GitleaksAdapter) PlanForProfile(ctx *sdtctx.ScanContext, cfg *config.Sc
 
 func (a *GitleaksAdapter) Parse(toolVersion string, root string, stdout []byte, stderrRedacted string, nativeExit int) ParseResult {
 	// gitleaks JSON comes from --report-path file; stdout carries the payload
-	// when tests inject it directly. Accept either.
+	// when tests inject it directly. A missing/empty report is a failure,
+	// never a silent zero-finding pass.
 	payload := stdout
 	if len(payload) == 0 {
-		return ParseResult{Health: HealthCompleted}
+		return ParseResult{Health: HealthMalformed, Diagnostics: []string{"gitleaks produced no native report (missing/empty output)"}}
 	}
 	var items []map[string]any
 	if err := json.Unmarshal(payload, &items); err != nil {

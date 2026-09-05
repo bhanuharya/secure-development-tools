@@ -48,8 +48,9 @@ func (a *TrivyImageAdapter) Parse(toolVersion string, root string, stdout []byte
 	if nativeExit != 0 {
 		return ParseResult{Health: HealthFailed, Diagnostics: []string{fmt.Sprintf("trivy image exited %d: %s", nativeExit, truncate(stderrRedacted, 300))}}
 	}
+	// A missing/empty native report is a failure, never a silent zero-finding pass.
 	if len(stdout) == 0 {
-		return ParseResult{Health: HealthCompleted}
+		return ParseResult{Health: HealthMalformed, Diagnostics: []string{"trivy image produced no native report (missing/empty output)"}}
 	}
 	var data struct {
 		Metadata struct {
@@ -68,6 +69,13 @@ func (a *TrivyImageAdapter) Parse(toolVersion string, root string, stdout []byte
 				Severity         string `json:"Severity"`
 				Description      string `json:"Description"`
 			} `json:"Vulnerabilities"`
+			Misconfigurations []struct {
+				ID       string `json:"ID"`
+				Title    string `json:"Title"`
+				Message  string `json:"Message"`
+				Desc     string `json:"Description"`
+				Severity string `json:"Severity"`
+			} `json:"Misconfigurations"`
 		} `json:"Results"`
 	}
 	if err := json.Unmarshal(stdout, &data); err != nil {
@@ -76,10 +84,17 @@ func (a *TrivyImageAdapter) Parse(toolVersion string, root string, stdout []byte
 	// Resolved image identity: RepoDigest when the registry reports one,
 	// otherwise the content ImageID. Recorded on every finding (SCAN-004).
 	resolved := ""
-	if len(data.Metadata.RepoDigests) > 0 {
-		resolved = data.Metadata.RepoDigests[0]
-	} else if data.Metadata.ImageID != "" {
+	for _, digest := range data.Metadata.RepoDigests {
+		if digest != "" {
+			resolved = digest
+			break
+		}
+	}
+	if resolved == "" && data.Metadata.ImageID != "" {
 		resolved = "imageID:" + data.Metadata.ImageID
+	}
+	if resolved == "" {
+		return ParseResult{Health: HealthMalformed, Diagnostics: []string{"trivy image omitted immutable image identity"}}
 	}
 	var out []*finding.Finding
 	n := 0
@@ -98,8 +113,33 @@ func (a *TrivyImageAdapter) Parse(toolVersion string, root string, stdout []byte
 				BaselineState: finding.StateUnknown,
 				Redaction:     finding.Redaction{Applied: true},
 			}
-			semCtx := v.VulnerabilityID + "\n" + v.PkgName + "@" + v.InstalledVersion
-			f.Fingerprint = finding.Fingerprint{Algorithm: finding.FingerprintVersion, Value: finding.FingerprintValue(f.Category, "trivy-image", v.VulnerabilityID, target.Target, semCtx)}
+			// Immutable image identity anchors the fingerprint: the same
+			// CVE in two different images must never share an identity.
+			semCtx := resolved + "\n" + v.VulnerabilityID + "\n" + v.PkgName + "@" + v.InstalledVersion
+			f.Fingerprint = finding.Fingerprint{Algorithm: finding.FingerprintVersion, Value: finding.FingerprintValue(f.Category, "trivy-image", v.VulnerabilityID, target.Target+"|"+resolved, semCtx)}
+			out = append(out, f)
+		}
+		for _, m := range target.Misconfigurations {
+			n++
+			guidance := m.Message
+			if guidance == "" {
+				guidance = m.Desc
+			}
+			f := &finding.Finding{
+				SchemaVersion: finding.SchemaVersion,
+				ID:            fmt.Sprintf("trivy-image:%05d", n),
+				Scanner:       finding.ScannerID{Adapter: "trivy-image", Tool: "trivy", Version: toolVersion},
+				Category:      finding.CatMisconfig,
+				Rule:          finding.Rule{ID: m.ID},
+				Severity:      finding.MapSeverity(m.Severity),
+				Message:       report.Redact(truncate(m.Title, 1000)),
+				Artifact:      &finding.Artifact{Target: target.Target, Image: resolved},
+				BaselineState: finding.StateUnknown,
+				Redaction:     finding.Redaction{Applied: true},
+				Remediation:   &finding.Remediation{Guidance: report.Redact(truncate(guidance, 1000))},
+			}
+			semCtx := resolved + "\n" + m.ID + "\n" + target.Target
+			f.Fingerprint = finding.Fingerprint{Algorithm: finding.FingerprintVersion, Value: finding.FingerprintValue(f.Category, "trivy-image", m.ID, target.Target+"|"+resolved, semCtx)}
 			out = append(out, f)
 		}
 	}

@@ -44,7 +44,7 @@ func (a *OpengrepAdapter) Validate(cfg *config.ScanConfiguration) []string {
 func (a *OpengrepAdapter) Detect(root string, languages []string) Applicability {
 	rules := ruleFiles(root, languages)
 	if len(rules) == 0 {
-		return Applicability{State: "not_applicable", Reason: "no matching local rules for detected languages"}
+		return Applicability{State: "configuration_error", Reason: "no matching local rules for detected languages"}
 	}
 	return Applicability{State: "applicable", Reason: fmt.Sprintf("%d rule files", len(rules))}
 }

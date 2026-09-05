@@ -23,6 +23,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/bhanuharya/secure-development-tools/internal/finding"
 )
@@ -142,6 +143,53 @@ type pendingChange struct {
 	class string
 }
 
+// safeJoin resolves a finding-reported repo-relative path against root and
+// refuses anything that would escape the scan root: absolute paths, parent
+// traversal (..), and symlinks pointing outside root. Returned abs is the
+// validated filesystem path.
+func safeJoin(root, rel string) (string, error) {
+	if rel == "" {
+		return "", fmt.Errorf("empty path")
+	}
+	if filepath.IsAbs(rel) || filepath.IsAbs(filepath.FromSlash(rel)) {
+		return "", fmt.Errorf("absolute path %q refused (must be repo-relative)", rel)
+	}
+	clean := filepath.Clean(filepath.FromSlash(rel))
+	if clean == "." || clean == ".." || clean == string(filepath.Separator) ||
+		strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path %q escapes the repository root", rel)
+	}
+	abs := filepath.Join(root, clean)
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve scan root: %w", err)
+	}
+	// Refuse every symlink component, including links that stay inside the
+	// root. This avoids following a mutable path during an apply operation.
+	component := resolvedRoot
+	for _, part := range strings.Split(clean, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		component = filepath.Join(component, part)
+		info, err := os.Lstat(component)
+		if err != nil {
+			return "", fmt.Errorf("read %s: %w", rel, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("path %q contains a symlink component", rel)
+		}
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("resolve %s: %w", rel, err)
+	}
+	if resolved != resolvedRoot && !strings.HasPrefix(resolved, resolvedRoot+string(filepath.Separator)) {
+		return "", fmt.Errorf("path %q resolves outside the repository root", rel)
+	}
+	return abs, nil
+}
+
 // computeEdits applies transforms to in-memory file copies. Pure except for
 // file reads: safe to use for dry-run previews.
 func computeEdits(root string, matched map[*finding.Finding]Transform) (edits []Edit, files map[string][]string, skipped []string) {
@@ -157,7 +205,11 @@ func computeEdits(root string, matched map[*finding.Finding]Transform) (edits []
 	sort.Strings(paths)
 	files = map[string][]string{}
 	for _, rel := range paths {
-		abs := filepath.Join(root, filepath.FromSlash(rel))
+		abs, verr := safeJoin(root, rel)
+		if verr != nil {
+			skipped = append(skipped, fmt.Sprintf("%s: %v", rel, verr))
+			continue
+		}
 		raw, err := os.ReadFile(abs)
 		if err != nil {
 			skipped = append(skipped, fmt.Sprintf("%s: read %s: %v", rel, rel, err))
@@ -227,8 +279,13 @@ func ApplyEdits(root string, matched map[*finding.Finding]Transform, skipValidat
 		if !byPath[rel] {
 			continue
 		}
-		abs := filepath.Join(root, filepath.FromSlash(rel))
-		if err := os.WriteFile(abs, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		// Re-validate immediately before writing (TOCTOU): the path that
+		// was safe at read time must still resolve inside root.
+		abs, verr := safeJoin(root, rel)
+		if verr != nil {
+			return result, fmt.Errorf("refusing to write %s: %w", rel, verr)
+		}
+		if err := writeNoFollow(abs, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
 			return nil, fmt.Errorf("write %s: %w", rel, err)
 		}
 		if !skipValidation {
@@ -238,6 +295,18 @@ func ApplyEdits(root string, matched map[*finding.Finding]Transform, skipValidat
 		}
 	}
 	return result, nil
+}
+
+func writeNoFollow(path string, data []byte, perm os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, perm)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := f.Write(data); err != nil {
+		return err
+	}
+	return f.Sync()
 }
 
 // validateSyntax checks the edited file with an available language checker.

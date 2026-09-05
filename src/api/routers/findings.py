@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
@@ -8,6 +9,7 @@ from sqlalchemy import case
 from sqlmodel import Session, select
 
 from src.api.database import Finding, FindingAuditEvent, get_session, utcnow
+from src.scanners.evidence import redact_text
 
 router = APIRouter(prefix="/api/findings", tags=["findings"])
 
@@ -161,13 +163,24 @@ def bulk_status_update(body: BulkStatusUpdate, session: Session = Depends(get_se
 
 
 def _serialize_finding(finding: Finding, include_evidence: bool = True) -> dict:
-    data = finding.model_dump()
+    data = _redact_value(finding.model_dump())
     if include_evidence:
         try:
             evidence = json.loads(finding.evidence or "{}")
         except (json.JSONDecodeError, TypeError):
             evidence = {}
-        data["evidence"] = evidence if isinstance(evidence, dict) else {}
+        data["evidence"] = _redact_value(evidence) if isinstance(evidence, dict) else {}
     else:
         data.pop("evidence", None)
     return data
+
+
+def _redact_value(value: Any) -> Any:
+    """Redact string leaves at the API boundary, including legacy rows."""
+    if isinstance(value, str):
+        return redact_text(value)
+    if isinstance(value, list):
+        return [_redact_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _redact_value(item) for key, item in value.items()}
+    return value
