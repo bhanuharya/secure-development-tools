@@ -1,6 +1,7 @@
 import json
 import shutil
 
+import pytest
 from sqlmodel import Session, select
 
 from src.api.database import Finding, Project, Scan, engine
@@ -11,6 +12,16 @@ from src.scanners.opengrep_adapter import OpengrepAdapter
 from src.scanners.orchestrator import ScanRunner, _sanitize_reason, _snapshot
 from src.util.fingerprint import fingerprint
 from tests.fakes import FakeBitbucket
+
+# Full-stack scan tests assert finding totals that assume the external
+# scanner binaries are installed; skip cleanly when they are not.
+_full_engine_stack = pytest.mark.skipif(
+    any(shutil.which(b) is None for b in ("opengrep", "trivy", "gitleaks")),
+    reason="opengrep/trivy/gitleaks binaries not on PATH",
+)
+_gitleaks = pytest.mark.skipif(
+    shutil.which("gitleaks") is None, reason="gitleaks binary not on PATH"
+)
 
 
 def make_project(session, workspace="miraworkspace", repo="demo"):
@@ -36,6 +47,7 @@ def make_scan(session, project, scan_type="sast", ref_type="branch", ref_name="m
     return scan
 
 
+@_full_engine_stack
 def test_sast_scan_full_pass(fixture_repo, tmp_env):
     with Session(engine) as session:
         project = make_project(session)
@@ -80,6 +92,7 @@ def test_sast_scan_pr_marks_changed_lines(fixture_repo, fixture_diff, tmp_env):
         assert all(f.in_pr_diff for f in findings if f.tool == "bandit")
 
 
+@_full_engine_stack
 def test_upload_scan_uses_staged_workdir_without_bitbucket(fixture_repo, tmp_env):
     """ref_type='upload' scans run against a pre-staged workdir and never
     touch Bitbucket (no token/client required)."""
@@ -167,6 +180,7 @@ def test_scan_fails_when_engine_produces_malformed_output(fixture_repo, tmp_env,
         assert states["bandit"]["kind"] == "malformed_output"
 
 
+@_gitleaks
 def test_scan_fails_when_one_engine_fails_but_others_succeed(fixture_repo, tmp_env, monkeypatch):
     from src.scanners.errors import ScannerMalformedOutputError
 

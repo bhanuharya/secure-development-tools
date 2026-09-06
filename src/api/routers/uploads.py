@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 import shutil
-import threading
 import uuid
 import zipfile
 from pathlib import Path
@@ -20,31 +20,43 @@ from src.config import (
     MAX_FILE_BYTES,
     MAX_UPLOAD_BYTES,
     SCAN_WORK_DIR,
+    ConfigurationError,
 )
 from src.integrations.bitbucket_client import safe_slug
+from src.api.routers.projects import _mask
 from src.scanners.executor import ScanCapacityError, get_executor
+from src.util.dastgate import (
+    require_dast_control_auth,
+    validate_auth_mode,
+    validate_dast_auth_fields,
+    validate_dast_context,
+    validate_dast_url,
+)
+from src.util.secretbox import encrypt_secret
 from src.scanners.orchestrator import ALL_ENGINES, ScanRunner
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 
-VALID_SOURCE_TYPES = {"full", "sast", "sca", "secrets"}
-DAST_SAFETY_MSG = "target is not pre-approved: confirm to run active scan"
+VALID_SOURCE_TYPES = {"full", "sast", "sca", "secrets", "iac"}
 
 # preset name -> (scan_type, default engines)
 PRESETS: dict[str, tuple[str, list[str]]] = {
-    "full": ("full", ["bandit", "opengrep", "trivy", "gitleaks"]),
+    "full": ("full", ["bandit", "opengrep", "trivy", "gitleaks", "checkov", "osv-scanner"]),
     "sast": ("sast", ["bandit", "opengrep"]),
-    "dependencies": ("sca", ["trivy"]),
+    "dependencies": ("sca", ["trivy", "osv-scanner"]),
     "secrets": ("secrets", ["gitleaks"]),
+    "iac": ("iac", ["checkov", "trivy"]),
 }
 
-# engine names allowed per scan type (zap handled separately as DAST-only)
-ENGINE_COMPAT: dict[str, set[str]] = {
-    "full": {"bandit", "opengrep", "trivy", "gitleaks"},
-    "sast": {"bandit", "opengrep"},
-    "sca": {"trivy"},
-    "secrets": {"gitleaks"},
+# engine names allowed per scan type (zap handled separately as DAST-only).
+# Ordered tuples keep default engine selection deterministic (registry order).
+ENGINE_COMPAT: dict[str, tuple[str, ...]] = {
+    "full": ("bandit", "opengrep", "trivy", "gitleaks", "checkov", "osv-scanner"),
+    "sast": ("bandit", "opengrep"),
+    "sca": ("trivy", "osv-scanner"),
+    "secrets": ("gitleaks",),
+    "iac": ("checkov", "trivy"),
 }
 
 READY_MARKER = ".ready"
@@ -111,6 +123,10 @@ def _plan_extraction(zf: zipfile.ZipFile) -> list[tuple[zipfile.ZipInfo, str]]:
     members = zf.infolist()
     if not members:
         raise HTTPException(400, "zip archive is empty")
+    # Cap total entries (files + dirs + anything else) so a directory-flood
+    # cannot bypass the file cap and exhaust memory/time.
+    if len(members) > MAX_FILES:
+        raise HTTPException(413, f"archive has too many entries (max {MAX_FILES})")
 
     # reject unsafe names first
     for m in members:
@@ -164,12 +180,6 @@ def _extract_zip(raw: bytes, workdir: Path) -> None:
 def _launch(scan_id: int) -> None:
     runner = ScanRunner()
     get_executor().submit(scan_id, runner.run_scan)
-
-
-def _launch_dast_legacy(scan: Scan) -> None:
-    """Preserve the pre-existing DAST dispatch path; DAST is out of scope."""
-    runner = ScanRunner()
-    threading.Thread(target=runner.run_scan, args=(scan.id,), daemon=True).start()
 
 
 @router.post("/scan")
@@ -239,7 +249,11 @@ async def upload_repo_scan(
     workdir = SCAN_WORK_DIR / f"p{project.id}-s{scan.id}"
     if workdir.exists():
         shutil.rmtree(workdir, ignore_errors=True)
-    workdir.mkdir(parents=True, exist_ok=True)
+    workdir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.chmod(workdir, 0o700)
+    except OSError:
+        pass
     try:
         _extract_zip(raw, workdir)
     except Exception:
@@ -264,8 +278,8 @@ async def upload_repo_scan(
 class DirectDastCreate(BaseModel):
     name: str = ""
     url: str = Field(min_length=1)
-    is_production: bool = False
-    pre_approved: bool = False
+    # Unknown targets default to production (fail closed).
+    is_production: bool = True
     auth_mode: str = "none"  # none | form | context_file
     login_url: str = ""
     username_field: str = "username"
@@ -273,20 +287,45 @@ class DirectDastCreate(BaseModel):
     auth_username: str = ""
     auth_password: str = ""
     context_file_path: str = ""
-    dast_confirmed: bool = False
 
 
 @router.post("/dast")
 def create_direct_dast(body: DirectDastCreate, session: Session = Depends(get_session)):
-    """Run DAST directly against a target URL, without a Bitbucket project.
+    """Register a DAST target URL, without a Bitbucket project.
 
-    The target is stored as a normal Target bound to a standalone project so
-    the existing ZAP machinery and DAST safety gates are reused unchanged.
+    This only CREATES the target — it never launches anything. The target must
+    then be approved via ``POST /api/targets/{id}/approve`` (an audited,
+    server-side decision) before a scan can be started against it, and the scan
+    itself is requested through ``POST /api/scans``.
     """
-    if body.is_production and not body.dast_confirmed:
-        raise HTTPException(400, "target is production: you must confirm active scanning explicitly")
-    if not body.pre_approved and not body.dast_confirmed:
-        raise HTTPException(400, DAST_SAFETY_MSG)
+    try:
+        require_dast_control_auth()
+    except ValueError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    if body.is_production is False:
+        raise HTTPException(
+            400,
+            "is_production cannot be lowered by the caller; targets require trusted operator classification",
+        )
+    try:
+        validate_dast_url(body.url)
+        validate_auth_mode(body.auth_mode)
+        validate_dast_auth_fields(
+            body.auth_mode,
+            body.login_url,
+            body.context_file_path,
+            body.username_field,
+            body.password_field,
+        )
+        if body.login_url:
+            validate_dast_url(body.login_url)
+        if body.context_file_path:
+            body.context_file_path = validate_dast_context(body.context_file_path)
+        password = encrypt_secret(body.auth_password)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except ConfigurationError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
     project = _standalone_project(session, body.name or body.url)
     target = Target(
@@ -294,30 +333,202 @@ def create_direct_dast(body: DirectDastCreate, session: Session = Depends(get_se
         name=body.name or body.url,
         url=body.url,
         is_production=body.is_production,
-        pre_approved=body.pre_approved,
         auth_mode=body.auth_mode,
         login_url=body.login_url,
         username_field=body.username_field,
         password_field=body.password_field,
         auth_username=body.auth_username,
-        auth_password=body.auth_password,
+        auth_password=password,
         context_file_path=body.context_file_path,
     )
     session.add(target)
     session.commit()
     session.refresh(target)
+    data = _mask(target)
+    data["project_id"] = project.id
+    data["next_step"] = (
+        f"approve via POST /api/targets/{target.id}/approve, then scan via "
+        f"POST /api/scans with scan_type=dast and dast_target={target.id}"
+    )
+    return data
 
+
+class FolderScanCreate(BaseModel):
+    path: str
+    name: str = ""
+    scan_type: str = "sast"  # full|sast|sca|secrets|iac
+    engines: list[str] = Field(default=[])
+    preset: str = ""
+    language_override: str = ""
+
+
+def _validate_local_root(path: Path) -> Path:
+    """Resolve the source path and ensure it stays within an allowlisted root.
+
+    Fails closed when no roots are configured, so the folder-scan endpoint can
+    never be used to read arbitrary host paths. Roots are read at request time
+    (like auth) so the platform can be reconfigured by restarting with new env.
+    """
+    import os
+
+    from src.config import LOCAL_SCAN_ROOTS as _CONFIG_ROOTS
+
+    roots = tuple(
+        p for p in os.getenv("SCP_LOCAL_SCAN_ROOTS", "").split(os.pathsep) if p
+    ) or _CONFIG_ROOTS
+    if not roots:
+        raise HTTPException(
+            400,
+            "local folder scanning is disabled: set SCP_LOCAL_SCAN_ROOTS to "
+            "the directories you want to allow",
+        )
+    resolved = path.expanduser().resolve()
+    if not resolved.is_dir():
+        raise HTTPException(400, f"path is not a directory: {path}")
+    root_paths = [Path(r).expanduser().resolve() for r in roots]
+    if not any(resolved.is_relative_to(root) for root in root_paths):
+        raise HTTPException(403, "path is outside the configured scan roots")
+    return resolved
+
+
+def _stage_folder(source: Path, workdir: Path) -> None:
+    """Descriptor-first copy: no symlinks, races, special files, or size bypasses."""
+    import os
+    import stat
+    root = workdir.resolve()
+    count = total = 0
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+
+    def walk(fd: int, rel: Path) -> None:
+        nonlocal count, total
+        for entry in os.scandir(fd):
+            child_rel = rel / entry.name
+            if entry.name in (".", ".."):
+                continue
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    child = os.open(entry.name, flags | getattr(os, "O_DIRECTORY", 0), dir_fd=fd)
+                    try:
+                        (workdir / child_rel).mkdir(parents=True, exist_ok=True)
+                        walk(child, child_rel)
+                    finally:
+                        os.close(child)
+                    continue
+                child = os.open(entry.name, flags, dir_fd=fd)
+                try:
+                    st = os.fstat(child)
+                    if not stat.S_ISREG(st.st_mode):
+                        continue
+                    count += 1
+                    if count > MAX_FILES:
+                        raise HTTPException(413, f"folder has too many files (max {MAX_FILES})")
+                    if st.st_size > MAX_FILE_BYTES or total + st.st_size > MAX_EXPANDED_BYTES:
+                        raise HTTPException(413, "folder exceeds the allowed size")
+                    dest = (workdir / child_rel).resolve()
+                    if not dest.is_relative_to(root):
+                        raise HTTPException(400, f"path escapes the workspace: {child_rel}")
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    with open(dest, "xb") as out:
+                        copied = 0
+                        while True:
+                            chunk = os.read(child, min(1024 * 1024, MAX_EXPANDED_BYTES - total - copied + 1))
+                            if not chunk:
+                                break
+                            copied += len(chunk)
+                            if copied > MAX_FILE_BYTES or total + copied > MAX_EXPANDED_BYTES:
+                                raise HTTPException(413, "folder exceeds the allowed size")
+                            out.write(chunk)
+                    total += copied
+                finally:
+                    os.close(child)
+            except (FileNotFoundError, OSError) as exc:
+                # A symlink or a concurrent replacement is intentionally not
+                # followed; skip it rather than turning a safe omission into
+                # an intake failure.
+                if getattr(exc, "errno", None) not in (2, 40):
+                    raise
+                continue
+    source_fd = os.open(source, flags | getattr(os, "O_DIRECTORY", 0))
+    try:
+        walk(source_fd, Path())
+    finally:
+        os.close(source_fd)
+    (workdir / READY_MARKER).write_text("ok", encoding="utf-8")
+
+
+@router.post("/folder")
+def upload_folder_scan(body: FolderScanCreate, session: Session = Depends(get_session)):
+    """Scan a local folder on the host.
+
+    The folder must live under an allowlisted root (SCP_LOCAL_SCAN_ROOTS). It is
+    copied into the scan workdir and handed to the normal engine machinery.
+    """
+    engines = [e for e in body.engines if e]
+
+    if body.preset:
+        if body.preset not in PRESETS and body.preset != "custom":
+            raise HTTPException(400, f"unknown preset: {body.preset}")
+        if body.preset == "custom":
+            if not engines:
+                raise HTTPException(400, "custom preset requires at least one engine")
+        else:
+            body.scan_type, engines = PRESETS[body.preset]
+
+    if body.scan_type not in VALID_SOURCE_TYPES:
+        raise HTTPException(400, f"scan_type must be one of {sorted(VALID_SOURCE_TYPES)}")
+
+    if not engines:
+        engines = list(ENGINE_COMPAT.get(body.scan_type, []))
+        if not engines:
+            raise HTTPException(400, "select at least one engine")
+
+    unknown = [e for e in engines if e not in ALL_ENGINES]
+    if unknown:
+        raise HTTPException(400, f"unknown engines: {unknown}")
+    if "zap" in engines:
+        raise HTTPException(400, "zap is only available for DAST scans")
+    incompatible = [e for e in engines if e not in ENGINE_COMPAT.get(body.scan_type, set())]
+    if incompatible:
+        raise HTTPException(400, f"engines {incompatible} are not valid for scan_type={body.scan_type}")
+
+    source = _validate_local_root(Path(body.path))
+
+    project = _standalone_project(session, body.name or source.name or "folder")
     scan = Scan(
         project_id=project.id,
-        scan_type="dast",
-        engines="zap",
-        ref_type="upload",
+        scan_type=body.scan_type,
+        engines=",".join(engines),
+        ref_type="folder",
         ref_name=project.name,
-        dast_target=str(target.id),
+        language_override=body.language_override,
     )
     session.add(scan)
     session.commit()
     session.refresh(scan)
 
-    _launch_dast_legacy(scan)
+    workdir = SCAN_WORK_DIR / f"p{project.id}-s{scan.id}"
+    if workdir.exists():
+        shutil.rmtree(workdir, ignore_errors=True)
+    workdir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.chmod(workdir, 0o700)
+    except OSError:
+        pass
+    try:
+        _stage_folder(source, workdir)
+    except Exception:
+        shutil.rmtree(workdir, ignore_errors=True)
+        session.delete(scan)
+        session.delete(project)
+        session.commit()
+        raise
+
+    try:
+        _launch(scan.id)
+    except ScanCapacityError as exc:
+        shutil.rmtree(workdir, ignore_errors=True)
+        session.delete(scan)
+        session.delete(project)
+        session.commit()
+        raise HTTPException(503, "scan queue is full") from exc
     return scan

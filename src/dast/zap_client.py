@@ -9,6 +9,7 @@ import httpx
 
 from src.config import ZAP_API_KEY, ZAP_API_URL
 from src.scanners.base import RawFinding
+from src.util.dastgate import validate_dast_url
 
 log = logging.getLogger(__name__)
 
@@ -85,6 +86,21 @@ class ZapClient:
         context_file_path: str = "",
         on_progress: ProgressFn | None = None,
     ) -> list[RawFinding]:
+        # Active DAST must never run through an unauthenticated ZAP service:
+        # without an API key any local process could drive scans.
+        if not self.api_key:
+            raise ZapError("ZAP API key is required for active DAST (SCP_ZAP_API_KEY)")
+        # Last-moment target revalidation. The registration/approval/launch
+        # gates resolved DNS earlier, but ZAP resolves the hostname itself
+        # when it starts crawling — this is the final check before it acts,
+        # so a target repointed after approval (DNS rebinding) fails here
+        # rather than reaching a prohibited address.
+        try:
+            validate_dast_url(target_url)
+            if auth_mode == "form" and login_url:
+                validate_dast_url(login_url)
+        except ValueError as exc:
+            raise ZapError(str(exc)) from exc
         prog = on_progress or (lambda *a, **k: None)
         context_name = f"scp-scan-{scan_id}"
         context_id: int | None = None
@@ -189,6 +205,8 @@ class ZapClient:
     # ------------------------------------------------------------------ maps
     @staticmethod
     def _alerts_to_findings(alerts: list[dict]) -> list[RawFinding]:
+        from src.scanners.evidence import redact_text
+
         findings: list[RawFinding] = []
         for a in alerts:
             risk = _first_int(a.get("risk"))
@@ -202,10 +220,10 @@ class ZapClient:
                     rule_id=a.get("pluginId") or a.get("alertRef", ""),
                     severity=_RISK_TO_SEVERITY.get(risk, "info"),
                     cwe=f"CWE-{cweid}" if cweid else "",
-                    file_path=url,
-                    snippet=f"{url}{f' (param: {param})' if param else ''}",
-                    description=a.get("alert") or (a.get("description") or "")[:1500],
-                    remediation=a.get("solution", ""),
+                    file_path=redact_text(url),
+                    snippet=redact_text(f"{url}{f' (param: {param})' if param else ''}"),
+                    description=redact_text(a.get("alert") or (a.get("description") or "")[:1500]),
+                    remediation=redact_text(a.get("solution", "")),
                     raw=a,
                 )
             )

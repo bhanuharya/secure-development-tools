@@ -2,46 +2,48 @@ from __future__ import annotations
 
 import json
 import logging
-import os
+import re
 import shutil
 import subprocess
-import threading
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
-from sqlmodel import Session, select
+from sqlmodel import Session
 
-from src.api.database import engine, Finding, Scan
+from src.api.database import engine, Finding, Scan, Target
 from src.api.events import event_bus
-from src.config import MAX_CONCURRENT_ENGINES, SCAN_WORK_DIR, parse_bool
+from src.config import MAX_CONCURRENT_ENGINES, SCAN_WORK_DIR
 from src.dast.zap_client import ZapClient
 from src.integrations.bitbucket_client import BitbucketClient
 from src.integrations.diff_parser import ParsedDiff, parse_diff
-from src.scanners.bandit_adapter import BanditAdapter
 from src.scanners.base import RawFinding
 from src.scanners.errors import REAL_FAILURE_KINDS, ScannerError
 from src.scanners.evidence import build_evidence, redact_text
-from src.scanners.gitleaks_adapter import GitleaksAdapter
-from src.scanners.opengrep_adapter import OpengrepAdapter
-from src.scanners.trivy_adapter import TrivyAdapter
+from src.scanners.registry import EngineContext, REGISTRY, all_engines, resolve_engines
 from src.util.fingerprint import fingerprint
-from src.util.language import detect_languages, opengrep_languages
+from src.util.language import detect_languages
+
+
+def _target_digest(target: Target) -> str:
+    import hashlib
+    values = {k: getattr(target, k, "") for k in (
+        "url", "is_production", "auth_mode", "login_url", "username_field",
+        "password_field", "auth_username", "auth_password", "context_file_path",
+        "production_confirmed", "pre_approved")}
+    return hashlib.sha256(json.dumps(values, sort_keys=True, default=str).encode()).hexdigest()
+
+SEVERITIES = ("critical", "high", "medium", "low", "info")
 
 log = logging.getLogger(__name__)
 
-SAST_ENGINES = ("bandit", "opengrep")
-ALL_ENGINES = ("bandit", "opengrep", "trivy", "gitleaks", "zap")
-
-# engine name -> (scan_type bits it satisfies)
-ENGINE_SOURCE_TYPE = {
-    "bandit": "sast",
-    "opengrep": "sast",
-    "trivy": "sca",
-    "gitleaks": "secrets",
-    "zap": "dast",
-}
+# Backwards-compatible re-exports. Prefer the registry helpers for new code.
+SAST_ENGINES = tuple(
+    name for name, spec in REGISTRY.items() if spec.source_type == "sast"
+)
+ALL_ENGINES = all_engines()
+ENGINE_SOURCE_TYPE = {name: spec.source_type for name, spec in REGISTRY.items()}
 
 
 @dataclass
@@ -57,6 +59,7 @@ class _ScanSnapshot:
     commit_sha: str
     language_override: str
     dast_target: str
+    dast_target_digest: str
 
 
 class ScanRunner:
@@ -89,13 +92,15 @@ class ScanRunner:
             if self._mark(scan_id, status="succeeded", finished=True):
                 event_bus.publish(scan_id, "scan_status", {"status": "succeeded"})
         except Exception as exc:  # noqa: BLE001
-            error = _sanitize_reason(str(exc))[:500]
+            error = redact_text(_sanitize_reason(str(exc))[:500])
             # Persist, publish, and log the same sanitized diagnostic. A raw
             # traceback would reintroduce absolute workspace paths via the
             # exception text, defeating the API/event redaction below.
             log.error("scan %s failed: %s", scan_id, error)
             if self._mark(scan_id, status="failed", error=error, finished=True):
                 event_bus.publish(scan_id, "scan_status", {"status": "failed", "error": error})
+        finally:
+            _cleanup_scan_workdir(scan)
 
     def _execute(self, session: Session, scan: _ScanSnapshot) -> bool:
         project = _project_of(session, scan.project_id)
@@ -106,9 +111,29 @@ class ScanRunner:
         parsed_diff: ParsedDiff | None = None
 
         engines = _resolve_engines(scan)
-        # Uploaded archives don't touch Bitbucket at all, so skip instantiating
-        # the client (which requires a token).
-        need_bb = scan.ref_type == "pr" or (scan.ref_type != "upload" and scan.scan_type != "dast")
+        # Re-read the approval and the complete target configuration immediately
+        # before starting ZAP. This closes the queued-scan revocation window.
+        # The bound digest pins an immutable validated snapshot; scope/DNS is
+        # revalidated here so a re-pointed host or credential-bearing URL can
+        # never launch even with a stale approval.
+        if scan.scan_type == "dast":
+            from src.util.dastgate import validate_dast_url
+
+            target = session.get(Target, int(scan.dast_target or 0))
+            if (not target or not target.pre_approved or
+                    (target.is_production and not target.production_confirmed) or
+                    _target_digest(target) != scan.dast_target_digest):
+                raise RuntimeError("DAST target approval or configuration was revoked")
+            try:
+                validate_dast_url(target.url)
+                if target.login_url:
+                    validate_dast_url(target.login_url)
+            except ValueError as exc:
+                raise RuntimeError(f"DAST target scope revoked: {exc}") from exc
+        # Uploaded archives and local folders don't touch Bitbucket at all, so
+        # skip instantiating the client (which requires a token).
+        staged = scan.ref_type in ("upload", "folder")
+        need_bb = scan.ref_type == "pr" or (not staged and scan.scan_type != "dast")
         bb = self._bb() if need_bb else None
 
         if scan.ref_type == "pr":
@@ -125,22 +150,51 @@ class ScanRunner:
         if scan.scan_type == "dast":
             # DAST runs against ZAP; there is no local checkout to stage.
             workdir = None
-        elif scan.ref_type == "upload":
-            # Repository ZIP already staged into the workdir by the upload handler.
-            # Require the readiness marker so a missing/partial extraction fails
+        elif scan.ref_type in ("upload", "folder"):
+            # Repository already staged into the workdir by the intake handler.
+            # Require the readiness marker so a missing/partial stage fails
             # loudly instead of producing a false "clean" scan.
             workdir = SCAN_WORK_DIR / f"p{project_id}-s{scan.id}"
             if not (workdir / ".ready").exists():
-                raise RuntimeError("uploaded repository was not staged correctly (.ready missing)")
-            event_bus.publish(scan.id, "clone", {"status": "running", "note": "Preparing uploaded repository..."})
+                raise RuntimeError("repository was not staged correctly (.ready missing)")
+            event_bus.publish(scan.id, "clone", {"status": "running", "note": "Preparing repository..."})
             event_bus.publish(scan.id, "clone", {"status": "done"})
         else:
             workdir = SCAN_WORK_DIR / f"p{project_id}-s{scan.id}"
             if workdir.exists():
                 shutil.rmtree(workdir, ignore_errors=True)
-            ref = scan.commit_sha or scan.ref_name
+            # git clone creates the destination itself; only ensure the
+            # parent work root exists (0700) then harden the checkout after.
+            try:
+                import os as _os
+
+                SCAN_WORK_DIR.mkdir(parents=True, exist_ok=True)
+                _os.chmod(SCAN_WORK_DIR, 0o700)
+            except OSError:
+                pass
+            ref = scan.commit_sha
+            if scan.ref_type == "branch":
+                if bb is None:
+                    raise RuntimeError("Bitbucket client unavailable for branch scan")
+                ref = bb.branch_head_sha(workspace, repo_slug, scan.ref_name)
+                if not re.fullmatch(r"[0-9a-fA-F]{40}", ref or ""):
+                    raise RuntimeError("Bitbucket returned an invalid branch head SHA")
+                live_scan = session.get(Scan, scan.id)
+                if live_scan is None:
+                    return False
+                live_scan.commit_sha = ref
+                session.add(live_scan)
+                session.commit()
+            if not ref:
+                ref = scan.ref_name
             event_bus.publish(scan.id, "clone", {"status": "running"})
             bb.clone_repo(workspace, repo_slug, ref, str(workdir))
+            try:
+                import os as _os
+
+                _os.chmod(workdir, 0o700)
+            except OSError:
+                pass
             event_bus.publish(scan.id, "clone", {"status": "done"})
 
         lang_override = scan.language_override
@@ -179,7 +233,7 @@ class ScanRunner:
                     found = fut.result()
                 except ScannerError as exc:
                     state = "unavailable" if exc.kind == "unavailable" else "failed"
-                    reason = _sanitize_reason(exc.message)
+                    reason = redact_text(_sanitize_reason(exc.message))
                     engine_states[eng] = _eng_state(state, reason=reason, kind=exc.kind)
                     event_bus.publish(
                         scan.id, "engine_status",
@@ -194,7 +248,7 @@ class ScanRunner:
                     engine_failure = True
                     continue
                 except Exception as exc:  # noqa: BLE001
-                    reason = _sanitize_reason(f"{eng} failed: {str(exc)[:200]}")
+                    reason = redact_text(_sanitize_reason(f"{eng} failed: {str(exc)[:200]}"))
                     log.warning(reason)
                     engine_states[eng] = _eng_state("failed", reason=reason, kind="execution")
                     event_bus.publish(scan.id, "engine_status", {"engine": eng, "state": "failed", "reason": reason, "kind": "execution"})
@@ -202,7 +256,7 @@ class ScanRunner:
                     continue
                 findings.extend(found)
                 completed.add(eng)
-                degraded_reason = getattr(scanner, "degraded_reason", "")
+                degraded_reason = redact_text(getattr(scanner, "degraded_reason", "") or "")
                 engine_states[eng] = _eng_state(
                     "done",
                     findings=len(found),
@@ -240,34 +294,18 @@ class ScanRunner:
 
     # ------------------------------------------------------------------ build
     def _build_engine(self, name: str, workdir: Path | None, detected: list[str], scan: _ScanSnapshot):
-        if name == "bandit":
-            if workdir is None or "python" not in detected:
-                return None
-            return BanditAdapter(workdir)
-        if name == "opengrep":
-            if workdir is None:
-                return None
-            adapter = OpengrepAdapter(workdir, languages=opengrep_languages(detected))
-            if adapter.rule_files():
-                return adapter
-            # Registry packs are only reachable when explicitly enabled.
-            if parse_bool(os.getenv("SCP_OPENGREP_ALLOW_REGISTRY", ""), name="SCP_OPENGREP_ALLOW_REGISTRY"):
-                return adapter
+        spec = REGISTRY.get(name)
+        if spec is None:
             return None
-        if name == "trivy":
-            if workdir is None:
-                return None
-            return TrivyAdapter(workdir)
-        if name == "gitleaks":
-            if workdir is None:
-                return None
-            return GitleaksAdapter(workdir)
-        if name == "zap":
-            zap = self._zap_client()
-            if not zap.available():
-                return None
-            return _DastScanner(zap, scan)
-        return None
+        return spec.build(
+            EngineContext(
+                workdir=workdir,
+                detected=detected,
+                scan_id=scan.id,
+                dast_target=scan.dast_target,
+                zap=self._zap_client() if name == "zap" else None,
+            )
+        )
 
     # ------------------------------------------------------------------ persist
     def _persist(self, session: Session, scan: _ScanSnapshot, findings: list[RawFinding], engine_states: dict, detected: list[str] | None = None, workdir: Path | None = None) -> bool:
@@ -278,30 +316,41 @@ class ScanRunner:
             return False
         counts: Counter = Counter()
         for rf in findings:
+            # Every untrusted scanner-controlled field is redacted before it
+            # is persisted or emitted: snippets, descriptions, remediation,
+            # references/URLs (inside raw/evidence), and file paths.
             safe_snippet = redact_text(rf.snippet, rf.redaction_tokens)
+            safe_description = redact_text(rf.description, rf.redaction_tokens)
+            safe_remediation = redact_text(rf.remediation, rf.redaction_tokens)
+            safe_path = redact_text(rf.file_path, rf.redaction_tokens)
+            # Normalize severity at ingest so filtering and severity-ranked
+            # ordering never miss a scanner reporting "HIGH" or an odd label.
+            severity = (rf.severity or "").strip().lower()
+            if severity not in SEVERITIES:
+                severity = "info"
             rec = Finding(
                 scan_id=scan.id,
                 project_id=scan.project_id,
                 tool=rf.tool,
                 source_type=rf.source_type,
                 rule_id=rf.rule_id,
-                severity=rf.severity,
+                severity=severity,
                 cwe=rf.cwe,
-                file_path=rf.file_path,
+                file_path=safe_path,
                 line_start=rf.line_start,
                 line_end=rf.line_end,
                 snippet=safe_snippet,
-                description=rf.description,
-                remediation=rf.remediation,
+                description=safe_description,
+                remediation=safe_remediation,
                 fingerprint=fingerprint(
-                    rf.tool, rf.rule_id, rf.file_path, rf.line_start, safe_snippet
+                    rf.tool, rf.rule_id, safe_path, rf.line_start, safe_snippet
                 ),
                 status="new",
                 in_pr_diff=getattr(rf, "in_pr_diff", False),
                 evidence=json.dumps(build_evidence(rf, workdir)),
             )
             session.add(rec)
-            counts[rf.severity] += 1
+            counts[severity] += 1
         engine_state_counts = Counter(s["state"] for s in engine_states.values())
         summary = {
             "total": len(findings),
@@ -345,56 +394,18 @@ class ScanRunner:
         return True
 
 
-class _DastScanner:
-    """Adapter wrapper so ZAP DAST runs inside the same engine machinery."""
-
-    name = "zap"
-
-    def __init__(self, zap: ZapClient, scan: _ScanSnapshot) -> None:
-        self._zap = zap
-        self._scan = scan
-
-    def available(self) -> bool:
-        # `_build_engine` only constructs this wrapper when ZAP is reachable.
-        return True
-
-    def run(self) -> list[RawFinding]:
-        from src.api.database import Target
-
-        with Session(engine) as session:
-            target = None
-            if self._scan.dast_target:
-                target = session.exec(
-                    select(Target).where(Target.id == self._scan.dast_target)
-                ).first()
-        if target is None:
-            raise ZapErrorShim("DAST scan has no configured target")
-
-        def progress(stage: str, percent: int, note: str) -> None:
-            event_bus.publish(
-                self._scan.id, "zap_progress",
-                {"stage": stage, "percent": percent, "note": note},
-            )
-
-        return self._zap.run_dast(
-            scan_id=self._scan.id,
-            target_url=target.url,
-            auth_mode=target.auth_mode,
-            login_url=target.login_url,
-            username_field=target.username_field,
-            password_field=target.password_field,
-            auth_username=target.auth_username,
-            auth_password=target.auth_password,
-            context_file_path=target.context_file_path,
-            on_progress=progress,
-        )
-
-
-class ZapErrorShim(Exception):
-    pass
-
-
 # ------------------------------------------------------------------ helpers
+def _cleanup_scan_workdir(scan: _ScanSnapshot) -> None:
+    if scan.ref_type not in ("upload", "folder", "branch", "pr"):
+        return
+    workdir = SCAN_WORK_DIR / f"p{scan.project_id}-s{scan.id}"
+    try:
+        if workdir.exists():
+            shutil.rmtree(workdir)
+    except OSError:
+        log.warning("unable to remove scan workdir for scan %s", scan.id)
+
+
 def _snapshot(scan: Scan) -> _ScanSnapshot:
     if scan.id is None:
         raise ValueError("scan must be persisted before execution")
@@ -408,6 +419,7 @@ def _snapshot(scan: Scan) -> _ScanSnapshot:
         commit_sha=scan.commit_sha,
         language_override=scan.language_override,
         dast_target=scan.dast_target,
+        dast_target_digest=scan.dast_target_digest,
     )
 
 
@@ -423,29 +435,14 @@ def _eng_state(state: str, findings: int | None = None, reason: str = "", kind: 
 
 
 def _skip_reason(name: str, workdir: Path | None, detected: list[str]) -> str:
-    if name == "zap":
-        return "zap is not reachable (is ZAP running at the configured API URL?)"
-    if workdir is None:
-        return f"{name} requires a local checkout"
-    if name == "bandit":
-        return "bandit is skipped: no Python files detected"
-    if name == "opengrep":
-        return "opengrep is skipped: no matching local rules for the detected languages"
-    return f"{name} is not applicable to this scan"
+    spec = REGISTRY.get(name)
+    if spec is None:
+        return f"{name} is not applicable to this scan"
+    return spec.skip_reason(EngineContext(workdir=workdir, detected=detected))
 
 
 def _resolve_engines(scan: Scan | _ScanSnapshot) -> list[str]:
-    if scan.engines:
-        return [e for e in scan.engines.split(",") if e in ENGINE_SOURCE_TYPE]
-    if scan.scan_type == "full":
-        return ["bandit", "opengrep", "trivy", "gitleaks"]
-    if scan.scan_type == "dast":
-        return ["zap"]
-    if scan.scan_type == "sca":
-        return ["trivy"]
-    if scan.scan_type == "secrets":
-        return ["gitleaks"]
-    return list(SAST_ENGINES)
+    return resolve_engines(scan)
 
 
 def _rel_path(file_path: str, workdir: Path) -> str:

@@ -11,7 +11,7 @@
     <div class="logo">Secure<span>SDLC</span> Control Plane</div>
     <nav>
       <a href="/index.html">Dashboard</a>
-      <a href="/projects.html" class="active">Projects</a>
+      <a href="/projects.html" class="active" aria-current="page">Projects</a>
       <a href="/upload.html">Upload scan</a>
     </nav>
   </header>
@@ -74,12 +74,13 @@
             <label for="context-file">ZAP context file path</label>
             <input id="context-file" placeholder="/abs/path/to/context.context">
           </div>
-          <label style="margin-top:10px">
-            <input type="checkbox" id="pre-approved"> Pre-approved target (skip active-scan confirmation)
-          </label>
           <label>
             <input type="checkbox" id="is-production"> This is a production target
           </label>
+          <div class="muted" style="margin-top:8px">
+            New targets start unapproved. Approve them before scanning:
+            <code>POST /api/targets/&lt;id&gt;/approve</code>
+          </div>
           <div class="btn-row">
             <button onclick="saveTarget()">Add target</button>
           </div>

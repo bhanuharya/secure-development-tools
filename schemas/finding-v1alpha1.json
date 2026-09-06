@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/secure-dev/finding-v1alpha1.json",
+  "title": "SDT canonical finding v1alpha1",
+  "type": "object",
+  "required": ["schemaVersion", "id", "fingerprint", "scanner", "category", "rule", "severity", "message", "baselineState", "redaction"],
+  "properties": {
+    "schemaVersion": {"const": "secure-dev/finding/v1alpha1"},
+    "id": {"type": "string"},
+    "fingerprint": {
+      "type": "object",
+      "required": ["algorithm", "value"],
+      "properties": {
+        "algorithm": {"const": "sdt-v1"},
+        "value": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "scanner": {
+      "type": "object",
+      "required": ["adapter", "tool"],
+      "properties": {
+        "adapter": {"enum": ["opengrep", "gitleaks", "trivy-fs", "trivy-image"]},
+        "tool": {"type": "string"},
+        "version": {"type": "string"}
+      }
+    },
+    "category": {"enum": ["sast", "secret", "dependency-vulnerability", "image-vulnerability", "misconfiguration"]},
+    "rule": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "cwe": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "severity": {
+      "type": "object",
+      "required": ["canonical"],
+      "properties": {
+        "canonical": {"enum": ["critical", "high", "medium", "low", "info", "unknown"]},
+        "original": {"type": "string"}
+      }
+    },
+    "message": {"type": "string"},
+    "location": {"type": "object"},
+    "artifact": {"type": "object"},
+    "baselineState": {"enum": ["new", "existing", "resolved-reference", "unknown"]},
+    "reachability": {
+      "type": "object",
+      "required": ["state", "reason"],
+      "properties": {
+        "state": {"enum": ["reachable", "unreachable", "unknown"]},
+        "reason": {"type": "string"},
+        "evidence": {"type": "string"}
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "required": ["applied"],
+      "properties": {"applied": {"const": true}}
+    }
+  }
+}

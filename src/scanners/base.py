@@ -18,8 +18,6 @@ from src.scanners.errors import (
 
 log = logging.getLogger(__name__)
 
-SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4, "none": 5}
-
 
 def which_in_path(name: str) -> str | None:
     """Like shutil.which but also checks the current interpreter's bin dir

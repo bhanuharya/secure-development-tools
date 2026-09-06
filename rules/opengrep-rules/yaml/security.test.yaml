@@ -1,0 +1,10 @@
+# Annotated tests for yaml/security.yaml (generic regex rule).
+jobs:
+  unpinned:
+    steps:
+      # ruleid: scp.yaml.ci.unpinned-action
+      - uses: actions/checkout@main
+  pinned:
+    steps:
+      # ok: scp.yaml.ci.unpinned-action
+      - uses: actions/checkout@11bd71901bbe5b1630cehdbbb3cf82794aa88d5483

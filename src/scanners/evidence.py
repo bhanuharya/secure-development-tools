@@ -16,15 +16,40 @@ MAX_CONTEXT_BYTES = 8 * 1024  # 8 KiB
 _REDACT = "[REDACTED]"
 
 # Likely credential values that must never survive persistence, even when a
-# scanner fails to report the exact secret string.
+# scanner fails to report the exact secret string. Specific vendor token
+# formats first, then generic key/value assignments. Redaction errs on the
+# side of over-matching: a false positive costs a snippet, a miss leaks a key.
 _CREDENTIAL_PATTERNS = [
-    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
-    re.compile(r"\bsk_live_[0-9A-Za-z]{16,}\b"),
-    re.compile(r"\bpk_live_[0-9A-Za-z]{16,}\b"),
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    # AWS access key ids (long-term AKIA and temporary ASIA/ABIA/ACCA prefixes)
+    re.compile(r"\b(?:AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16}\b"),
+    # GitHub tokens (classic, fine-grained, server, refresh)
+    re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,255}\b"),
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{22,255}\b"),
+    # Slack tokens & webhook secrets
+    re.compile(r"\bxox[bapose]-[A-Za-z0-9-]{10,}\b"),
+    re.compile(r"\bhttps://hooks\.slack\.com/services/T[A-Za-z0-9_/+-]+"),
+    # Stripe (live + test, all key classes)
+    re.compile(r"\b[sprk]k_(?:live|test)_[0-9A-Za-z]{16,}\b"),
+    # OpenAI / Anthropic style
+    re.compile(r"\bsk-(?:proj-|ant-)?[A-Za-z0-9_-]{20,}\b"),
+    # Google API key / OAuth refresh
+    re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"),
+    re.compile(r"\b1//0[0-9A-Za-z_-]{30,}\b"),
+    # GitLab PAT / trigger tokens
+    re.compile(r"\bglpat-[A-Za-z0-9_-]{20,}\b"),
+    # JWTs (three base64url segments starting with the typical header)
+    re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{5,}\b"),
+    # Private key blocks
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.DOTALL),
+    # Bearer / Basic authorization header values
+    re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{16,}"),
+    # Generic key/value assignment; the optional leading/trailing \w- run
+    # catches composed names like aws_secret_access_key or CLIENT_TOKEN while
+    # the \b anchors still stop mid-word accidents (e.g. "keyboard").
     re.compile(
-        r"(?i)\b(api[_-]?key|secret|token|password|passwd|authorization)\b"
-        r"\s*[:=]\s*[\"']?([A-Za-z0-9_\-./+=]{8,})"
+        r"(?i)\b[\w-]*(?:api[_-]?key|apikey|secret|token|password|passwd|pwd|"
+        r"authorization|key)[\w-]*\s*[:=]\s*[\"']?"
+        r"([A-Za-z0-9_\-./+=]{8,})"
     ),
 ]
 
@@ -128,7 +153,7 @@ def build_evidence(rf: RawFinding, workdir: Path | None) -> dict:
     """Build a version-1 evidence document for a raw finding."""
     evidence: dict = {"version": EVIDENCE_VERSION}
     if rf.file_path:
-        evidence["file"] = rf.file_path
+        evidence["file"] = redact_text(rf.file_path, _secrets_of(rf))
 
     if rf.line_start is not None:
         evidence["start"] = {"line": rf.line_start, "column": rf.col_start}
@@ -160,7 +185,8 @@ def build_evidence(rf: RawFinding, workdir: Path | None) -> dict:
         meta["owasp"] = owasp
     references = _extract_references(rf)
     if references:
-        meta["references"] = references
+        secrets = _secrets_of(rf)
+        meta["references"] = [redact_text(r, secrets) for r in references]
     evidence["rule"] = {"id": rf.rule_id, "tool": rf.tool}
     evidence.update(meta)
     return evidence

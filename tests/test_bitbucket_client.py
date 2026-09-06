@@ -84,7 +84,11 @@ def test_clone_url_token_injection():
     client = BitbucketClient.__new__(BitbucketClient)
     client.token = "secret-token"
     url = client.repo_clone_url("miraworkspace", "order-service")
-    assert url == "https://x-token-auth:secret-token@bitbucket.org/miraworkspace/order-service.git"
+    # Credentials must never be embedded in the clone URL (argv/.git/config
+    # leak); auth flows through a mode-0600 askpass helper instead.
+    assert url == "https://bitbucket.org/miraworkspace/order-service.git"
+    assert "secret-token" not in url
+    assert "x-token-auth" not in url
 
 
 def test_clone_failure_redacts_token_and_url(monkeypatch):
@@ -120,7 +124,7 @@ def test_clone_failure_redacts_token_and_url(monkeypatch):
     assert "SCP_AUTH_PASS" not in captured["env"]
 
 
-def test_clone_repo_disables_symlinks(monkeypatch, tmp_path):
+def test_clone_repo_rejects_symlinks(monkeypatch, tmp_path):
     src = tmp_path / "src-repo"
     src.mkdir()
     subprocess.run(["git", "init", "-q", str(src)], check=True)
@@ -138,11 +142,9 @@ def test_clone_repo_disables_symlinks(monkeypatch, tmp_path):
     monkeypatch.setattr(client, "repo_clone_url", lambda ws, repo: str(src))
 
     dest = tmp_path / "dest"
-    client.clone_repo("ws", "repo", "main", str(dest))
-
-    assert (dest / "file.txt").read_text(encoding="utf-8") == "hello\n"
-    assert (dest / "link").exists()
-    assert not (dest / "link").is_symlink()
+    with pytest.raises(BitbucketError, match="symlink"):
+        client.clone_repo("ws", "repo", "main", str(dest))
+    assert outside.read_text(encoding="utf-8") == "secret host content\n"
 
 
 def test_401_raises():

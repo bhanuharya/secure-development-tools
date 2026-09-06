@@ -25,7 +25,7 @@ class TrivyAdapter(Scanner):
                 "fs",
                 "--quiet",
                 "--format", "json",
-                "--scanners", "vuln",
+                "--scanners", "vuln,misconfig",
                 "--severity", os.getenv("SCP_TRIVY_SEVERITY", "CRITICAL,HIGH,MEDIUM"),
                 "--no-progress",
                 "--exit-code", "0",
@@ -118,7 +118,38 @@ class TrivyAdapter(Scanner):
                         raw=v,
                     )
                 )
+            for m in target.get("Misconfigurations", []) or []:
+                cause = m.get("CauseMetadata") or {}
+                code = cause.get("Code") or {}
+                cwes = m.get("CweIDs") or []
+                findings.append(
+                    RawFinding(
+                        tool=self.name,
+                        source_type="iac",
+                        rule_id=m.get("ID", ""),
+                        severity=normalize_severity(m.get("Severity")),
+                        cwe=cwes[0] if cwes else "",
+                        file_path=target_file,
+                        line_start=cause.get("StartLine"),
+                        line_end=cause.get("EndLine"),
+                        snippet=_misconfig_snippet(code),
+                        description=(m.get("Title") or "")[:1000],
+                        remediation=(m.get("Message") or "")[:1000],
+                        raw=m,
+                    )
+                )
         return findings
+
+
+def _misconfig_snippet(code: dict) -> str:
+    """Trivy embeds the offending config lines as {'Lines': [{'content': ...}]}."""
+    lines = (code or {}).get("Lines") or []
+    parts = []
+    for entry in lines:
+        content = entry.get("content")
+        if content is not None:
+            parts.append(str(content).rstrip("\n"))
+    return "\n".join(parts)[:2000]
 
 
 def _is_maven_rate_limit(stderr: str) -> bool:

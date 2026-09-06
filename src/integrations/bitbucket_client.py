@@ -6,7 +6,7 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass, field
-from urllib.parse import parse_qsl, urlparse
+from urllib.parse import parse_qsl, quote, urlparse
 
 import httpx
 
@@ -33,6 +33,39 @@ _GIT_ENV_ALLOWLIST = (
     "http_proxy",
     "no_proxy",
 )
+
+
+_GIT_REF_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,254}")
+_PR_ID_RE = re.compile(r"[1-9][0-9]{0,9}")
+_COMPONENT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+
+
+def _validate_component(value: str, name: str) -> str:
+    if not value or not _COMPONENT_RE.fullmatch(value):
+        raise BitbucketError(f"invalid Bitbucket {name}")
+    return value
+
+
+def _validate_git_ref(ref: str) -> str:
+    if re.fullmatch(r"[0-9a-fA-F]{40}", ref or ""):
+        return ref
+    if (
+        not ref
+        or ref.startswith("-")
+        or not _GIT_REF_RE.fullmatch(ref)
+        or ".." in ref
+        or "@{" in ref
+        or ref.endswith(("/", ".", ".lock"))
+    ):
+        raise BitbucketError("invalid Git ref")
+    return ref
+
+
+def _validate_pr_id(pr_id: str | int) -> str:
+    value = str(pr_id)
+    if not _PR_ID_RE.fullmatch(value):
+        raise BitbucketError("invalid pull-request id")
+    return value
 
 
 class BitbucketError(Exception):
@@ -109,9 +142,12 @@ class BitbucketClient:
 
     # ------------------------------------------------------------------ repos
     def list_repos(self, workspace: str, cursor: str | None = None, page_len: int = 100) -> Paginated:
+        workspace = _validate_component(workspace, "workspace")
         return self._paginate(f"/repositories/{workspace}", page_len=page_len, cursor=cursor)
 
     def get_repo(self, workspace: str, repo: str) -> dict:
+        workspace = _validate_component(workspace, "workspace")
+        repo = _validate_component(repo, "repository")
         return self._get(f"/repositories/{workspace}/{repo}")
 
     def get_default_branch(self, workspace: str, repo: str) -> str:
@@ -119,22 +155,36 @@ class BitbucketClient:
         return data.get("mainbranch", {}).get("name") or "main"
 
     def repo_clone_url(self, workspace: str, repo: str) -> str:
-        """HTTPS clone URL with the access token injected (x-token-auth)."""
+        """HTTPS clone URL without credentials.
+
+        The access token is never embedded in the URL (it would leak via
+        process argv and persist in .git/config). Authentication is supplied
+        at clone time through a mode-0600 GIT_ASKPASS helper instead.
+        """
+        workspace = _validate_component(workspace, "workspace")
+        repo = _validate_component(repo, "repository")
         host = BITBUCKET_CLONE_HOST
-        return f"https://x-token-auth:{self.token}@{host}/{workspace}/{repo}.git"
+        return f"https://{host}/{workspace}/{repo}.git"
 
     # ---------------------------------------------------------------- branches
     def list_branches(self, workspace: str, repo: str, cursor: str | None = None, page_len: int = 100) -> Paginated:
+        workspace = _validate_component(workspace, "workspace")
+        repo = _validate_component(repo, "repository")
         return self._paginate(
             f"/repositories/{workspace}/{repo}/refs/branches", page_len=page_len, cursor=cursor
         )
 
     def branch_head_sha(self, workspace: str, repo: str, branch: str) -> str:
-        data = self._get(f"/repositories/{workspace}/{repo}/refs/branches/{branch}")
+        workspace = _validate_component(workspace, "workspace")
+        repo = _validate_component(repo, "repository")
+        safe_branch = _validate_git_ref(branch)
+        data = self._get(f"/repositories/{workspace}/{repo}/refs/branches/{quote(safe_branch, safe='')}")
         return data.get("target", {}).get("hash", "")
 
     # --------------------------------------------------------------------- PRs
     def list_pull_requests(self, workspace: str, repo: str, state: str = "OPEN") -> list[dict]:
+        workspace = _validate_component(workspace, "workspace")
+        repo = _validate_component(repo, "repository")
         page = self._paginate(f"/repositories/{workspace}/{repo}/pullrequests", page_len=100)
         results = list(page.values)
         while page.next_cursor:
@@ -146,15 +196,21 @@ class BitbucketClient:
         return results
 
     def get_pull_request(self, workspace: str, repo: str, pr_id: str | int) -> dict:
-        return self._get(f"/repositories/{workspace}/{repo}/pullrequests/{pr_id}")
+        workspace = _validate_component(workspace, "workspace")
+        repo = _validate_component(repo, "repository")
+        safe_pr = _validate_pr_id(pr_id)
+        return self._get(f"/repositories/{workspace}/{repo}/pullrequests/{safe_pr}")
 
     def pull_request_head_sha(self, workspace: str, repo: str, pr_id: str | int) -> str:
         data = self.get_pull_request(workspace, repo, pr_id)
         return data.get("source", {}).get("commit", {}).get("hash", "")
 
     def get_pull_request_diff(self, workspace: str, repo: str, pr_id: str | int) -> str:
+        workspace = _validate_component(workspace, "workspace")
+        repo = _validate_component(repo, "repository")
+        safe_pr = _validate_pr_id(pr_id)
         resp = self._client.get(
-            f"/repositories/{workspace}/{repo}/pullrequests/{pr_id}/diff",
+            f"/repositories/{workspace}/{repo}/pullrequests/{safe_pr}/diff",
             headers={"Accept": "text/plain"},
         )
         if resp.status_code >= 400:
@@ -163,24 +219,64 @@ class BitbucketClient:
 
     # ------------------------------------------------------------------- clone
     def clone_repo(self, workspace: str, repo: str, ref: str, dest: str, depth: int = 1) -> None:
-        """Clone a branch (or commit sha) into dest. ref may be a branch name or SHA."""
+        """Clone a branch (or commit sha) into dest. ref may be a branch name or SHA.
+
+        The token never appears in argv or .git/config: git authenticates via
+        a temporary mode-0600 GIT_ASKPASS script that is removed afterwards,
+        and the stored origin URL carries no credentials.
+        """
         if shutil.which("git") is None:
             raise BitbucketError("git binary not available")
+        if BITBUCKET_WORKSPACE and workspace != BITBUCKET_WORKSPACE:
+            raise BitbucketError("requested workspace is outside the configured Bitbucket scope")
+        if depth < 1:
+            raise BitbucketError("clone depth must be positive")
+        ref = _validate_git_ref(ref)
         url = self.repo_clone_url(workspace, repo)
-        cmd = ["git", "-c", "core.symlinks=false", "clone", "--quiet", "--depth", str(depth)]
-        if re.fullmatch(r"[0-9a-f]{40}", ref or ""):
-            # SHA: clone default then checkout detached at sha
-            cmd += [url, dest]
-            self._run(cmd)
-            self._run(["git", "-c", "core.symlinks=false", "-C", dest, "checkout", "--quiet", ref])
-        else:
-            cmd += ["--branch", ref, "--single-branch", url, dest]
-            self._run(cmd)
+        askpass = _write_askpass(self.token)
+        try:
+            cmd = [
+                "git",
+                "-c",
+                "core.symlinks=false",
+                "-c",
+                "credential.helper=",
+                "clone",
+                "--quiet",
+                "--no-tags",
+                "--no-checkout",
+                "--depth",
+                str(depth),
+            ]
+            if re.fullmatch(r"[0-9a-fA-F]{40}", ref or ""):
+                cmd += [url, dest]
+                self._run(cmd, askpass=askpass)
+                self._run(
+                    ["git", "-c", "credential.helper=", "-C", dest, "fetch", "--quiet", "--depth", str(depth), "origin", ref],
+                    askpass=askpass,
+                )
+                self._run(
+                    ["git", "-c", "credential.helper=", "-C", dest, "checkout", "--quiet", "--detach", ref],
+                    askpass=askpass,
+                )
+            else:
+                cmd += ["--branch", ref, "--single-branch", url, dest]
+                self._run(cmd, askpass=askpass)
+                self._run(
+                    ["git", "-c", "credential.helper=", "-C", dest, "checkout", "--quiet", "--detach"],
+                    askpass=askpass,
+                )
+            _reject_worktree_symlinks(dest)
+        finally:
+            _remove_askpass(askpass)
+            _scrub_git_config(dest, self.token)
 
-    def _run(self, cmd: list[str], cwd: str | None = None) -> str:
+    def _run(self, cmd: list[str], cwd: str | None = None, askpass: str | None = None) -> str:
         env = {name: os.environ[name] for name in _GIT_ENV_ALLOWLIST if name in os.environ}
         env.setdefault("PATH", os.defpath)
         env["GIT_TERMINAL_PROMPT"] = "0"
+        if askpass:
+            env["GIT_ASKPASS"] = askpass
         proc = subprocess.run(
             cmd,
             cwd=cwd,
@@ -216,6 +312,10 @@ class BitbucketClient:
         description: str,
         url: str = "",
     ) -> None:
+        workspace = _validate_component(workspace, "workspace")
+        repo = _validate_component(repo, "repository")
+        if not re.fullmatch(r"[0-9a-fA-F]{40}", commit or ""):
+            raise BitbucketError("invalid commit SHA")
         payload = {
             "state": state,  # SUCCESSFUL | FAILED | INPROGRESS | STOPPED
             "key": key,
@@ -230,5 +330,80 @@ class BitbucketClient:
             raise BitbucketError(f"Failed to post build status: {resp.status_code} {resp.text[:300]}")
 
 
+def _reject_worktree_symlinks(dest: str) -> None:
+    for root, dirs, files in os.walk(dest, followlinks=False):
+        for name in [*dirs, *files]:
+            path = os.path.join(root, name)
+            if os.path.islink(path):
+                raise BitbucketError(f"repository contains unsupported symlink: {name}")
+
+
+def _write_askpass(token: str) -> str:
+    """Write a temporary mode-0600 GIT_ASKPASS script returning the token.
+
+    The script answers the username prompt with ``x-token-auth`` and any
+    other (password) prompt with the token. The file lives under /tmp and
+    is removed by the caller in a finally block.
+    """
+    import tempfile
+
+    fd, path = tempfile.mkstemp(prefix="sdt-askpass-", suffix=".sh")
+    try:
+        # The helper contains no token; the owner-only sidecar holds it.
+        script = (
+            "#!/bin/sh\n"
+            'case "$1" in\n'
+            "  *sername*) echo x-token-auth ;;\n"
+            "  *) cat \"$0.token\" ;;\n"
+            "esac\n"
+        )
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(script)
+        token_path = path + ".token"
+        token_fd = os.open(token_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(token_fd, "w", encoding="utf-8") as fh:
+            fh.write(token or "")
+        os.chmod(path, 0o700)
+        # Restrict the credential sidecar to the owner at creation time and
+        # retain the executable helper's owner-only mode.
+        os.chmod(token_path, 0o600)
+        st = os.stat(path)
+        if st.st_mode & 0o077:
+            os.chmod(path, 0o700)
+    except Exception:
+        _remove_askpass(path)
+        raise
+    return path
+
+
+def _remove_askpass(path: str | None) -> None:
+    for candidate in (path or "", (path or "") + ".token"):
+        if not candidate:
+            continue
+        try:
+            os.remove(candidate)
+        except OSError:
+            pass
+
+
+def _scrub_git_config(dest: str, token: str) -> None:
+    """Remove any persisted credential from the fresh clone's config."""
+    if not dest or not token:
+        return
+    cfg = os.path.join(dest, ".git", "config")
+    try:
+        with open(cfg, "r", encoding="utf-8", errors="replace") as fh:
+            data = fh.read()
+    except OSError:
+        return
+    if token not in data and "x-token-auth" not in data:
+        return
+    cleaned = data.replace(token, "")
+    cleaned = re.sub(r"(https?://)[^@\s]*@", r"\1", cleaned)
+    try:
+        with open(cfg, "w", encoding="utf-8") as fh:
+            fh.write(cleaned)
+    except OSError:
+        pass
 def safe_slug(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._-]", "", value).lower()

@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
@@ -48,7 +50,21 @@ def test_duplicate_register_returns_same(client, project):
     assert resp.json()["id"] == project["id"]
 
 
-def test_dast_scan_requires_preapproved_target(client, project):
+def _dast_headers(monkeypatch):
+    monkeypatch.setenv("SCP_API_TOKEN", "test-dast-token")
+    monkeypatch.setenv("SCP_DAST_ALLOWED_HOSTS", "staging.example.com,prod.example.com,other.example.com")
+    import socket as _socket
+
+    monkeypatch.setattr(
+        _socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [(_socket.AF_INET, _socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))],
+    )
+    return {"Authorization": "Bearer test-dast-token"}
+
+
+def test_dast_scan_requires_approved_target(client, project, monkeypatch):
+    headers = _dast_headers(monkeypatch)
     with Session(engine) as session:
         target = Target(
             project_id=project["id"], url="https://staging.example.com",
@@ -58,19 +74,47 @@ def test_dast_scan_requires_preapproved_target(client, project):
         session.commit()
         target_id = target.id
 
-    # no confirmation -> rejected
-    resp = client.post("/api/scans", json={"project_id": project["id"], "scan_type": "dast", "dast_target": target_id})
+    # unapproved -> rejected, and client-side confirmation no longer exists
+    resp = client.post("/api/scans", json={"project_id": project["id"], "scan_type": "dast", "dast_target": target_id, "dast_confirmed": True}, headers=headers)
     assert resp.status_code == 400
 
-    # confirm acknowledgement -> accepted
-    resp = client.post("/api/scans", json={
-        "project_id": project["id"], "scan_type": "dast", "dast_target": target_id, "dast_confirmed": True,
-    })
+    # server-side approval unlocks it
+    resp = client.post(f"/api/targets/{target_id}/approve", json={"reason": "staging ok"}, headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["pre_approved"] is True
+
+    resp = client.post("/api/scans", json={"project_id": project["id"], "scan_type": "dast", "dast_target": target_id}, headers=headers)
     assert resp.status_code == 200, resp.text
     assert resp.json()["scan_type"] == "dast"
 
+    # approval decisions leave an audit trail
+    audit = client.get(f"/api/targets/{target_id}/audit", headers=headers).json()
+    assert audit and audit[0]["action"] == "approve" and audit[0]["reason"] == "staging ok"
 
-def test_dast_target_locked_to_project(client, project):
+
+def test_dast_production_target_needs_explicit_ack(client, project, monkeypatch):
+    headers = _dast_headers(monkeypatch)
+    with Session(engine) as session:
+        target = Target(
+            project_id=project["id"], url="https://prod.example.com",
+            is_production=True, pre_approved=False,
+        )
+        session.add(target)
+        session.commit()
+        target_id = target.id
+
+    resp = client.post(f"/api/targets/{target_id}/approve", json={}, headers=headers)
+    assert resp.status_code == 400
+
+    resp = client.post(f"/api/targets/{target_id}/approve", json={"production_ack": True, "reason": "change window"}, headers=headers)
+    assert resp.status_code == 200, resp.text
+
+    resp = client.post("/api/scans", json={"project_id": project["id"], "scan_type": "dast", "dast_target": target_id}, headers=headers)
+    assert resp.status_code == 200, resp.text
+
+
+def test_dast_target_locked_to_project(client, project, monkeypatch):
+    headers = _dast_headers(monkeypatch)
     with Session(engine) as session:
         other = Target(
             project_id=project["id"] + 999, url="https://other.example.com",
@@ -79,7 +123,7 @@ def test_dast_target_locked_to_project(client, project):
         session.add(other)
         session.commit()
         other_id = other.id
-    resp = client.post("/api/scans", json={"project_id": project["id"], "scan_type": "dast", "dast_target": other_id, "dast_confirmed": True})
+    resp = client.post("/api/scans", json={"project_id": project["id"], "scan_type": "dast", "dast_target": other_id}, headers=headers)
     assert resp.status_code == 404
 
 
@@ -129,7 +173,7 @@ def test_finding_api_returns_structured_evidence(client, project):
     assert detail.status_code == 200
     assert detail.json()["evidence"]["version"] == 1
     assert detail.json()["evidence"]["context"][0]["vulnerable"] is True
-    listed = client.get(f"/api/findings?scan_id={scan_id}").json()
+    listed = client.get(f"/api/findings?scan_id={scan_id}&include_evidence=true").json()
     assert listed[0]["evidence"]["context"][0]["line"] == 3
 
 
@@ -201,3 +245,35 @@ def test_uploaded_project_cannot_be_rescanned_as_branch(client):
     assert resp.status_code == 400
     resp = client.post("/api/scans", json={"project_id": pid, "scan_type": "sast", "ref_type": "pr", "ref_name": "5"})
     assert resp.status_code == 400
+
+def _seed_findings(session, project_id, scan_id):
+    specs = [("info", 1), ("low", 2), ("medium", 3), ("high", 4), ("critical", 5), ("info", 6)]
+    for i, (sev, _) in enumerate(specs):
+        session.add(Finding(
+            scan_id=scan_id, project_id=project_id, tool="bandit", source_type="sast",
+            rule_id=f"R{i}", severity=sev, file_path="app.py", line_start=1,
+            fingerprint=f"ord-{i}", status="new",
+            evidence=json.dumps({"version": 1, "context": [{"line": 1, "text": "x" * 2048}]}),
+        ))
+    session.commit()
+
+
+def test_findings_ordered_by_severity_rank(client, project):
+    with Session(engine) as session:
+        scan = _make_scan(session, project["id"], scan_type="sast", ref_type="branch", ref_name="main")
+        _seed_findings(session, project["id"], scan.id)
+    rows = client.get("/api/findings").json()
+    order = [r["severity"] for r in rows]
+    assert order == ["critical", "high", "medium", "low", "info", "info"]
+
+
+def test_findings_list_omits_evidence_unless_asked(client, project):
+    with Session(engine) as session:
+        scan = _make_scan(session, project["id"], scan_type="sast", ref_type="branch", ref_name="main")
+        _seed_findings(session, project["id"], scan.id)
+    rows = client.get("/api/findings").json()
+    assert rows and all("evidence" not in r for r in rows)
+    detail = client.get(f"/api/findings/{rows[0]['id']}").json()
+    assert detail["evidence"]["version"] == 1
+    with_ev = client.get("/api/findings?include_evidence=true").json()
+    assert all("evidence" in r for r in with_ev)

@@ -36,7 +36,8 @@ def test_trivy_adapter_args(tmp_path, monkeypatch):
 
     args = captured["args"]
     assert "--scanners" in args
-    assert "vuln" in args
+    assert "vuln" in args[args.index("--scanners") + 1]
+    assert "misconfig" in args[args.index("--scanners") + 1]
     skip_idx = args.index("--skip-dirs")
     assert "node_modules" in args[skip_idx + 1]
     sev_idx = args.index("--severity")

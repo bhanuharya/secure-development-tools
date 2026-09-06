@@ -1,0 +1,3 @@
+# Preserve upstream vendored rule/test bytes; their formatting is governed by
+# the bundle hash and rule harness rather than repository whitespace style.
+rules/opengrep-rules/vendor/** whitespace=-trailing-space

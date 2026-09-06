@@ -1,5 +1,6 @@
 import io
 import json
+import socket
 import zipfile
 
 import pytest
@@ -9,6 +10,7 @@ from sqlmodel import Session, select
 from src.api.database import Project, Scan, Target, engine
 from src.api.main import app
 from src.config import SCAN_WORK_DIR
+from src.util.secretbox import decrypt_secret
 
 
 @pytest.fixture()
@@ -39,6 +41,21 @@ def _noop_runner(monkeypatch):
 
     monkeypatch.setattr("src.api.routers.uploads.get_executor", lambda: SyncScanExecutor())
     return calls
+
+
+def _allow_test_dast_hosts(monkeypatch):
+    monkeypatch.setenv("SCP_DAST_ALLOWED_HOSTS", "staging.example.com,*.internal.corp")
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))],
+    )
+
+
+def _dast_auth(monkeypatch):
+    """Enable control-plane auth for DAST endpoints (required)."""
+    monkeypatch.setenv("SCP_API_TOKEN", "test-dast-token")
+    return {"Authorization": "Bearer test-dast-token"}
 
 
 def test_upload_repo_scan_rejects_non_zip(client):
@@ -91,7 +108,7 @@ def test_upload_repo_scan_creates_standalone_scan(client, monkeypatch):
     assert scan["scan_type"] == "sca"
     assert scan["ref_type"] == "upload"
     assert scan["ref_name"] == "Manually Uploaded"
-    assert scan["engines"] == "trivy"  # defaulted from scan_type
+    assert scan["engines"] == "trivy,osv-scanner"  # defaulted from scan_type
     assert calls == [scan["id"]]
 
     with Session(engine) as session:
@@ -167,48 +184,116 @@ def test_upload_repo_scan_preset_full(client, monkeypatch):
     assert resp.status_code == 200, resp.text
     scan = resp.json()
     assert scan["scan_type"] == "full"
-    assert scan["engines"] == "bandit,opengrep,trivy,gitleaks"
+    assert scan["engines"] == "bandit,opengrep,trivy,gitleaks,checkov,osv-scanner"
 
 
-def test_direct_dast_requires_confirmation(client):
-    resp = client.post("/api/uploads/dast", json={"url": "https://staging.example.com"})
-    assert resp.status_code == 400
+def test_direct_dast_register_does_not_launch(client, monkeypatch):
+    """Registration alone must never create or start a scan."""
+    _allow_test_dast_hosts(monkeypatch)
+    headers = _dast_auth(monkeypatch)
+    calls = _noop_runner(monkeypatch)
+    resp = client.post("/api/uploads/dast", json={"url": "https://staging.example.com"}, headers=headers)
+    assert resp.status_code == 200, resp.text
+    target = resp.json()
+    assert "next_step" in target
+    assert calls == []
+    with Session(engine) as session:
+        assert session.exec(select(Scan)).all() == []
 
 
-def test_direct_dast_creates_scan_and_target(client, monkeypatch):
+def test_direct_dast_register_approve_scan_flow(client, monkeypatch):
+    _allow_test_dast_hosts(monkeypatch)
+    headers = _dast_auth(monkeypatch)
     calls = _noop_runner(monkeypatch)
     resp = client.post("/api/uploads/dast", json={
         "name": "Staging portal",
         "url": "https://staging.example.com",
-        "dast_confirmed": True,
         "auth_mode": "form",
         "login_url": "https://staging.example.com/login",
         "username_field": "username",
         "password_field": "password",
         "auth_username": "alice",
         "auth_password": "s3cr3t",
-    })
+    }, headers=headers)
+    assert resp.status_code == 200, resp.text
+    target = resp.json()
+
+    # scan before approval -> refused
+    resp = client.post("/api/scans", json={
+        "project_id": target["project_id"], "scan_type": "dast", "dast_target": target["id"],
+    }, headers=headers)
+    assert resp.status_code == 400
+
+    resp = client.post(
+        f"/api/targets/{target['id']}/approve",
+        json={"reason": "test", "production_ack": True},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    resp = client.post("/api/scans", json={
+        "project_id": target["project_id"], "scan_type": "dast", "dast_target": target["id"],
+    }, headers=headers)
     assert resp.status_code == 200, resp.text
     scan = resp.json()
     assert scan["scan_type"] == "dast"
-    assert scan["ref_type"] == "upload"
     assert scan["engines"] == "zap"
-    assert calls == [scan["id"]]
 
     with Session(engine) as session:
         saved = session.get(Scan, scan["id"])
-        target = session.get(Target, int(saved.dast_target))
-        assert target is not None
-        assert target.project_id == saved.project_id
-        assert target.auth_mode == "form"
-        assert target.auth_password == "s3cr3t"
+        assert saved is not None
+        row = session.get(Target, int(saved.dast_target))
+        assert row is not None
+        assert row.project_id == saved.project_id
+        assert row.auth_mode == "form"
+        # credentials are encrypted at rest, never stored as plaintext
+        assert row.auth_password != "s3cr3t"
+        assert row.auth_password.startswith("enc:v1:")
+        assert decrypt_secret(row.auth_password) == "s3cr3t"
         project = session.get(Project, saved.project_id)
         assert project.workspace == ""
+
+
+def test_dast_password_requires_secret_key(client, monkeypatch):
+    _allow_test_dast_hosts(monkeypatch)
+    headers = _dast_auth(monkeypatch)
+    monkeypatch.delenv("SCP_SECRET_KEY", raising=False)
+    resp = client.post("/api/uploads/dast", json={
+        "url": "https://staging.example.com", "auth_mode": "form",
+        "login_url": "https://staging.example.com/login", "auth_password": "s3cr3t",
+    }, headers=headers)
+    assert resp.status_code == 400
+    assert "SCP_SECRET_KEY" in resp.json()["detail"]
+
+
+def test_dast_url_allowlist(client, monkeypatch):
+    monkeypatch.setenv("SCP_DAST_ALLOWED_HOSTS", "staging.example.com,*.internal.corp")
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))],
+    )
+    headers = _dast_auth(monkeypatch)
+    ok = client.post("/api/uploads/dast", json={"url": "https://app.internal.corp/login?next=/"}, headers=headers)
+    assert ok.status_code == 200, ok.text
+    exact = client.post("/api/uploads/dast", json={"url": "https://staging.example.com"}, headers=headers)
+    assert exact.status_code == 200
+    denied = client.post("/api/uploads/dast", json={"url": "https://payments.example.org"}, headers=headers)
+    assert denied.status_code == 400
+    assert "SCP_DAST_ALLOWED_HOSTS" in denied.json()["detail"]
+    # wildcard covers subdomains but not the bare apex or deeper tricks
+    apex = client.post("/api/uploads/dast", json={"url": "https://internal.corp"}, headers=headers)
+    assert apex.status_code == 400
+    scheme = client.post("/api/uploads/dast", json={"url": "ftp://staging.example.com"}, headers=headers)
+    assert scheme.status_code == 400
 
 
 def test_dast_upload_scan_runs_without_staged_repo(client, monkeypatch):
     """DAST scans use ref_type='upload' but must NOT require a staged ZIP (.ready)."""
     from src.scanners.orchestrator import ScanRunner
+
+    _allow_test_dast_hosts(monkeypatch)
+    _dast_auth(monkeypatch)
 
     class FakeZap:
         def available(self):
@@ -228,6 +313,8 @@ def test_dast_upload_scan_runs_without_staged_repo(client, monkeypatch):
         session.add(target)
         session.commit()
         session.refresh(target)
+        from src.api.routers.scans import _target_digest
+
         scan = Scan(
             project_id=project.id,
             scan_type="dast",
@@ -235,6 +322,7 @@ def test_dast_upload_scan_runs_without_staged_repo(client, monkeypatch):
             ref_type="upload",
             ref_name="dast",
             dast_target=str(target.id),
+            dast_target_digest=_target_digest(target),
         )
         session.add(scan)
         session.commit()

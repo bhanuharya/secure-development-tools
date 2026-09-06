@@ -1,0 +1,11 @@
+# Governed exceptions (PRD POL-004). Copy to .secure-dev/exceptions.yaml to use.
+# Every entry requires reason, owner, createdAt, expiresAt. Expired entries
+# never suppress. Secret findings need exceptions.allowSecretExceptions=true.
+exceptions:
+  - id: EX-2026-004
+    fingerprints: ["sha256:EXAMPLE"]
+    reason: "False positive confirmed by repository owner"
+    owner: "project-owner"
+    createdAt: "2026-09-04"
+    expiresAt: "2026-10-04"
+    ticket: "LAB-42"

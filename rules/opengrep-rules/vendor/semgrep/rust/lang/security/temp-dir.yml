@@ -1,0 +1,17 @@
+rules:
+  - id: temp-dir
+    message: "Avoid using temp_dir for security-sensitive files; create a uniquely named file or directory with a secure method."
+    pattern: "std::env::temp_dir()"
+    metadata:
+      references:
+        - https://doc.rust-lang.org/stable/std/env/fn.temp_dir.html
+      technology:
+        - rust
+      category: security
+      cwe: "CWE-807: Reliance on Untrusted Inputs in a Security Decision"
+      confidence: HIGH
+      likelihood: LOW
+      impact: LOW
+      subcategory: audit
+    languages: [rust]
+    severity: INFO

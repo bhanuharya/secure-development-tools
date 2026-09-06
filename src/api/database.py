@@ -32,6 +32,7 @@ class Scan(SQLModel, table=True):
     commit_sha: str = Field(default="")
     language_override: str = Field(default="")
     dast_target: str = Field(default="")
+    dast_target_digest: str = Field(default="")
     status: str = Field(default="pending", index=True,
                         description="pending|running|succeeded|failed|aborted")
     engine_statuses: str = Field(default="{}", description="json engine -> state")
@@ -84,13 +85,28 @@ class Target(SQLModel, table=True):
     url: str = Field(default="")
     is_production: bool = Field(default=False)
     pre_approved: bool = Field(default=False)
+    production_confirmed: bool = Field(
+        default=False,
+        description="server-side record that an operator acknowledged this "
+        "production target before any active scan (set via /api/targets/{id}/approve)",
+    )
     auth_mode: str = Field(default="none", description="none|form|context_file")
     login_url: str = Field(default="")
     username_field: str = Field(default="")
     password_field: str = Field(default="")
     auth_username: str = Field(default="")
-    auth_password: str = Field(default="", description="stored; never returned by the API")
+    auth_password: str = Field(default="", description="encrypted at rest; never returned by the API")
     context_file_path: str = Field(default="", description="raw ZAP context file path (escape hatch)")
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class TargetAuditEvent(SQLModel, table=True):
+    """Audit trail for target approval decisions (mirrors FindingAuditEvent)."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    target_id: int = Field(foreign_key="target.id", index=True)
+    action: str = Field(description="approve | revoke")
+    reason: str = Field(default="")
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -139,6 +155,20 @@ def _migrate() -> None:
             # suppress the race when another worker actually added it.
             if "evidence" not in {c["name"] for c in inspect(engine).get_columns("finding")}:
                 raise
+
+    if "target" in inspector.get_table_names():
+        target_cols = {c["name"] for c in inspector.get_columns("target")}
+        if "production_confirmed" not in target_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE target ADD COLUMN production_confirmed BOOLEAN DEFAULT 0")
+                )
+    # Queued DAST scans bind to an immutable target/configuration digest.
+    if "scan" in inspector.get_table_names():
+        scan_cols = {c["name"] for c in inspector.get_columns("scan")}
+        if "dast_target_digest" not in scan_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE scan ADD COLUMN dast_target_digest VARCHAR DEFAULT ''"))
 
 
 def recover_incomplete_scans() -> int:

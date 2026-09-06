@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from src.api.database import init_db, recover_incomplete_scans
-from src.api.routers import bitbucket, findings, projects, reports, scans, uploads
+from src.api.routers import bitbucket, findings, projects, reports, scans, targets, uploads
 from src.api.security import AuthMiddleware, SecurityHeadersMiddleware
 from src.scanners.executor import get_executor, set_executor
 
@@ -43,6 +43,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.include_router(projects.router)
 app.include_router(bitbucket.router)
 app.include_router(scans.router)
+app.include_router(targets.router)
 app.include_router(findings.router)
 app.include_router(reports.router)
 app.include_router(uploads.router)

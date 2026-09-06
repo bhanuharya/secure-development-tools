@@ -12,6 +12,13 @@ __pycache__/
 # Runtime data / scan artifacts (may contain findings / scan output)
 data/
 scan_work/
+reports/
+.cache/
+
+# Go build output (root binary only; must not ignore cmd/sdt/ sources)
+# NOTE: bare `sdt` would ignore the cmd/sdt/ directory — use root-anchored path.
+/sdt
+dist/
 
 # Local tooling context — plans, prompts, lint results (keep private)
 .hermes/

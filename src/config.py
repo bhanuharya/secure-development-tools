@@ -43,6 +43,10 @@ RULES_DIR = Path(os.getenv("SCP_RULES_DIR", PROJECT_ROOT / "rules"))
 
 for _d in (DATA_DIR, SCAN_WORK_DIR, REPORT_DIR, RULES_DIR):
     _d.mkdir(parents=True, exist_ok=True)
+try:
+    os.chmod(SCAN_WORK_DIR, 0o700)
+except OSError:
+    pass
 
 DATABASE_URL = os.getenv("SCP_DATABASE_URL", f"sqlite:///{DATA_DIR / 'controlplane.db'}")
 
@@ -57,6 +61,8 @@ ENGINE_BINARIES = {
     "semgrep": os.getenv("SCP_SEMGREP_BIN", "semgrep"),
     "trivy": os.getenv("SCP_TRIVY_BIN", "trivy"),
     "gitleaks": os.getenv("SCP_GITLEAKS_BIN", "gitleaks"),
+    "checkov": os.getenv("SCP_CHECKOV_BIN", "checkov"),
+    "osv-scanner": os.getenv("SCP_OSV_SCANNER_BIN", "osv-scanner"),
 }
 ZAP_API_URL = os.getenv("SCP_ZAP_API_URL", "http://127.0.0.1:8080")
 ZAP_API_KEY = os.getenv("SCP_ZAP_API_KEY", "")
@@ -64,6 +70,8 @@ ZAP_API_KEY = os.getenv("SCP_ZAP_API_KEY", "")
 # HTTP Basic auth — enforced only when BOTH are set (see src/api/security.py)
 SCP_AUTH_USER = os.getenv("SCP_AUTH_USER", "")
 SCP_AUTH_PASS = os.getenv("SCP_AUTH_PASS", "")
+# Optional shared Bearer API token for automation/bots (see src/api/security.py)
+SCP_API_TOKEN = os.getenv("SCP_API_TOKEN", "")
 
 MAX_CONCURRENT_ENGINES = int(os.getenv("SCP_MAX_CONCURRENT_ENGINES", "4"))
 MAX_CONCURRENT_SCANS = int(os.getenv("SCP_MAX_CONCURRENT_SCANS", "4"))
@@ -78,6 +86,13 @@ MAX_COMPRESSION_RATIO = int(os.getenv("SCP_MAX_COMPRESSION_RATIO", "100"))
 
 # Offline local OpenGrep/Semgrep rule pack (relative to PROJECT_ROOT).
 RULES_PACK_DIR = Path(os.getenv("SCP_RULES_PACK_DIR", RULES_DIR / "opengrep-rules"))
+
+# Allowlisted root directories for local folder scanning (os.pathsep-separated).
+# When empty, the /api/uploads/folder endpoint is disabled (fails closed) so the
+# platform cannot be used to read arbitrary host paths.
+LOCAL_SCAN_ROOTS = tuple(
+    p for p in os.getenv("SCP_LOCAL_SCAN_ROOTS", "").split(os.pathsep) if p
+)
 
 # Per-engine tuning knobs (read at call time by the adapters; defaults here mirror them)
 SCP_TRIVY_SEVERITY = os.getenv("SCP_TRIVY_SEVERITY", "CRITICAL,HIGH,MEDIUM")

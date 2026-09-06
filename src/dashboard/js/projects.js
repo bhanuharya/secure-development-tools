@@ -2,7 +2,16 @@ const projState = { projects: [], repos: [], cursor: null };
 
 async function init() {
   bind();
-  projState.projects = await loadProjects();
+  const box = document.getElementById("projects-table");
+  setLoading(box, true);
+  try {
+    projState.projects = await loadProjects();
+  } catch (e) {
+    toast(`Could not load projects: ${e.message}`, "error");
+    projState.projects = [];
+  } finally {
+    setLoading(box, false);
+  }
   renderProjects();
   renderTargetProjectSelect();
   document.getElementById("auth-mode").addEventListener("change", onAuthModeChange);
@@ -116,7 +125,6 @@ async function saveTarget() {
     url,
     auth_mode: mode,
     is_production: document.getElementById("is-production").checked,
-    pre_approved: document.getElementById("pre-approved").checked,
   };
   if (mode === "form") {
     body.login_url = document.getElementById("login-url").value.trim() || url;
