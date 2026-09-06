@@ -358,7 +358,7 @@ GET  /api/reports/project/{project_id}/download
 
 | Area | Status |
 |---|---|
-| **AuthN/AuthZ** | Optional **HTTP Basic auth** via `SCP_AUTH_USER` / `SCP_AUTH_PASS`, plus an optional **Bearer API token** (`SCP_API_TOKEN`) for bots — middleware covers the API *and* the dashboard. Partial config **fails closed** (raises rather than silently running open). `/api/health` stays public for observability. |
+| **AuthN/AuthZ** | Optional **HTTP Basic auth** via `SCP_AUTH_USER` / `SCP_AUTH_PASS`, plus an optional **Bearer API token** (`SCP_API_TOKEN`) for bots — middleware covers the API *and* the dashboard. Partial config **fails closed** (raises rather than silently running open). With **no credentials configured the control plane is localhost-only**: remote peers are rejected on every path until auth is configured. `/api/health` stays public for observability once auth is on. |
 | **CSRF** | Cross-site state-changing requests are rejected (`Sec-Fetch-Site`, with an `Origin` fallback) — including the multipart upload endpoints, which browsers would otherwise send cross-site with ambient Basic credentials. |
 | **Brute force** | Failed auth attempts are throttled per client IP (lockout after repeated failures, `429` + `Retry-After`). |
 | **Security headers** | CSP (self + inline for the vanilla-JS dashboard), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Permissions-Policy` (no camera/mic/geo/payment/usb). |
@@ -372,8 +372,10 @@ GET  /api/reports/project/{project_id}/download
 
 ### ⚠️ Before you expose it
 
-- **Enable auth**: set both `SCP_AUTH_USER` and `SCP_AUTH_PASS` (the middleware
-  intentionally fails closed if only one is set).
+- **Enable auth**: set both `SCP_AUTH_USER` and `SCP_AUTH_PASS`, or an
+  `SCP_API_TOKEN` (the middleware intentionally fails closed if only one Basic
+  var is set). Remote access is **impossible without credentials** — an
+  unauthenticated instance accepts localhost connections only.
 - **Pin dependencies** and run `pip-audit`.
 - **Physical access control**: bind to a trusted interface, use TLS in front of it
   (e.g. a reverse proxy / tunnel), and restrict who can reach it.

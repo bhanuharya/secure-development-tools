@@ -26,6 +26,11 @@ function esc(s) {
 
 function sevClass(s) { return ["critical", "high", "medium", "low", "info"].includes(s) ? s : "info"; }
 
+// Mirrors the backend's valid finding statuses (src/api/routers/findings.py):
+// server data is only ever mapped onto a known badge class, never injected
+// into the class attribute verbatim.
+function statusClass(s) { return ["new", "triaged", "fixed", "false_positive", "accepted_risk"].includes(s) ? s : "new"; }
+
 // Only http(s) findings references become links: scanner-controlled URLs
 // with javascript:/data: schemes must render as inert text, never as
 // clickable links.
@@ -129,7 +134,7 @@ function showFindingModal(f, triageFn) {
       <div class="modal-head">
         <div>
           <span class="badge ${sevClass(f.severity)}">${esc(f.severity)}</span>
-          <span class="badge ${f.status}">${esc(f.status)}</span>
+          <span class="badge ${statusClass(f.status)}">${esc(f.status)}</span>
           <span class="modal-tool mono">${esc(f.tool)}</span>
         </div>
         <button class="secondary modal-close" aria-label="Close">×</button>

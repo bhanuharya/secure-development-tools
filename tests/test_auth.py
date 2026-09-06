@@ -32,6 +32,61 @@ def test_auth_disabled_default(monkeypatch):
         assert c.get("/").status_code == 200
 
 
+# ------------------------------------------------------ localhost-only default
+
+def _asgi_request(method: str, path: str, peer: tuple[str, int], **kwargs) -> "httpx.Response":
+    """Issue a request against the app with an explicit ASGI peer address, as
+    uvicorn would report it for a TCP connection from that host."""
+    import asyncio
+
+    import httpx
+
+    async def call() -> "httpx.Response":
+        transport = httpx.ASGITransport(app=app, client=peer)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
+            return await c.request(method, path, **kwargs)
+
+    return asyncio.run(call())
+
+
+REMOTE_PEER = ("203.0.113.7", 40000)
+
+
+def test_unauthenticated_remote_peer_rejected(monkeypatch):
+    """Without credentials the control plane is localhost-only, regardless of
+    the bind address: remote peers get 403 on every path, health included."""
+    monkeypatch.delenv("SCP_AUTH_USER", raising=False)
+    monkeypatch.delenv("SCP_AUTH_PASS", raising=False)
+    monkeypatch.delenv("SCP_API_TOKEN", raising=False)
+    for path in ("/api/health", "/", "/api/projects"):
+        resp = _asgi_request("GET", path, REMOTE_PEER)
+        assert resp.status_code == 403, path
+        assert "localhost" in resp.json()["detail"]
+    resp = _asgi_request("POST", "/api/projects", REMOTE_PEER, json={"workspace": "w", "repo_slug": "r"})
+    assert resp.status_code == 403
+
+
+def test_remote_peer_allowed_with_basic_auth(monkeypatch):
+    monkeypatch.setenv("SCP_AUTH_USER", "admin")
+    monkeypatch.setenv("SCP_AUTH_PASS", "s3cret")
+    assert _asgi_request("GET", "/api/projects", REMOTE_PEER).status_code == 401
+    assert _asgi_request("GET", "/api/projects", REMOTE_PEER, headers=_auth_header("admin", "s3cret")).status_code == 200
+
+
+def test_remote_peer_allowed_with_token(monkeypatch):
+    monkeypatch.delenv("SCP_AUTH_USER", raising=False)
+    monkeypatch.delenv("SCP_AUTH_PASS", raising=False)
+    monkeypatch.setenv("SCP_API_TOKEN", "bot-token-123")
+    resp = _asgi_request("GET", "/api/projects", REMOTE_PEER, headers={"Authorization": "Bearer bot-token-123"})
+    assert resp.status_code == 200
+
+
+def test_loopback_peer_accepted_without_auth(monkeypatch):
+    monkeypatch.delenv("SCP_AUTH_USER", raising=False)
+    monkeypatch.delenv("SCP_AUTH_PASS", raising=False)
+    assert _asgi_request("GET", "/api/projects", ("127.0.0.1", 40000)).status_code == 200
+
+
 def test_health_public_when_auth_on(monkeypatch):
     monkeypatch.setenv("SCP_AUTH_USER", "admin")
     monkeypatch.setenv("SCP_AUTH_PASS", "s3cret")
