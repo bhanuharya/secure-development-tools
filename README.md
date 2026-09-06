@@ -64,11 +64,16 @@ BITBUCKET_ACCESS_TOKEN=xxx BITBUCKET_WORKSPACE=acme \
 # or, self-contained: use the dashboard's Upload → Scan (source ZIP) path
 ```
 
-Run the test suite:
+Run the test suite (install the test scanner dependencies first):
 
 ```bash
+.venv/bin/pip install -r requirements-dev.txt
 .venv/bin/pytest
 ```
+
+`requirements-dev.txt` includes the Bandit and Semgrep executables used by the
+test suite. Other scanners are optional and must be installed separately when
+needed.
 
 Scanners must be installed and on `PATH` (or pointed at via `SCP_*_BIN`). Engine
 availability and versions are reported at
