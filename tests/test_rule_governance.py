@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 import yaml
 
 from scripts.validate_rules import validate_manifest
@@ -7,6 +8,11 @@ from scripts.validate_rules import validate_manifest
 
 ROOT = Path(__file__).resolve().parent.parent
 RULES = ROOT / "rules" / "opengrep-rules"
+
+_semgrep_installed = pytest.mark.skipif(
+    not (ROOT / ".venv" / "bin" / "semgrep").exists(),
+    reason="semgrep not installed in .venv",
+)
 
 
 def test_rule_manifest_is_valid_and_matches_expected_counts():
@@ -39,6 +45,7 @@ def test_new_rules_have_required_security_metadata():
         assert metadata["remediation"]
 
 
+@_semgrep_installed
 def test_new_rules_match_vulnerable_but_not_safe_fixtures():
     import json
     import subprocess

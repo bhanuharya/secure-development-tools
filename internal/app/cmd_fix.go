@@ -56,10 +56,12 @@ findings are never modified.`,
 				return nil
 			}
 			applied, err := fix.ApplyEdits(root, matched, skipValidation)
-			applied.Skipped = append(applied.Skipped, pre.Skipped...)
-			applied.Quarantined = append(applied.Quarantined, pre.Quarantined...)
-			applied.Suggestions = append(applied.Suggestions, pre.Suggestions...)
-			printFixReport(cmd, applied.Edits, applied.Suggestions, applied.Skipped, applied.Quarantined, true)
+			if applied != nil {
+				applied.Skipped = append(applied.Skipped, pre.Skipped...)
+				applied.Quarantined = append(applied.Quarantined, pre.Quarantined...)
+				applied.Suggestions = append(applied.Suggestions, pre.Suggestions...)
+				printFixReport(cmd, applied.Edits, applied.Suggestions, applied.Skipped, applied.Quarantined, true)
+			}
 			if err != nil {
 				return failf(ExitInternalError, "fix apply: %v", err)
 			}

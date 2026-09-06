@@ -264,9 +264,11 @@ func (inv *inventory) resolvePython(pkg string) *finding.Reachability {
 // --- JavaScript/npm ---
 
 var (
-	jsStaticImport = regexp.MustCompile(`(?m)^\s*import\s+(?:[^'"]+\s+from\s+)?['"]([^'"]+)['"]`)
-	jsRequire      = regexp.MustCompile(`require\s*\(\s*['"]([^'"]+)['"]\s*\)`)
-	jsDynImport    = regexp.MustCompile(`import\s*\(\s*[^'"]`)
+	jsStaticImport  = regexp.MustCompile(`(?m)^\s*import\s+(?:[^'"]+\s+from\s+)?['"]([^'"]+)['"]`)
+	jsRequire       = regexp.MustCompile(`require\s*\(\s*['"]([^'"]+)['"]\s*\)`)
+	jsDynImportLit  = regexp.MustCompile(`import\s*\(\s*['"]([^'"]+)['"]`)
+	jsDynImportExpr = regexp.MustCompile(`import\s*\(\s*[^'")\s]`)
+	jsExportFrom    = regexp.MustCompile(`(?m)^\s*export\s[^;'"]*?from\s*['"]([^'"]+)['"]`)
 )
 
 func jsPkgName(spec string) string {
@@ -291,7 +293,7 @@ func (inv *inventory) resolveJS(pkg string) *finding.Reachability {
 			continue
 		}
 		src := string(raw)
-		if jsDynImport.MatchString(src) {
+		if jsDynImportExpr.MatchString(src) {
 			dynSeen = true
 		}
 		specs := []string{}
@@ -299,6 +301,12 @@ func (inv *inventory) resolveJS(pkg string) *finding.Reachability {
 			specs = append(specs, m[1])
 		}
 		for _, m := range jsRequire.FindAllStringSubmatch(src, -1) {
+			specs = append(specs, m[1])
+		}
+		for _, m := range jsDynImportLit.FindAllStringSubmatch(src, -1) {
+			specs = append(specs, m[1])
+		}
+		for _, m := range jsExportFrom.FindAllStringSubmatch(src, -1) {
 			specs = append(specs, m[1])
 		}
 		for _, s := range specs {

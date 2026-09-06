@@ -116,6 +116,31 @@ func TestJSReachableScopedAndDynamic(t *testing.T) {
 	}
 }
 
+// A package imported only via a literal dynamic import is genuinely
+// reachable: absence must not be claimed.
+func TestJSLiteralDynamicImportIsReachable(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "index.js", "const m = await import('leftpad');\n")
+	fs := []*finding.Finding{depFinding("leftpad", "package-lock.json")}
+	Annotate(root, fs)
+	if fs[0].Reachability.State != Reachable {
+		t.Fatalf("literal dynamic import must be reachable, got %+v", fs[0].Reachability)
+	}
+}
+
+// A re-export (`export ... from`) reaches the dependency just like an import.
+func TestJSReExportIsReachable(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "index.js", "export { noop } from 'leftpad';\nexport * from 'star';\n")
+	fs := []*finding.Finding{depFinding("leftpad", "package-lock.json"), depFinding("star", "package-lock.json")}
+	Annotate(root, fs)
+	for i, name := range []string{"leftpad", "star"} {
+		if fs[i].Reachability.State != Reachable {
+			t.Fatalf("%s re-export must be reachable, got %+v", name, fs[i].Reachability)
+		}
+	}
+}
+
 func TestNonDepFindingsUntouched(t *testing.T) {
 	root := t.TempDir()
 	f := &finding.Finding{ID: "s", Category: finding.CatSAST}

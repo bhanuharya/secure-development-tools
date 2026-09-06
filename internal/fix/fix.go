@@ -286,7 +286,7 @@ func ApplyEdits(root string, matched map[*finding.Finding]Transform, skipValidat
 			return result, fmt.Errorf("refusing to write %s: %w", rel, verr)
 		}
 		if err := writeNoFollow(abs, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
-			return nil, fmt.Errorf("write %s: %w", rel, err)
+			return result, fmt.Errorf("write %s: %w", rel, err)
 		}
 		if !skipValidation {
 			if err := validateSyntax(abs); err != nil {

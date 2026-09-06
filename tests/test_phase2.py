@@ -150,6 +150,23 @@ def test_zap_requires_api_key(monkeypatch):
         client.run_dast(scan_id=1, target_url="https://staging.example.com")
 
 
+def test_zap_revalidates_target_dns_at_launch(monkeypatch):
+    """DNS rebound after approval must fail at the ZAP bridge boundary,
+    before any ZAP API call is issued."""
+    from src.dast.zap_client import ZapClient, ZapError
+
+    monkeypatch.setenv("SCP_DAST_ALLOWED_HOSTS", "staging.example.com")
+    # The target passed every earlier gate (public IP), but by the time the
+    # scan launches the resolver has been repointed to the metadata address.
+    monkeypatch.setattr(
+        socket, "getaddrinfo",
+        lambda *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 443))],
+    )
+    client = ZapClient(base_url="http://127.0.0.1:9", api_key="k")
+    with pytest.raises(ZapError, match="prohibited"):
+        client.run_dast(scan_id=1, target_url="https://staging.example.com")
+
+
 def test_redact_covers_finding_fields():
     from src.scanners.evidence import redact_text
 

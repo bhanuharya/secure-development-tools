@@ -9,6 +9,7 @@ import httpx
 
 from src.config import ZAP_API_KEY, ZAP_API_URL
 from src.scanners.base import RawFinding
+from src.util.dastgate import validate_dast_url
 
 log = logging.getLogger(__name__)
 
@@ -89,6 +90,17 @@ class ZapClient:
         # without an API key any local process could drive scans.
         if not self.api_key:
             raise ZapError("ZAP API key is required for active DAST (SCP_ZAP_API_KEY)")
+        # Last-moment target revalidation. The registration/approval/launch
+        # gates resolved DNS earlier, but ZAP resolves the hostname itself
+        # when it starts crawling — this is the final check before it acts,
+        # so a target repointed after approval (DNS rebinding) fails here
+        # rather than reaching a prohibited address.
+        try:
+            validate_dast_url(target_url)
+            if auth_mode == "form" and login_url:
+                validate_dast_url(login_url)
+        except ValueError as exc:
+            raise ZapError(str(exc)) from exc
         prog = on_progress or (lambda *a, **k: None)
         context_name = f"scp-scan-{scan_id}"
         context_id: int | None = None

@@ -145,3 +145,24 @@ func TestDiffFormat(t *testing.T) {
 		t.Fatalf("bad diff:\n%s", d)
 	}
 }
+
+// A write failure (read-only file, disk full, ...) must return the partial
+// result alongside the error: callers dereference the result to report what
+// was applied before failing.
+func TestApplyEditsWriteFailureReturnsPartialResult(t *testing.T) {
+	root := t.TempDir()
+	p := writeFile(t, root, "a.py", "import hashlib\nh = hashlib.md5(x)\n")
+	matched := map[*finding.Finding]Transform{
+		locFinding("f1", "scp.python.crypto.weak-md5", "a.py", 2): registered("py-hashlib-sha256/v1"),
+	}
+	if err := os.Chmod(p, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	res, err := ApplyEdits(root, matched, true)
+	if err == nil {
+		t.Fatal("expected the write to fail on a read-only file")
+	}
+	if res == nil {
+		t.Fatalf("ApplyEdits returned nil result with error %v", err)
+	}
+}

@@ -249,7 +249,7 @@ Key ones:
 | `SCP_AUTH_USER` / `SCP_AUTH_PASS` | **Optional** HTTP Basic auth (see Security) | *off* |
 | `SCP_API_TOKEN` | **Optional** Bearer token for bots/automation (accepted instead of Basic) | *off* |
 | `SCP_LOCAL_SCAN_ROOTS` | Allowlisted roots for local folder scans (`os.pathsep`-separated); empty = disabled | *empty* |
-| `SCP_DAST_ALLOWED_HOSTS` | Allowlisted DAST target hosts (comma-separated, `*.suffix` wildcards); empty = all hosts allowed | *empty* |
+| `SCP_DAST_ALLOWED_HOSTS` | Allowlisted DAST target hosts (comma-separated, `*.suffix` wildcards);  empty = no DAST targets allowed (fail closed) | *empty* |
 | `SCP_SECRET_KEY` | Encryption key (Fernet key or passphrase) for DAST target credentials at rest; required to store passwords | *empty* |
 | `BITBUCKET_ACCESS_TOKEN` / `BITBUCKET_WORKSPACE` | Bitbucket intake credentials | *empty* |
 | `SCP_ZAP_API_URL` / `SCP_ZAP_API_KEY` | ZAP (DAST) bridge | `http://127.0.0.1:8080` / *empty* |
@@ -365,7 +365,7 @@ GET  /api/reports/project/{project_id}/download
 | **Injection** | SQLModel/ORM parameterization; input validation in routers; no raw SQL string building. |
 | **Secrets handling** | `.env` gitignored; `gitleaks` is a first-class scanner; evidence capture **redacts credential patterns** before persistence (AWS/GitHub/Slack/Stripe/Google/GitLab/OpenAI-style tokens, JWTs, private keys, `Bearer`/`Basic` headers, and `key=`/`secret=`/`token=`-style assignments incl. composed names like `aws_secret_access_key`), and the dashboard **masks the same families a second time in the browser** before rendering (defense-in-depth). |
 | **Upload hardening** | Zip-bomb guards (expanded-size, file-count, compression-ratio caps) + path-traversal protection. Local folder scans are restricted to operator-allowlisted roots (`SCP_LOCAL_SCAN_ROOTS`) and copied — never symlinked — into the scan workspace. |
-| **DAST gating** | Registering a target never launches a scan. Approval is a **separate server-side, audited action** (`POST /api/targets/{id}/approve`; production targets additionally require `production_ack=true`); there is no client-supplied confirmation flag. Target hosts can be restricted with `SCP_DAST_ALLOWED_HOSTS` (exact names or `*.suffix` wildcards; empty = all hosts). DAST target credentials are **encrypted at rest** with `SCP_SECRET_KEY` (storing a password without a key fails closed). |
+| **DAST gating** | Registering a target never launches a scan. Approval is a **separate server-side, audited action** (`POST /api/targets/{id}/approve`; production targets additionally require `production_ack=true`); there is no client-supplied confirmation flag. Target hosts can be restricted with `SCP_DAST_ALLOWED_HOSTS` (exact names or `*.suffix` wildcards; empty = fail closed, no targets allowed). Resolved addresses are re-validated against private/metadata ranges at every stage — registration, approval, scan creation, launch, and again inside the ZAP bridge immediately before the scan runs. DAST target credentials are **encrypted at rest** with `SCP_SECRET_KEY` (storing a password without a key fails closed). |
 | **Dependencies** | `>=` ranges in `requirements.txt` — **run `uvx pip-audit -r requirements.txt` and pin with `pip freeze` before any prod deploy.** |
 | **XSS** | Dashboard is vanilla JS; dynamic HTML uses escaping — keep escaping in mind when extending it. |
 | **Binding** | An internal tool — run on trusted networks / behind auth only; don't expose to the public internet. |

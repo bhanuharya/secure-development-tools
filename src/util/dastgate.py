@@ -129,8 +129,13 @@ def validate_dast_url(url: str) -> str:
         raise ValueError(
             f"target host {host!r} is not in SCP_DAST_ALLOWED_HOSTS (allowlist required)"
         )
-    # Validate every resolved address, not just the hostname (DNS rebinding and
-    # cloud metadata endpoints must never be reachable by ZAP).
+    # Validate every resolved address, not just the hostname (cloud metadata
+    # and private-range endpoints must never be reachable by ZAP). ZAP itself
+    # re-resolves the hostname at crawl time, so this gate runs at
+    # registration, approval, scan creation, launch, AND again inside the ZAP
+    # bridge (run_dast) immediately before any ZAP request is issued — that
+    # shrinks the rebinding window to the unavoidable gap between the final
+    # resolution check and ZAP's own resolver.
     try:
         addresses = {item[4][0] for item in socket.getaddrinfo(host, parts.port or (443 if parts.scheme == "https" else 80), type=socket.SOCK_STREAM)}
     except OSError as exc:

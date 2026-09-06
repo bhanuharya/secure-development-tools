@@ -79,14 +79,97 @@ def _severity(vuln: dict) -> str:
         values.append(normalize_severity(str(db["severity"])))
     for entry in vuln.get("severity") or []:
         raw = str(entry.get("score") or "")
+        vector = _cvss3_vector_score(raw)
+        if vector is not None:
+            values.append(_band(vector))
+            continue
         # OSV commonly supplies a numeric score, sometimes embedded in text.
-        nums = re.findall(r"(?<![0-9])(?:10(?:\\.0)?|[0-9](?:\\.[0-9])?)(?![0-9])", raw)
+        nums = _CVSS_NUM_RE.findall(raw)
         if nums:
-            score = float(nums[0])
-            values.append("critical" if score >= 9 else "high" if score >= 7 else "medium" if score >= 4 else "low")
+            values.append(_band(float(nums[0])))
         elif raw:
-            values.append("high" if "A:H" in raw else "medium")
+            values.append(_word_or_impact(raw))
     return max(values, key=lambda x: rank[x]) if values else "medium"
+
+
+def _word_or_impact(raw: str) -> str:
+    # A bare severity word ("high") keeps its meaning; anything else that is
+    # not a parseable vector/score floors at medium via the impact fallback.
+    if "/" not in raw and " " not in raw:
+        word = normalize_severity(raw)
+        if word != "low" or raw.strip().lower() == "low":
+            return word
+    return _impact_fallback(raw)
+
+
+# A bare decimal such as "3.1" (the CVSS *version* inside a vector) must not
+# be mistaken for a score, so vectors are matched before this runs.
+_CVSS_NUM_RE = re.compile(r"(?<![0-9])(?:10(?:\.0)?|[0-9](?:\.[0-9])?)(?![0-9])")
+
+_CVSS3_VECTOR_RE = re.compile(
+    r"^(?:CVSS:3\.[01]/)?AV:[NALP]/AC:[LH]/PR:[NLH]/UI:[NR]/S:[UC]/C:[HLN]/I:[HLN]/A:[HLN]$"
+)
+
+_CVSS3_WEIGHTS = {
+    "AV": {"N": 0.85, "A": 0.646, "L": 0.55, "P": 0.2},
+    "AC": {"L": 0.77, "H": 0.44},
+    "PR": {"U": {"N": 0.85, "L": 0.62, "H": 0.27}, "C": {"N": 0.85, "L": 0.68, "H": 0.5}},
+    "UI": {"N": 0.85, "R": 0.62},
+    "CIA": {"H": 0.56, "L": 0.22, "N": 0.0},
+}
+
+
+def _band(score: float) -> str:
+    return "critical" if score >= 9 else "high" if score >= 7 else "medium" if score >= 4 else "low"
+
+
+def _cvss3_vector_score(raw: str) -> float | None:
+    """Base score for a CVSS v3.0/v3.1 vector string (FIRST v3.1 formula);
+    None when raw is not a complete vector."""
+    vector = raw.strip()
+    if ":" not in vector and "/" in vector:
+        vector = "CVSS:3.1/" + vector
+    if "/" not in vector or not _CVSS3_VECTOR_RE.match(vector):
+        return None
+    metrics = dict(part.split(":", 1) for part in vector.split("/") if ":" in part)
+    av = _CVSS3_WEIGHTS["AV"][metrics["AV"]]
+    ac = _CVSS3_WEIGHTS["AC"][metrics["AC"]]
+    pr = _CVSS3_WEIGHTS["PR"][metrics["S"]][metrics["PR"]]
+    ui = _CVSS3_WEIGHTS["UI"][metrics["UI"]]
+    c, i, a = (_CVSS3_WEIGHTS["CIA"][metrics[k]] for k in ("C", "I", "A"))
+    iss = 1 - (1 - c) * (1 - i) * (1 - a)
+    if metrics["S"] == "U":
+        impact = 6.42 * iss
+    else:
+        impact = 7.52 * (iss - 0.029) - 3.25 * (iss - 0.02) ** 15
+    if impact <= 0:
+        return 0.0
+    exploitability = 8.22 * av * ac * pr * ui
+    score = impact + exploitability if metrics["S"] == "U" else 1.08 * (impact + exploitability)
+    return _cvss3_roundup(min(score, 10.0))
+
+
+def _cvss3_roundup(value: float) -> float:
+    # CVSS 3.1 spec appendix A: smallest 1-decimal number >= value,
+    # guarded against binary float error via 5-decimal quantization.
+    quantized = round(value * 100000)
+    if quantized % 10000 == 0:
+        return quantized / 100000.0
+    return (quantized // 10000 + 1) / 10.0
+
+
+def _impact_fallback(raw: str) -> str:
+    """Non-numeric, unparsable score (e.g. a CVSS 2.0 vector): derive a floor
+    from the C/I/A impacts. Never below medium so malformed input cannot
+    silently downgrade a vulnerability."""
+    text = "/" + raw.strip().strip("/").upper() + "/"
+    impacts = re.findall(r"/(?:C|I|A):([A-Z])", text)
+    high = [x for x in impacts if x in ("H", "C")]  # H = high (v3), C = complete (v2)
+    if len(high) >= 3:
+        return "critical"
+    if high:
+        return "high"
+    return "medium"
 
 
 def _summary(vuln: dict, pkg_name: str, version: str) -> str:
