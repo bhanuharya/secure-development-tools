@@ -23,7 +23,9 @@ pipeline {
       description: 'secure-development-tools checkout root on the agent')
   }
 
-  options { timestamps(); disableConcurrentBuilds() }
+  // Note: no timestamps() here — that needs the Timestamper plugin.
+  // Install it if you want it; the pipeline works without.
+  options { disableConcurrentBuilds() }
 
   stages {
     stage('Checkout SCM') { steps { checkout scm } }

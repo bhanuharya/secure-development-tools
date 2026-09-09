@@ -153,7 +153,11 @@ func ToSARIF(findings []*finding.Finding) []byte {
 				"helpUri":          firstRef(f),
 			}
 		}
-		loc := map[string]any{}
+		// locations must be omitted — never an empty object. An empty
+		// physicalLocation NPEs strict SARIF consumers (e.g. Jenkins
+		// Warnings NG) and fails the whole file. Dependency findings carry
+		// no Location but do carry Artifact.Target (e.g. pom.xml): use it.
+		var locs []any
 		if f.Location != nil {
 			region := map[string]any{}
 			if f.Location.StartLine != nil {
@@ -162,18 +166,28 @@ func ToSARIF(findings []*finding.Finding) []byte {
 			if f.Location.EndLine != nil {
 				region["endLine"] = *f.Location.EndLine
 			}
-			loc = map[string]any{"physicalLocation": map[string]any{
+			loc := map[string]any{"physicalLocation": map[string]any{
 				"artifactLocation": map[string]string{"uri": f.Location.Path},
-				"region":           region,
 			}}
+			if len(region) > 0 {
+				loc["physicalLocation"].(map[string]any)["region"] = region
+			}
+			locs = append(locs, loc)
+		} else if f.Artifact != nil && f.Artifact.Target != "" {
+			locs = append(locs, map[string]any{"physicalLocation": map[string]any{
+				"artifactLocation": map[string]string{"uri": f.Artifact.Target},
+			}})
 		}
-		results = append(results, map[string]any{
+		result := map[string]any{
 			"ruleId":       f.Rule.ID,
 			"level":        sarifLevel(f.Severity.Canonical),
 			"message":      map[string]string{"text": Redact(f.Message)},
-			"locations":    []any{loc},
 			"fingerprints": map[string]string{"sdt-v1": f.Fingerprint.Value},
-		})
+		}
+		if len(locs) > 0 {
+			result["locations"] = locs
+		}
+		results = append(results, result)
 	}
 	var ruleList []map[string]any
 	for _, r := range rules {
