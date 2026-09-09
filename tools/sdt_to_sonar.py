@@ -75,7 +75,7 @@ def _classify(f: dict):
     if cat == "misconfiguration":
         return ("VULNERABILITY", "SECURITY", "TRUSTWORTHY")
     if any(k in hay for k in _CORRECTNESS):
-        return ("BUG", "RELIABILITY", "INTENTIONAL")
+        return ("BUG", "RELIABILITY", "LOGICAL")
     if cat == "sast":
         return ("VULNERABILITY", "SECURITY", "TRUSTWORTHY")
     return ("CODE_SMELL", "MAINTAINABILITY", "CONVENTIONAL")
