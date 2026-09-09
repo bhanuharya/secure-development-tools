@@ -94,7 +94,9 @@ func Resolve(in Inputs, repoRoot string) (*ScanContext, []string, error) {
 	}
 	headOID, err := gitOutput(repoRoot, "rev-parse", "--verify", head)
 	if err != nil {
-		return nil, nil, fmt.Errorf("resolve head %q: %w", head, err)
+		return nil, nil, fmt.Errorf("resolve head %q: %w (hint: an unborn branch — "+
+			"`git init` with no commits yet — also fails this way; commit once, "+
+			"or pass an explicit --head that resolves)", head, err)
 	}
 	ctx := &ScanContext{
 		SchemaVersion:  SchemaVersion,
