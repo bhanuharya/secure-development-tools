@@ -15,6 +15,7 @@ Scanning behavior — profiles, scanners, policy, baselines — lives in
 | `github/` | GitHub Actions, PRs included | Maps `GITHUB_SHA` + base ref to `SDT_*`, then delegates to `generic-ci` |
 | `gitlab/` | GitLab CI, MRs included | Maps `CI_COMMIT_SHA` / `CI_MERGE_REQUEST_*` to `SDT_*`, then delegates |
 | `bitbucket/` | Bitbucket Pipelines, PRs included | Maps `BITBUCKET_*` to `SDT_*`, then delegates |
+| `jenkins/` | Jenkins parameterized jobs + shared library | `sdt-jenkins.sh` worker + `Jenkinsfile.sdt-scanner` standalone job + `vars/sdtScan.groovy` lib step; advisory-first (`1→UNSTABLE`), strict opt-in |
 
 ## Neutral environment contract
 

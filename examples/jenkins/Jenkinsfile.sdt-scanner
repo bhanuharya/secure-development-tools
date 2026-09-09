@@ -1,0 +1,92 @@
+// Standalone parameterized job mirroring Security/sonarqube-scanner.
+// DevOps: paste as a new job (e.g. Security/sdt-scanner) — no shared-lib change.
+// For library-owned flows, use vars/sdtScan.groovy instead.
+//
+// SDT_TOOL_DIR = checkout root of secure-development-tools on the agent
+// (contains sdt binary via `go build -o sdt ./cmd/sdt`, plus rules/ tools/ examples/).
+// Gate: advisory-first (policy_failed -> UNSTABLE). SDT_STRICT_MODE=true -> FAILURE.
+pipeline {
+  agent any
+
+  parameters {
+    string(name: 'reponame', defaultValue: 'mirae_newsservice',
+      description: 'reponame base on naming in bitbucket (mirae-asset-id org)')
+    string(name: 'branch', defaultValue: 'dev',
+      description: 'repository branch in bitbucket')
+    choice(name: 'codebase', choices: ['other', 'java', 'node', 'python', 'go'],
+      description: 'Select codebase repository (informational; SDT auto-detects)')
+    booleanParam(name: 'SDT_STRICT_MODE', defaultValue: false,
+      description: 'ON: policy_failed fails build. OFF (advisory): policy_failed -> UNSTABLE.')
+    string(name: 'SDT_PROFILE', defaultValue: 'full',
+      description: 'sdt profile from .secure-dev.yaml (full for one-shot scans; pr needs a merge-base)')
+    string(name: 'SDT_TOOL_DIR', defaultValue: '/opt/sdt',
+      description: 'secure-development-tools checkout root on the agent')
+  }
+
+  options { timestamps(); disableConcurrentBuilds() }
+
+  stages {
+    stage('Checkout SCM') { steps { checkout scm } }
+
+    stage('stage 1 - checkout code') {
+      steps {
+        // Full history: gitleaks --all + merge-base need it (missingHistory: fail).
+        checkout([
+          $class: 'GitSCM',
+          branches: [[name: "*/${params.branch}"]],
+          extensions: [[$class: 'CloneOption', depth: 0, noTags: false, shallow: false]],
+          userRemoteConfigs: [[url: "git@bitbucket.org:mirae-asset-id/${params.reponame}.git"]]
+        ])
+        sh 'git rev-parse --verify HEAD && git log --oneline -3'
+      }
+    }
+
+    stage('stage 2 - Sonarqube scan') {
+      steps {
+        echo 'Existing Sonar step unchanged (free tier stays as-is).'
+        // ... existing sonar-scanner invocation ...
+      }
+    }
+
+    stage('stage 2b - SDT scan') {
+      steps {
+        script {
+          // Worker always writes reports/; returnStatus keeps archiving reachable.
+          // sdt exits: 0 passed | 1 policy_failed | 2 invalid | 3 exec_fail
+          //            | 4 inconclusive | 5 internal_error
+          def code = sh(returnStatus: true, script: """
+            export SDT_BIN='${params.SDT_TOOL_DIR}/sdt'
+            export SDT_RULES_DIR='${params.SDT_TOOL_DIR}/rules/opengrep-rules'
+            export SDT_TOOL_PDF='${params.SDT_TOOL_DIR}/tools/sdt_to_pdf.py'
+            export SDT_PROFILE='${params.SDT_PROFILE}'
+            export SDT_HEAD="\$(git rev-parse HEAD)"
+            export SDT_PROJECT='${params.reponame}'
+            bash '${params.SDT_TOOL_DIR}/examples/jenkins/sdt-jenkins.sh'
+          """)
+          env.SDT_EXIT = "${code}"
+          if (code == 0) {
+            echo 'SDT: passed'
+          } else if (code == 1) {
+            if (params.SDT_STRICT_MODE) {
+              error 'SDT: policy_failed (STRICT) — failing build. See reports/security-report.pdf'
+            } else {
+              unstable 'SDT: policy_failed (advisory) — see reports/security-report.pdf'
+            }
+          } else if (code == 4) {
+            unstable "SDT: inconclusive (exit 4, e.g. shallow history) — see reports/"
+          } else {
+            error "SDT: infra failure (exit ${code}: 2 invalid | 3 execution | 5 internal) — see reports/"
+          }
+        }
+      }
+      post {
+        always {
+          // MUST archive before Clean Workspace wipes the tree.
+          archiveArtifacts artifacts: 'reports/**/*, plan.json', allowEmptyArchive: false
+        }
+      }
+    }
+  }
+
+  post { always { cleanWs() } }
+}
