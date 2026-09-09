@@ -54,7 +54,8 @@ if [ -f "reports/findings.json" ] && [ -f "$PDF_TOOL" ]; then
   if python3 "$PDF_TOOL" --from reports/findings.json \
       --manifest reports/run-manifest.json \
       --out reports/security-report.pdf \
-      --project "$PROJECT" --profile "$SDT_PROFILE"; then
+      --project "$PROJECT" --profile "$SDT_PROFILE" \
+      --src-root "$WORKSPACE"; then
     echo "PDF ok"
   else
     echo "WARN: PDF build failed (non-blocking; reports/ still archived)"
