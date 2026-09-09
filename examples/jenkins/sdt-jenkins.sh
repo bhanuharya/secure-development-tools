@@ -33,6 +33,7 @@ fi
 export TRIVY_SKIP_VERSION_CHECK=true
 
 PDF_TOOL="${SDT_TOOL_PDF:-$(cd "$(dirname "$SDT_RULES_DIR")/../tools" 2>/dev/null && pwd)/sdt_to_pdf.py}"
+SONAR_TOOL="${SDT_TOOL_SONAR:-$(cd "$(dirname "$SDT_RULES_DIR")/../tools" 2>/dev/null && pwd)/sdt_to_sonar.py}"
 PROJECT="${SDT_PROJECT:-$(basename "$WORKSPACE")}"
 
 echo "=== sdt doctor ==="
@@ -62,6 +63,30 @@ if [ -f "reports/findings.json" ] && [ -f "$PDF_TOOL" ]; then
   fi
 else
   echo "WARN: PDF skipped (missing reports/findings.json or $PDF_TOOL)"
+fi
+
+echo "=== sonar external-issue export (for the Sonar stage AFTER this one) ==="
+if [ -f "reports/findings.json" ] && [ -f "$SONAR_TOOL" ]; then
+  if python3 "$SONAR_TOOL" --from reports/findings.json \
+      --out reports/sonar-external.json; then
+    echo "Sonar export ok — pass -Dsonar.externalIssuesReportPaths=reports/sonar-external.json to sonar-scanner"
+  else
+    echo "WARN: Sonar export failed (non-blocking; sonar-scanner runs without external issues)"
+  fi
+else
+  echo "WARN: Sonar export skipped (missing reports/findings.json or $SONAR_TOOL)"
+fi
+
+echo "=== bitbucket code insights payload (offline; POST is a separate step) ==="
+echo "NOTE: needs publish.enabled=true in the target repo .secure-dev.yaml"
+if [ -f "reports/findings.json" ]; then
+  if "$SDT_BIN" publish --provider bitbucket --from reports/findings.json 2>&1 | tee /tmp/sdt-publish.log; then
+    echo "Insights payload ok: reports/bitbucket-code-insights.json"
+  else
+    echo "WARN: insights payload failed (non-blocking; often publish.enabled=false)"
+  fi
+else
+  echo "WARN: insights payload skipped (no reports/findings.json)"
 fi
 
 echo "=== artifacts ==="

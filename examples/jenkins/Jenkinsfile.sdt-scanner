@@ -41,14 +41,7 @@ pipeline {
       }
     }
 
-    stage('stage 2 - Sonarqube scan') {
-      steps {
-        echo 'Existing Sonar step unchanged (free tier stays as-is).'
-        // ... existing sonar-scanner invocation ...
-      }
-    }
-
-    stage('stage 2b - SDT scan') {
+    stage('stage 2a - SDT scan (runs BEFORE Sonar: exports the import file)') {
       steps {
         script {
           // Worker always writes reports/; returnStatus keeps archiving reachable.
@@ -58,6 +51,7 @@ pipeline {
             export SDT_BIN='${params.SDT_TOOL_DIR}/sdt'
             export SDT_RULES_DIR='${params.SDT_TOOL_DIR}/rules/opengrep-rules'
             export SDT_TOOL_PDF='${params.SDT_TOOL_DIR}/tools/sdt_to_pdf.py'
+            export SDT_TOOL_SONAR='${params.SDT_TOOL_DIR}/tools/sdt_to_sonar.py'
             export SDT_PROFILE='${params.SDT_PROFILE}'
             export SDT_HEAD="\$(git rev-parse HEAD)"
             export SDT_PROJECT='${params.reponame}'
@@ -81,12 +75,38 @@ pipeline {
       }
       post {
         always {
-          // MUST archive before Clean Workspace wipes the tree.
-          archiveArtifacts artifacts: 'reports/**/*, plan.json', allowEmptyArchive: false
+          // Jenkins-native dashboard: SARIF trend per build (Warnings NG plugin).
+          recordIssues enabledForFailure: true, tool: sarif(pattern: 'reports/findings.sarif')
         }
+      }
+    }
+
+    stage('stage 2b - Sonarqube scan (imports SDT external issues)') {
+      steps {
+        // reports/sonar-external.json was produced by stage 2a in THIS workspace,
+        // so SDT findings render inside the Sonar dashboard (Issues tab).
+        // Requires: target repo sonar-project.properties (or -D flags) as before, plus:
+        sh '''
+          sonar-scanner -Dsonar.externalIssuesReportPaths=reports/sonar-external.json
+        '''
+      }
+    }
+
+    stage('stage 2c - Bitbucket insights (PR annotations, optional)') {
+      when { expression { fileExists 'reports/bitbucket-code-insights.json' } }
+      steps {
+        // Needs a Bitbucket token credential (repo scope) + commit/PR context.
+        // DevOps: wire BITBUCKET_TOKEN and the POST below when ready; skipped silently until then.
+        echo 'Insights payload ready at reports/bitbucket-code-insights.json (POST to Code Insights API when wired).'
       }
     }
   }
 
-  post { always { cleanWs() } }
+  post {
+    always {
+      // MUST archive before Clean Workspace wipes the tree.
+      archiveArtifacts artifacts: 'reports/**/*, plan.json', allowEmptyArchive: false
+      cleanWs()
+    }
+  }
 }

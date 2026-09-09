@@ -10,6 +10,10 @@
 // Contract:
 //   - Caller must have already checked out the target repo with FULL history.
 //   - Always archives reports/**/* + plan.json (call post-Clean Workspace safe: archives first).
+//   - Produces reports/sonar-external.json: run sonar-scanner AFTER this step with
+//     -Dsonar.externalIssuesReportPaths=reports/sonar-external.json to surface
+//     SDT findings inside the Sonar dashboard.
+//   - Records SARIF via Warnings NG when available (wrapped in try/catch).
 //   - Returns sdt exit code. Advisory (default): policy_failed -> UNSTABLE.
 //     strict:true -> policy_failed -> FAILURE. Infra exits (2/3/5) always fail.
 def call(Map cfg = [:]) {
@@ -25,6 +29,7 @@ def call(Map cfg = [:]) {
       export SDT_BIN='${toolDir}/sdt'
       export SDT_RULES_DIR='${toolDir}/rules/opengrep-rules'
       export SDT_TOOL_PDF='${toolDir}/tools/sdt_to_pdf.py'
+      export SDT_TOOL_SONAR='${toolDir}/tools/sdt_to_sonar.py'
       export SDT_PROFILE='${profile}'
       export SDT_PROJECT='${project}'
       ${base ? "export SDT_BASE='${base}'" : ':'}
@@ -33,6 +38,12 @@ def call(Map cfg = [:]) {
     """)
     env.SDT_EXIT = "${code}"
     archiveArtifacts artifacts: 'reports/**/*, plan.json', allowEmptyArchive: false
+    try {
+      // Jenkins-native trend (Warnings NG plugin); absence must not fail the gate.
+      recordIssues enabledForFailure: true, tool: sarif(pattern: 'reports/findings.sarif')
+    } catch (err) {
+      echo "SDT: warnings-ng unavailable (${err.getMessage()}), continuing with archived reports"
+    }
     if (code == 0) {
       echo 'SDT: passed'
     } else if (code == 1) {

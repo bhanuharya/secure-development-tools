@@ -1,16 +1,14 @@
 # Jenkins: SDT sidecar next to free Sonar (DevOps handoff)
 
-Fits a parameterized `sonarqube-scanner` shape (`reponame/branch/codebase`
-params → checkout → Sonarqube scan → `Clean Workspace`):
-add **`stage 2b - SDT scan`** after Sonar, archive **before** `Clean Workspace`.
-
-## Files
+Pipeline order (SDT runs BEFORE Sonar — the import file must exist at analysis):
+`checkout (full history)` → `2a SDT scan` → `2b Sonar with import` → `2c insights POST (optional)` → `archive` → `Clean Workspace`.
 
 | File | Use |
 |---|---|
-| `sdt-jenkins.sh` | Worker: `doctor → plan → scan → offline PDF`, always writes `reports/`. Called by both entries below. |
-| `Jenkinsfile.sdt-scanner` | Standalone parameterized job (same reponame/branch/codebase params + `SDT_STRICT_MODE`). No shared-lib change. |
-| `vars/sdtScan.groovy` | Shared-lib step for the DevOps-owned library (`vars/`). Reusable gate. |
+| `sdt-jenkins.sh` | Worker: `doctor → plan → scan → PDF → sonar-external.json → insights payload`. Always writes `reports/`. |
+| `Jenkinsfile.sdt-scanner` | Standalone parameterized job (reponame/branch/codebase + `SDT_STRICT_MODE`). No shared-lib change. |
+| `vars/sdtScan.groovy` | Shared-lib step for your library (`vars/`). Reusable gate + Warnings NG. |
+| `tools/sdt_to_sonar.py` | Converter: `findings.json → sonar-external.json` (latest generic schema: works on 10.7, mandatory-safe past 10.8). |
 
 ## Agent prep (once)
 
@@ -38,6 +36,35 @@ scan of a JHipster service) SDT found dozens of findings (secrets + SAST +
 deps) where Sonar reported zero hotspots.
 Keep Sonar as-is; SDT is the additive depth. Correlate via
 `run-manifest.json:{runId,planId,tools[].version}` + `findings.json` fingerprints.
+
+## Findings per persona (no manual copy-paste)
+
+* **Developer (PR author)**: PR triggers the job via webhook (no manual repo/branch/lang
+  config; SDT auto-detects languages). Hits land **inline on the PR** once DevOps wires
+  the insights POST (`reports/bitbucket-code-insights.json` + Bitbucket token → Code
+  Insights API; 50 annotations, blockers first). Fix guidance ships in the finding
+  (PDF risk/assess/fix sections); repro any CI hit locally from logged `SDT_*` values.
+* **Security**: one dashboard — SDT issues inside Sonar (Issues tab) via
+  `-Dsonar.externalIssuesReportPaths=reports/sonar-external.json` (no plugin, works on
+  Community/10.7); trend view via Warnings NG on `reports/findings.sarif`; printable
+  `security-report.pdf` replaces the ChatGPT copy-paste report; Jenkins exit codes stay
+  the enforcement point (external issues don't reliably fail the Sonar Quality Gate).
+* **DevOps**: owns job + webhook + Warnings NG + retention + the insights POST credential;
+  flips advisory→strict per repo (`SDT_STRICT_MODE` / `strict:true`).
+* **Auditor/management**: per-build PDF + manifest digests as evidence.
+
+## Wiring checklist for DevOps
+
+1. Agent prep per README above + `trivy fs --download-db-only` warm.
+2. Webhook: Bitbucket → Jenkins job on PR (params auto-filled; keep manual Build with
+   Parameters as fallback).
+3. Sonar step appends `-Dsonar.externalIssuesReportPaths=reports/sonar-external.json`
+   (file is produced in stage 2a, same workspace).
+4. Warnings NG plugin installed (worker degrades gracefully without it).
+5. Insights POST: `PUT .../commit/{sha}/reports/sdt` + annotations, needs repo-scope
+   token; stage 2c no-ops until wired. Target repos need `publish.enabled: true` in
+   `.secure-dev.yaml` for the payload step.
+6. First green run per repo → `sdt baseline create` to grandfather legacy debt.
 
 ## Gotchas from Phase 1 (baked into `sdt-jenkins.sh`)
 
