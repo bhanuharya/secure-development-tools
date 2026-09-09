@@ -1,7 +1,7 @@
 # Jenkins: SDT sidecar next to free Sonar (DevOps handoff)
 
-Fits the existing `Security/sonarqube-scanner` shape (`reponame/branch/codebase`
-params → checkout → `stage 2 - Sonarqube scan` → `Clean Workspace`):
+Fits a parameterized `sonarqube-scanner` shape (`reponame/branch/codebase`
+params → checkout → Sonarqube scan → `Clean Workspace`):
 add **`stage 2b - SDT scan`** after Sonar, archive **before** `Clean Workspace`.
 
 ## Files
@@ -9,7 +9,7 @@ add **`stage 2b - SDT scan`** after Sonar, archive **before** `Clean Workspace`.
 | File | Use |
 |---|---|
 | `sdt-jenkins.sh` | Worker: `doctor → plan → scan → offline PDF`, always writes `reports/`. Called by both entries below. |
-| `Jenkinsfile.sdt-scanner` | Standalone parameterized job (same params as screenshots + `SDT_STRICT_MODE`). No shared-lib change. |
+| `Jenkinsfile.sdt-scanner` | Standalone parameterized job (same reponame/branch/codebase params + `SDT_STRICT_MODE`). No shared-lib change. |
 | `vars/sdtScan.groovy` | Shared-lib step for the DevOps-owned library (`vars/`). Reusable gate. |
 
 ## Agent prep (once)
@@ -33,8 +33,9 @@ Sonar stage stays untouched.
 
 Free Sonar `Security Hotspots 100% Reviewed / 0 to review` ≠ clean — it lacks
 secrets-history (`gitleaks --all`), supply-chain + misconfig (`trivy offline`),
-and taint SAST breadth (147 opengrep rules). Phase 1 on `hotsregistration/full`
-found `77 (1 critical/55 high/21 medium, 49 blockers)` where Sonar found none.
+and taint SAST breadth (147 opengrep rules). In our Phase 1 pilot (`full`
+scan of a JHipster service) SDT found dozens of findings (secrets + SAST +
+deps) where Sonar reported zero hotspots.
 Keep Sonar as-is; SDT is the additive depth. Correlate via
 `run-manifest.json:{runId,planId,tools[].version}` + `findings.json` fingerprints.
 

@@ -1,5 +1,5 @@
-// Standalone parameterized job mirroring Security/sonarqube-scanner.
-// DevOps: paste as a new job (e.g. Security/sdt-scanner) — no shared-lib change.
+// Standalone parameterized job mirroring a sonarqube-scanner job.
+// DevOps: paste as a new job (e.g. sdt-scanner) — no shared-lib change.
 // For library-owned flows, use vars/sdtScan.groovy instead.
 //
 // SDT_TOOL_DIR = checkout root of secure-development-tools on the agent
@@ -9,8 +9,8 @@ pipeline {
   agent any
 
   parameters {
-    string(name: 'reponame', defaultValue: 'mirae_newsservice',
-      description: 'reponame base on naming in bitbucket (mirae-asset-id org)')
+    string(name: 'reponame', defaultValue: 'example-service',
+      description: 'reponame base on naming in bitbucket (your bitbucket org)')
     string(name: 'branch', defaultValue: 'dev',
       description: 'repository branch in bitbucket')
     choice(name: 'codebase', choices: ['other', 'java', 'node', 'python', 'go'],
@@ -35,7 +35,7 @@ pipeline {
           $class: 'GitSCM',
           branches: [[name: "*/${params.branch}"]],
           extensions: [[$class: 'CloneOption', depth: 0, noTags: false, shallow: false]],
-          userRemoteConfigs: [[url: "git@bitbucket.org:mirae-asset-id/${params.reponame}.git"]]
+          userRemoteConfigs: [[url: "git@bitbucket.org:<your-org>/${params.reponame}.git"]]
         ])
         sh 'git rev-parse --verify HEAD && git log --oneline -3'
       }

@@ -1,10 +1,10 @@
-// vars/sdtScan.groovy — drop into jenkins-shared-library vars/ (DevOps-owned).
+// vars/sdtScan.groovy — drop into your Jenkins shared library vars/.
 // Reusable SDT gate for any pipeline. Advisory-first; strict via opt-in flag.
 //
 // Usage in a Jenkinsfile:
 //   sdtScan(toolDir: '/opt/sdt', project: params.reponame, profile: 'full')
 //   sdtScan(toolDir: '/opt/sdt', project: params.reponame, profile: 'full', strict: true)
-//   sdtScan(toolDir: '/opt/sdt', project: 'hotsregistration', profile: 'pr',
+//   sdtScan(toolDir: '/opt/sdt', project: 'example-service', profile: 'pr',
 //           base: "origin/${params.targetBranch}", head: env.GIT_COMMIT, strict: params.SDT_STRICT_MODE)
 //
 // Contract:
