@@ -99,11 +99,48 @@ func truncate(s string, n int) string {
 	return s[:n]
 }
 
+// cleanRuleID normalizes an engine rule id to a machine-independent key.
+//
+// Opengrep prefixes vendored rules with the absolute install path (leaking
+// the operator's home directory into reports and breaking fingerprint
+// stability across machines). Anything through "opengrep-rules." is cut,
+// keeping the pack-relative id (e.g.
+// "vendor.semgrep.java.lang.security.java-pattern-from-string-parameter").
+// First-party ids ("scp.common...") are kept from "scp." onward. Anything
+// else is returned trimmed as-is.
 func cleanRuleID(checkID string) string {
-	if i := strings.Index(checkID, "scp."); i >= 0 {
-		return checkID[i:]
+	id := strings.TrimSpace(checkID)
+	if i := strings.LastIndex(id, "opengrep-rules."); i >= 0 {
+		id = id[i+len("opengrep-rules."):]
+	} else if i := strings.Index(id, "scp."); i >= 0 {
+		id = id[i:]
 	}
-	return checkID
+	return id
+}
+
+// fingerprintCtx builds the semantic-context component of a finding
+// fingerprint: rule-specific content when the tool provides it, plus the
+// start line as a last-resort disambiguator. The line is never the primary
+// identity component (PRD FIND-003) — content dominates, the line only
+// separates true duplicates (identical rule+content in one file) so two
+// distinct issues in one file never share identity.
+func fingerprintCtx(content string, startLine *int) string {
+	ctx := normalizeCtx(content)
+	if startLine != nil {
+		ctx += fmt.Sprintf("\x00line:%d", *startLine)
+	}
+	return ctx
+}
+
+func linePtr(n int) *int { return &n }
+
+func normalizeCtx(s string) string {
+	// Collapse whitespace; bound length so huge blobs don't dominate.
+	joined := strings.Join(strings.Fields(s), " ")
+	if len(joined) > 512 {
+		joined = joined[:512]
+	}
+	return joined
 }
 
 func toStringList(v any, cweNormalize bool) []string {

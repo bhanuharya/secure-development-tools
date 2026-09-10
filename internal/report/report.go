@@ -182,7 +182,7 @@ func ToSARIF(findings []*finding.Finding) []byte {
 			"ruleId":       f.Rule.ID,
 			"level":        sarifLevel(f.Severity.Canonical),
 			"message":      map[string]string{"text": Redact(f.Message)},
-			"fingerprints": map[string]string{"sdt-v1": f.Fingerprint.Value},
+			"fingerprints": map[string]string{finding.FingerprintVersion: f.Fingerprint.Value},
 		}
 		if len(locs) > 0 {
 			result["locations"] = locs

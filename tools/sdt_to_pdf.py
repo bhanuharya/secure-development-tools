@@ -203,12 +203,16 @@ def build_pdf(findings_doc: dict, manifest: dict, project: str, profile: str, ou
         mark = "BLOCKER " if f.get("id") in blockers else ""
         sev_style = ParagraphStyle(f"sev_{sev}_{mark}", parent=styles["body"], fontName="Helvetica-Bold", textColor=color, fontSize=10)
         catego = kb.get("label") or str(f.get("category", "-"))
+        meta = f"Review priority: {_priority(sev)}  ·  Category: {catego}  ·  State: {f.get('baselineState', '-')}"
+        conf = str(f.get("confidence") or "").strip()
+        if conf:
+            meta += f"  ·  Confidence: {conf}"
+        cls = ((f.get("metadata") or {}).get("classification") or "")
+        if cls and cls != "security":
+            meta += f"  ·  Classification: {cls} (not a security weakness)"
         cells = [
             Paragraph(_esc(mark + header), sev_style),
-            Paragraph(
-                _esc(f"Review priority: {_priority(sev)}  ·  Category: {catego}  ·  State: {f.get('baselineState', '-')}"),
-                styles["mono"],
-            ),
+            Paragraph(_esc(meta), styles["mono"]),
             Paragraph(_esc(f"Where: {_loc(f)}"), styles["mono"]),
             Paragraph(f"<b>What's the risk?</b> {_esc((f.get('message') or '-').strip()[:1200])}", styles["body"]),
         ]

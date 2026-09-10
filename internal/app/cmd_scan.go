@@ -272,6 +272,28 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 		findings = kept
 	}
 
+	// B1 dedup: collapse exact duplicate occurrences (identical fingerprint —
+	// same category/rule/path/line/content identity). Tools occasionally emit
+	// the same finding twice; keeping both inflates counts without adding a
+	// distinct issue. First ID wins; the collapse is visible in diagnostics.
+	seenFP := map[string]bool{}
+	deduped := make([]*finding.Finding, 0, len(findings))
+	for _, f := range findings {
+		if f.Fingerprint.Value == "" {
+			deduped = append(deduped, f)
+			continue
+		}
+		if seenFP[f.Fingerprint.Value] {
+			continue
+		}
+		seenFP[f.Fingerprint.Value] = true
+		deduped = append(deduped, f)
+	}
+	if dropped := len(findings) - len(deduped); dropped > 0 {
+		diagnostics = append(diagnostics, fmt.Sprintf("dedup: %d exact duplicate occurrence(s) collapsed (identical fingerprint)", dropped))
+	}
+	findings = deduped
+
 	// Reachability (Bet 2): annotate dependency findings before policy.
 	// Best-effort and sound by construction — see internal/reachability.
 	// Runs on full and staged scans alike; staged filtering already applied.

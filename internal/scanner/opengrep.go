@@ -106,11 +106,13 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 				Message  string `json:"message"`
 				Severity string `json:"severity"`
 				Fix      string `json:"fix"`
+				Lines    string `json:"lines"`
 				Metadata struct {
 					CWE        any    `json:"cwe"`
 					OWASP      any    `json:"owasp"`
 					References any    `json:"references"`
 					Category   string `json:"category"`
+					Confidence string `json:"confidence"`
 				} `json:"metadata"`
 			} `json:"extra"`
 		} `json:"results"`
@@ -128,6 +130,24 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 		msg := report.Redact(truncate(r.Extra.Message, 1000))
 		sl, el := r.Start.Line, r.End.Line
 		rel := relToRoot(root, r.Path)
+		// B2 classification: correctness-family rules are logic bugs, not
+		// security weaknesses. The rule-pack layout is authoritative
+		// (…/correctness/…), so a correctness hit is capped at medium and
+		// tagged — it can never satisfy a high-severity security policy
+		// rule. The scanner's original severity is preserved in Severity.Original.
+		classification := "security"
+		for _, seg := range strings.Split(strings.ToLower(ruleID), ".") {
+			if seg == "correctness" {
+				classification = "correctness"
+			}
+		}
+		if classification == "correctness" && (sev.Canonical == finding.SevHigh || sev.Canonical == finding.SevCritical) {
+			sev.Canonical = finding.SevMedium
+		}
+		confidence := strings.ToLower(strings.TrimSpace(r.Extra.Metadata.Confidence))
+		if confidence != "high" && confidence != "medium" && confidence != "low" {
+			confidence = "" // unknown stays unset (omitempty), never a guess
+		}
 		f := &finding.Finding{
 			SchemaVersion: finding.SchemaVersion,
 			ID:            fmt.Sprintf("opengrep:%05d", i+1),
@@ -135,15 +155,21 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 			Category:      finding.CatSAST,
 			Rule:          finding.Rule{ID: ruleID, CWE: toStringList(r.Extra.Metadata.CWE, true)},
 			Severity:      sev,
+			Confidence:    confidence,
 			Message:       msg,
 			Location:      &finding.Location{Path: rel, StartLine: &sl, EndLine: &el},
 			BaselineState: finding.StateUnknown,
 			Redaction:     finding.Redaction{Applied: true},
+			Metadata:      map[string]any{"classification": classification},
 		}
 		if r.Extra.Fix != "" {
 			f.Remediation = &finding.Remediation{Guidance: truncate(r.Extra.Fix, 1000)}
 		}
-		semCtx := ruleID + "\n" + msg
+		// B1 identity: flagged code content dominates; the start line only
+		// separates true duplicates, so two distinct issues in one file
+		// never share a fingerprint.
+		trimmedLines := strings.TrimSpace(r.Extra.Lines)
+		semCtx := fingerprintCtx(ruleID+"\n"+trimmedLines, &sl)
 		f.Fingerprint = finding.Fingerprint{Algorithm: finding.FingerprintVersion, Value: finding.FingerprintValue(f.Category, "opengrep", ruleID, rel, semCtx)}
 		out = append(out, f)
 	}

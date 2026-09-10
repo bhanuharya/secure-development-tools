@@ -12,7 +12,7 @@ import (
 
 const (
 	SchemaVersion      = "secure-dev/finding/v1alpha1"
-	FingerprintVersion = "sdt-v1"
+	FingerprintVersion = "sdt-v2"
 )
 
 // Categories.
@@ -158,10 +158,11 @@ func MapSeverity(native string) Severity {
 	}
 }
 
-// FingerprintValue computes the sdt-v1 stable fingerprint.
-// Fallback input: category | adapter/rule | normalized rel path |
-// normalized semantic context or artifact identity. Line number is never
-// the primary identity component.
+// FingerprintValue computes the stable fingerprint (FingerprintVersion).
+// Inputs: category | adapter/clean-rule | normalized rel path |
+// semantic context (content when the tool provides it, plus the start line
+// as a last-resort disambiguator for true duplicates) or artifact identity.
+// Line number is never the primary identity component.
 func FingerprintValue(category, adapter, ruleID, relPath, semanticContext string) string {
 	path := normalizePath(relPath)
 	ctx := normalizeContext(semanticContext)
