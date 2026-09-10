@@ -9,6 +9,7 @@ Pipeline order (SDT runs BEFORE Sonar — the import file must exist at analysis
 | `Jenkinsfile.sdt-scanner` | Standalone parameterized job (reponame/branch/codebase + `SDT_STRICT_MODE`). No shared-lib change. |
 | `vars/sdtScan.groovy` | Shared-lib step for your library (`vars/`). Reusable gate + Warnings NG. |
 | `tools/sdt_to_sonar.py` | Converter: `findings.json → sonar-external.json` (latest generic schema: works on 10.7, mandatory-safe past 10.8). |
+| `tools/sdt_knowledge.py` | Shared, stdlib-only guidance + safe snippet reader (imported by the PDF tool; no network/AI). |
 
 ## Agent prep (once)
 
