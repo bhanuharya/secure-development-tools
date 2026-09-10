@@ -346,12 +346,23 @@ func FindTests(ruleFile string) []string {
 
 // EnforceManifest checks expected counts, per-file hashes, and bundle hashes.
 // It returns human-readable problems (empty = clean).
+// repoRoot anchors both the pack dir and any relative file paths, so callers
+// may pass CWD-relative discovery results (the `sdt rules verify` default)
+// or absolute paths (tests, tooling) — both resolve identically.
 func EnforceManifest(repoRoot string, files []string, m *Manifest) []string {
 	var problems []string
 	packRoot := RulePackDir()
 	if !filepath.IsAbs(packRoot) {
 		packRoot = filepath.Join(repoRoot, packRoot)
 	}
+	absFiles := make([]string, 0, len(files))
+	for _, f := range files {
+		if !filepath.IsAbs(f) {
+			f = filepath.Join(repoRoot, f)
+		}
+		absFiles = append(absFiles, f)
+	}
+	files = absFiles
 	for _, s := range m.Sources {
 		// Count across all prefixes of this source.
 		total := 0

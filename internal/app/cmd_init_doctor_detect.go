@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bhanuharya/secure-development-tools/internal/detect"
+	"github.com/bhanuharya/secure-development-tools/internal/rules"
 	"github.com/bhanuharya/secure-development-tools/internal/scanner"
 )
 
@@ -243,6 +244,17 @@ func binOrMissing(bin, tool string) string {
 }
 
 func countRules(root string) int {
+	// Authoritative recursive discovery, same roots `rules verify` uses.
+	// (An earlier two-level directory count reported e.g. 24 files while
+	// verify saw 137 — same bundle, different ruler. Never again.)
+	files, err := rules.DiscoverRuleFiles(rules.RuleRoots())
+	if err != nil || len(files) == 0 {
+		return fallbackShallowCount(root)
+	}
+	return len(files)
+}
+
+func fallbackShallowCount(root string) int {
 	n := 0
 	for _, d := range []string{filepath.Join(root, "rules", "opengrep-rules"), "rules/opengrep-rules", filepath.Join(root, ".secure-dev", "rules")} {
 		entries, err := os.ReadDir(d)
