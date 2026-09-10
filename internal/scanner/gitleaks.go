@@ -126,6 +126,7 @@ func (a *GitleaksAdapter) Parse(toolVersion string, root string, stdout []byte, 
 			Category:      finding.CatSecret,
 			Rule:          finding.Rule{ID: ruleID},
 			Severity:      finding.Severity{Canonical: finding.SevHigh, Original: "high"},
+			Confidence:    "high", // pattern-matched credentials; --redact strips values
 			Message:       report.Redact(truncate(desc, 1000), secret),
 			BaselineState: finding.StateUnknown,
 			Redaction:     finding.Redaction{Applied: true},
@@ -141,7 +142,10 @@ func (a *GitleaksAdapter) Parse(toolVersion string, root string, stdout []byte, 
 			f.Message += " (commit " + shortHash(commit) + ")"
 			f.Metadata = map[string]any{"commit": commit}
 		}
-		semCtx := ruleID + "\n" + file
+		// B1 identity: --redact uniformizes match text, so the start line is
+		// the stable occurrence key within a file (distinct leaks at distinct
+		// lines never share a fingerprint).
+		semCtx := fingerprintCtx(ruleID+"\n"+file, sl)
 		f.Fingerprint = finding.Fingerprint{Algorithm: finding.FingerprintVersion, Value: finding.FingerprintValue(f.Category, "gitleaks", ruleID, file, semCtx)}
 		out = append(out, f)
 	}

@@ -102,6 +102,7 @@ func (a *TrivyFSAdapter) Parse(toolVersion string, root string, stdout []byte, s
 				Category:      finding.CatDepVuln,
 				Rule:          finding.Rule{ID: v.VulnerabilityID, CWE: v.CweIDs, References: v.References},
 				Severity:      finding.MapSeverity(v.Severity),
+				Confidence:    "high", // published CVE against a pinned version
 				Message:       report.Redact(truncate(v.Description, 1000)),
 				Artifact:      &finding.Artifact{Package: v.PkgName, InstalledVersion: v.InstalledVersion, FixedVersion: v.FixedVersion, Target: tgt},
 				BaselineState: finding.StateUnknown,
@@ -122,6 +123,7 @@ func (a *TrivyFSAdapter) Parse(toolVersion string, root string, stdout []byte, s
 				Category:      finding.CatMisconfig,
 				Rule:          finding.Rule{ID: m.ID},
 				Severity:      finding.MapSeverity(m.Severity),
+				Confidence:    "medium", // check-based; context can vary
 				Message:       report.Redact(truncate(m.Title, 1000)),
 				BaselineState: finding.StateUnknown,
 				Redaction:     finding.Redaction{Applied: true},
@@ -136,7 +138,9 @@ func (a *TrivyFSAdapter) Parse(toolVersion string, root string, stdout []byte, s
 					f.Location.EndLine = &el
 				}
 			}
-			semCtx := m.ID + "\n" + tgt
+			// B1 identity: same check can hit several spots in one target;
+			// the start line separates those occurrences.
+			semCtx := fingerprintCtx(m.ID+"\n"+tgt, linePtr(sl))
 			f.Fingerprint = finding.Fingerprint{Algorithm: finding.FingerprintVersion, Value: finding.FingerprintValue(f.Category, "trivy-fs", m.ID, tgt, semCtx)}
 			out = append(out, f)
 		}
