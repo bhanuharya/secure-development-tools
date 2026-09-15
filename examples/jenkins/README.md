@@ -32,7 +32,7 @@ Sonar stage stays untouched.
 
 Free Sonar `Security Hotspots 100% Reviewed / 0 to review` ≠ clean — it lacks
 secrets-history (`gitleaks --all`), supply-chain + misconfig (`trivy offline`),
-and taint SAST breadth (147 opengrep rules). In our Phase 1 pilot (`full`
+and taint SAST breadth (153 opengrep rules). In our Phase 1 pilot (`full`
 scan of a JHipster service) SDT found dozens of findings (secrets + SAST +
 deps) where Sonar reported zero hotspots.
 Keep Sonar as-is; SDT is the additive depth. Correlate via

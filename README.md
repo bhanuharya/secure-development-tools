@@ -52,12 +52,12 @@ missing or unresolvable base fails closed rather than silently widening to a
 current-tree scan. Shallow clones follow the profile `missingHistory` policy
 (`fail`/`warn`).
 
-SAST depth: 147 pinned rules (hand-written + curated semgrep-rules subsets
-for Python, JS/TS, Go, Kotlin, Java, C, Rust, K8s/GitHub-Actions YAML, AWS
-JSON) with cross-function taint (`--taint-intrafile`), per-rule annotated
-tests, and manifest hash enforcement — see `rules/NOTICE`,
-`docs/rule-precision.md`, and ADR-0007. Terraform provider rules stay out
-by design (Trivy owns IaC).
+SAST depth: 153 pinned rules (hand-written + curated semgrep-rules subsets
+for Python, JS/TS, Go, Kotlin, Java, Dart/Flutter, C, Rust,
+K8s/GitHub-Actions YAML, AWS JSON) with cross-function taint
+(`--taint-intrafile`), per-rule annotated tests, and manifest hash
+enforcement — see `rules/NOTICE`, `docs/rule-precision.md`, and ADR-0007.
+Terraform provider rules stay out by design (Trivy owns IaC).
 
 Workflow commands:
 
