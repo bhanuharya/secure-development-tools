@@ -177,6 +177,7 @@ func detectLanguages(root string) []string {
 	exts := map[string]string{
 		".py": "python", ".js": "javascript", ".ts": "typescript",
 		".go": "go", ".java": "java", ".kt": "kotlin", ".yaml": "yaml", ".yml": "yaml",
+		".dart": "dart",
 	}
 	found := map[string]bool{}
 	_ = filepath.Walk(root, func(p string, info os.FileInfo, err error) error {

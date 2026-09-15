@@ -55,12 +55,15 @@ func Inspect(root string) Facts {
 			langs["java"] = true
 		case ".kt", ".kts":
 			langs["kotlin"] = true
+		case ".dart":
+			langs["dart"] = true
 		case ".yaml", ".yml":
 			langs["yaml"] = true
 		}
 		switch name {
 		case "package.json", "package-lock.json", "requirements.txt", "go.mod", "go.sum",
-			"pom.xml", "build.gradle", "Cargo.toml", "Cargo.lock", "Gemfile", "composer.json":
+			"pom.xml", "build.gradle", "Cargo.toml", "Cargo.lock", "Gemfile", "composer.json",
+			"pubspec.yaml":
 			manifests[name] = true
 		case "Dockerfile", "docker-compose.yml", "docker-compose.yaml":
 			f.HasIaC = true

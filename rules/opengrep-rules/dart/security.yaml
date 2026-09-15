@@ -1,0 +1,96 @@
+rules:
+  - id: scp.dart.tls.disable-certificate-validation
+    languages: [dart]
+    message: A badCertificateCallback that always returns true disables TLS certificate validation for every host, allowing trivial man-in-the-middle interception.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-295"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      confidence: HIGH
+      license: MIT
+      references:
+        - https://api.dart.dev/stable/dart-io/HttpClient/badCertificateCallback.html
+      remediation: Remove the override, or validate the certificate chain against a pinned known certificate instead of returning true.
+    pattern: $CLIENT.badCertificateCallback = ($A, $B, $C) => true
+
+  - id: scp.dart.injection.command
+    languages: [dart]
+    message: Invoking a shell with -c lets the shell interpret metacharacters in the argument, enabling command injection when the argument is attacker-influenced.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021 - Injection"]
+      confidence: HIGH
+      license: MIT
+      references:
+        - https://api.dart.dev/stable/dart-io/Process/run.html
+      remediation: Run the executable directly with an argument list and avoid the shell, e.g. Process.run('ls', [path]) instead of Process.run('sh', ['-c', ...]).
+    pattern-either:
+      - pattern: Process.run("sh", ["-c", ...])
+      - pattern: Process.run("/bin/sh", ["-c", ...])
+      - pattern: Process.run("bash", ["-c", ...])
+      - pattern: Process.runSync("sh", ["-c", ...])
+      - pattern: Process.runSync("/bin/sh", ["-c", ...])
+      - pattern: Process.runSync("bash", ["-c", ...])
+
+  - id: scp.dart.crypto.weak-md5
+    languages: [dart]
+    message: MD5 is cryptographically broken and unsuitable for signatures, password hashing, or integrity checks.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-327"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      confidence: HIGH
+      license: MIT
+      references:
+        - https://api.dart.dev/stable/dart-typed_data/dart-typed_data-library.html
+      remediation: Use sha256 from package:crypto for integrity, or a password hashing function such as bcrypt/argon2 for credentials.
+    pattern: md5.convert(...)
+
+  - id: scp.dart.crypto.weak-sha1
+    languages: [dart]
+    message: SHA-1 is cryptographically broken for collision resistance and must not be used for signatures, certificates, or integrity checks.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-327"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      confidence: HIGH
+      license: MIT
+      references:
+        - https://shattered.io/
+      remediation: Use sha256 from package:crypto instead of sha1.
+    pattern: sha1.convert(...)
+
+  - id: scp.dart.random.insecure
+    languages: [dart]
+    message: The default Random constructor is a deterministic PRNG, not a cryptographically secure source. Values derived from it are predictable.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-338"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      confidence: MEDIUM
+      license: MIT
+      references:
+        - https://api.dart.dev/stable/dart-math/Random/Random.secure.html
+      remediation: Use Random.secure() for tokens, nonces, session identifiers, and any other security-sensitive value.
+    pattern: Random()
+
+  - id: scp.dart.webview.javascript-unrestricted
+    languages: [dart]
+    message: Enabling unrestricted JavaScript in a WebView exposes the host application to script injection if any loaded content is attacker-controlled.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-749"]
+      owasp: ["A03:2021 - Injection"]
+      confidence: MEDIUM
+      license: MIT
+      references:
+        - https://pub.dev/packages/webview_flutter
+      remediation: Only load content from trusted origins, and prefer JavascriptMode.disabled unless JavaScript is genuinely required.
+    pattern-regex: 'setJavaScriptMode\s*\(\s*JavaScriptMode\.unrestricted'

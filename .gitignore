@@ -22,6 +22,9 @@ dist/
 
 # Local tooling context — plans, prompts, lint results (keep private)
 .hermes/
+# Local agent/editor tooling (opencode config + node_modules; never a repo artifact)
+.opencode/
+node_modules/
 
 # OS/editor
 .DS_Store
