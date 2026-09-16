@@ -1,0 +1,807 @@
+{
+  "schemaVersion": "secure-dev/report/v1alpha1",
+  "runId": "run-fa5919ede66b7497",
+  "planId": "sha256:c31f2bb494322c48562d1a31d332da90ce1a3952b529d1452d580c6ec500992e",
+  "status": "policy_failed",
+  "findings": [
+    {
+      "schemaVersion": "secure-dev/finding/v1alpha1",
+      "id": "opengrep:00001",
+      "fingerprint": {
+        "algorithm": "sdt-v2",
+        "value": "sha256:2093c322a9ca394e959b41a6905bd446f7dcf0d37ea10468402ac08cb09f9318"
+      },
+      "scanner": {
+        "adapter": "opengrep",
+        "tool": "opengrep",
+        "version": "1.29.0"
+      },
+      "category": "sast",
+      "rule": {
+        "id": "python.scp.python.crypto.weak-md5",
+        "cwe": [
+          "CWE-328"
+        ]
+      },
+      "severity": {
+        "canonical": "medium",
+        "original": "WARNING"
+      },
+      "confidence": "high",
+      "message": "MD5/SHA1 are cryptographically broken. Use SHA-256 or a password hashing function such as bcrypt/argon2.",
+      "location": {
+        "path": "app.py",
+        "startLine": 6,
+        "endLine": 6
+      },
+      "baselineState": "new",
+      "redaction": {
+        "applied": true
+      },
+      "metadata": {
+        "classification": "security"
+      }
+    },
+    {
+      "schemaVersion": "secure-dev/finding/v1alpha1",
+      "id": "opengrep:00002",
+      "fingerprint": {
+        "algorithm": "sdt-v2",
+        "value": "sha256:8dd4cd01cbfbda897c44e51ce666a319f88951a88173b5a5deb265452f83cece"
+      },
+      "scanner": {
+        "adapter": "opengrep",
+        "tool": "opengrep",
+        "version": "1.29.0"
+      },
+      "category": "sast",
+      "rule": {
+        "id": "vendor.semgrep.python.lang.security.insecure-hash-algorithm-md5",
+        "cwe": [
+          "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
+        ]
+      },
+      "severity": {
+        "canonical": "medium",
+        "original": "WARNING"
+      },
+      "confidence": "medium",
+      "message": "Detected MD5 hash algorithm which is considered insecure. MD5 is not collision resistant and is therefore not suitable as a cryptographic signature. Use SHA256 or SHA3 instead.",
+      "location": {
+        "path": "app.py",
+        "startLine": 6,
+        "endLine": 6
+      },
+      "baselineState": "new",
+      "redaction": {
+        "applied": true
+      },
+      "metadata": {
+        "classification": "security"
+      }
+    },
+    {
+      "schemaVersion": "secure-dev/finding/v1alpha1",
+      "id": "opengrep:00003",
+      "fingerprint": {
+        "algorithm": "sdt-v2",
+        "value": "sha256:7230d1c41a921d30332e93717ddc7df4568911bb3b2d3e67ffea61bf1f6a7e9d"
+      },
+      "scanner": {
+        "adapter": "opengrep",
+        "tool": "opengrep",
+        "version": "1.29.0"
+      },
+      "category": "sast",
+      "rule": {
+        "id": "python.scp.python.exec.eval",
+        "cwe": [
+          "CWE-95"
+        ]
+      },
+      "severity": {
+        "canonical": "high",
+        "original": "ERROR"
+      },
+      "confidence": "high",
+      "message": "eval() executes arbitrary code from its string argument. Remove it or use a safe parser.",
+      "location": {
+        "path": "app.py",
+        "startLine": 15,
+        "endLine": 15
+      },
+      "baselineState": "new",
+      "redaction": {
+        "applied": true
+      },
+      "metadata": {
+        "classification": "security"
+      }
+    },
+    {
+      "schemaVersion": "secure-dev/finding/v1alpha1",
+      "id": "trivy-fs:00004",
+      "fingerprint": {
+        "algorithm": "sdt-v2",
+        "value": "sha256:93223024a1348ecf483a55ca350c70dd9857280c378179e4253828418587d1ee"
+      },
+      "scanner": {
+        "adapter": "trivy-fs",
+        "tool": "trivy",
+        "version": "Version: 0.73.0"
+      },
+      "category": "dependency-vulnerability",
+      "rule": {
+        "id": "CVE-2023-30861",
+        "cwe": [
+          "CWE-539"
+        ],
+        "references": [
+          "https://access.redhat.com/security/cve/CVE-2023-30861",
+          "https://github.com/pallets/flask",
+          "https://github.com/pallets/flask/commit/70f906c51ce49c485f1d355703e9cc3386b1cc2b",
+          "https://github.com/pallets/flask/commit/8646edca6f47e2cd57464081b3911218d4734f8d%20%282.2.5%29",
+          "https://github.com/pallets/flask/commit/8705dd39c4fa563ea0fe0bf84c85da8fcc98b88d%20%282.3.2%29",
+          "https://github.com/pallets/flask/commit/afd63b16170b7c047f5758eb910c416511e9c965",
+          "https://github.com/pallets/flask/releases/tag/2.2.5",
+          "https://github.com/pallets/flask/releases/tag/2.3.2",
+          "https://github.com/pallets/flask/security/advisories/GHSA-m2qf-hxjv-5gpq",
+          "https://github.com/pypa/advisory-database/tree/main/vulns/flask/PYSEC-2023-62.yaml",
+          "https://linux.oracle.com/cve/CVE-2023-30861.html",
+          "https://linux.oracle.com/errata/ELSA-2023-12710.html",
+          "https://lists.debian.org/debian-lts-announce/2023/08/msg00024.html",
+          "https://nvd.nist.gov/vuln/detail/CVE-2023-30861",
+          "https://security.netapp.com/advisory/ntap-20230818-0006",
+          "https://security.netapp.com/advisory/ntap-20230818-0006/",
+          "https://ubuntu.com/security/notices/USN-6111-1",
+          "https://www.cve.org/CVERecord?id=CVE-2023-30861",
+          "https://www.debian.org/security/2023/dsa-5442"
+        ]
+      },
+      "severity": {
+        "canonical": "high",
+        "original": "HIGH"
+      },
+      "confidence": "high",
+      "message": "Flask is a lightweight WSGI web application framework. When all of the following conditions are met, a response containing data intended for one client may be cached and subsequently sent by the proxy to other clients. If the proxy also caches `Set-Cookie` headers, it may send one client's `session` cookie to other clients. The severity depends on the application's use of the session and the proxy's behavior regarding cookies. The risk depends on all these conditions being met.\n\n1. The application must be hosted behind a caching proxy that does not strip cookies or ignore responses with cookies.\n2. The application sets `session.permanent = True`\n3. The application does not access or modify the session at any point during a request.\n4. `SESSION_REFRESH_EACH_REQUEST` enabled (the default).\n5. The application does not set a `Cache-Control` header to indicate that a page is private or should not be cached.\n\nThis happens because vulnerable versions of Flask only set the `Vary: Cookie` heade",
+      "artifact": {
+        "package": "flask",
+        "installedVersion": "1.1.2",
+        "fixedVersion": "2.3.2, 2.2.5",
+        "target": "requirements.txt"
+      },
+      "remediation": {
+        "fixedVersion": "2.3.2, 2.2.5",
+        "guidance": "Upgrade flask from 1.1.2 to 2.3.2, 2.2.5"
+      },
+      "baselineState": "new",
+      "reachability": {
+        "state": "unreachable",
+        "reason": "package not imported by any walked python source"
+      },
+      "redaction": {
+        "applied": true
+      }
+    },
+    {
+      "schemaVersion": "secure-dev/finding/v1alpha1",
+      "id": "trivy-fs:00005",
+      "fingerprint": {
+        "algorithm": "sdt-v2",
+        "value": "sha256:7f12a60ae478eaeb65830771c8dc4d15fe42112f68942d009a5d7b5d602aea20"
+      },
+      "scanner": {
+        "adapter": "trivy-fs",
+        "tool": "trivy",
+        "version": "Version: 0.73.0"
+      },
+      "category": "dependency-vulnerability",
+      "rule": {
+        "id": "CVE-2019-20477",
+        "cwe": [
+          "CWE-502"
+        ],
+        "references": [
+          "https://access.redhat.com/security/cve/CVE-2019-20477",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1806005",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1807367",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1809065",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1815643",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1847416",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1854926",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1856481",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-20477",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-20907",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2020-14422",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2020-1747",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2020-8492",
+          "https://errata.almalinux.org/8/ALSA-2020-4641.html",
+          "https://errata.rockylinux.org/RLSA-2020:4641",
+          "https://github.com/advisories/GHSA-3pqx-4fqf-j49f",
+          "https://github.com/pypa/advisory-database/tree/main/vulns/pyyaml/PYSEC-2020-176.yaml",
+          "https://github.com/yaml/pyyaml",
+          "https://github.com/yaml/pyyaml/blob/master/CHANGES",
+          "https://linux.oracle.com/cve/CVE-2019-20477.html",
+          "https://linux.oracle.com/errata/ELSA-2020-4641.html",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/33VBUY73AA6CTTYL3LRWHNFDULV7PFPN",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/33VBUY73AA6CTTYL3LRWHNFDULV7PFPN/",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/52N5XS73Z5S4ZN7I7R56ICCPCTKCUV4H",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/52N5XS73Z5S4ZN7I7R56ICCPCTKCUV4H/",
+          "https://nvd.nist.gov/vuln/detail/CVE-2019-20477",
+          "https://www.cve.org/CVERecord?id=CVE-2019-20477",
+          "https://www.exploit-db.com/download/47655"
+        ]
+      },
+      "severity": {
+        "canonical": "critical",
+        "original": "CRITICAL"
+      },
+      "confidence": "high",
+      "message": "PyYAML 5.1 through 5.1.2 has insufficient restrictions on the load and load_all functions because of a class deserialization issue, e.g., Popen is a class in the subprocess module. NOTE: this issue exists because of an incomplete fix for CVE-2017-18342.",
+      "artifact": {
+        "package": "pyyaml",
+        "installedVersion": "5.1",
+        "fixedVersion": "5.2",
+        "target": "requirements.txt"
+      },
+      "remediation": {
+        "fixedVersion": "5.2",
+        "guidance": "Upgrade pyyaml from 5.1 to 5.2"
+      },
+      "baselineState": "new",
+      "reachability": {
+        "state": "unreachable",
+        "reason": "package not imported by any walked python source"
+      },
+      "redaction": {
+        "applied": true
+      }
+    },
+    {
+      "schemaVersion": "secure-dev/finding/v1alpha1",
+      "id": "trivy-fs:00006",
+      "fingerprint": {
+        "algorithm": "sdt-v2",
+        "value": "sha256:fb8c3b7400ab2a36b8ef39d3375382c91191f75027df92fb58c2e3f70cc05832"
+      },
+      "scanner": {
+        "adapter": "trivy-fs",
+        "tool": "trivy",
+        "version": "Version: 0.73.0"
+      },
+      "category": "dependency-vulnerability",
+      "rule": {
+        "id": "CVE-2020-14343",
+        "cwe": [
+          "CWE-20"
+        ],
+        "references": [
+          "https://access.redhat.com/security/cve/CVE-2020-14343",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1860466",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2020-14343",
+          "https://errata.almalinux.org/8/ALSA-2021-2583.html",
+          "https://errata.rockylinux.org/RLSA-2021:2583",
+          "https://github.com/SeldonIO/seldon-core/issues/2252",
+          "https://github.com/advisories/GHSA-8q59-q68h-6hv4",
+          "https://github.com/pypa/advisory-database/tree/main/vulns/pyyaml/PYSEC-2021-142.yaml",
+          "https://github.com/yaml/pyyaml",
+          "https://github.com/yaml/pyyaml/commit/a001f2782501ad2d24986959f0239a354675f9dc",
+          "https://github.com/yaml/pyyaml/issues/420",
+          "https://github.com/yaml/pyyaml/issues/420#issuecomment-663673966",
+          "https://github.com/yaml/pyyaml/wiki/PyYAML-yaml.load%28input%29-Deprecation",
+          "https://linux.oracle.com/cve/CVE-2020-14343.html",
+          "https://linux.oracle.com/errata/ELSA-2021-2583.html",
+          "https://nvd.nist.gov/vuln/detail/CVE-2020-14343",
+          "https://pypi.org/project/PyYAML",
+          "https://ubuntu.com/security/notices/USN-4940-1",
+          "https://www.cve.org/CVERecord?id=CVE-2020-14343",
+          "https://www.oracle.com/security-alerts/cpuapr2022.html",
+          "https://www.oracle.com/security-alerts/cpujul2022.html"
+        ]
+      },
+      "severity": {
+        "canonical": "critical",
+        "original": "CRITICAL"
+      },
+      "confidence": "high",
+      "message": "A vulnerability was discovered in the PyYAML library in versions before 5.4, where it is susceptible to arbitrary code execution when it processes untrusted YAML files through the full_load method or with the FullLoader loader. Applications that use the library to process untrusted input may be vulnerable to this flaw. This flaw allows an attacker to execute arbitrary code on the system by abusing the python/object/new constructor. This flaw is due to an incomplete fix for CVE-2020-1747.",
+      "artifact": {
+        "package": "pyyaml",
+        "installedVersion": "5.1",
+        "fixedVersion": "5.4",
+        "target": "requirements.txt"
+      },
+      "remediation": {
+        "fixedVersion": "5.4",
+        "guidance": "Upgrade pyyaml from 5.1 to 5.4"
+      },
+      "baselineState": "new",
+      "reachability": {
+        "state": "unreachable",
+        "reason": "package not imported by any walked python source"
+      },
+      "redaction": {
+        "applied": true
+      }
+    },
+    {
+      "schemaVersion": "secure-dev/finding/v1alpha1",
+      "id": "trivy-fs:00007",
+      "fingerprint": {
+        "algorithm": "sdt-v2",
+        "value": "sha256:0e3e057cb85dfe983e52114ee24a02c8879d15cb5122033a1ff55557532ff506"
+      },
+      "scanner": {
+        "adapter": "trivy-fs",
+        "tool": "trivy",
+        "version": "Version: 0.73.0"
+      },
+      "category": "dependency-vulnerability",
+      "rule": {
+        "id": "CVE-2020-1747",
+        "cwe": [
+          "CWE-20"
+        ],
+        "references": [
+          "http://lists.opensuse.org/opensuse-security-announce/2020-04/msg00017.html",
+          "http://lists.opensuse.org/opensuse-security-announce/2020-05/msg00017.html",
+          "https://access.redhat.com/security/cve/CVE-2020-1747",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1806005",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1807367",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1809065",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1815643",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1847416",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1854926",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1856481",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=CVE-2020-1747",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-20477",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-20907",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2020-14422",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2020-1747",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2020-8492",
+          "https://errata.almalinux.org/8/ALSA-2020-4641.html",
+          "https://errata.rockylinux.org/RLSA-2020:4641",
+          "https://github.com/advisories/GHSA-6757-jp84-gxfx",
+          "https://github.com/github/advisory-database/pull/4942",
+          "https://github.com/pypa/advisory-database/tree/main/vulns/pyyaml/PYSEC-2020-96.yaml",
+          "https://github.com/yaml/pyyaml",
+          "https://github.com/yaml/pyyaml/commit/0cedb2a0697b2bc49e4f3841b8d4590b6b15657e",
+          "https://github.com/yaml/pyyaml/commit/5080ba513377b6355a0502104846ee804656f1e0",
+          "https://github.com/yaml/pyyaml/pull/386",
+          "https://linux.oracle.com/cve/CVE-2020-1747.html",
+          "https://linux.oracle.com/errata/ELSA-2020-4641.html",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/7PPAS6C4SZRDQLR7C22A5U3QOLXY33JX",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/7PPAS6C4SZRDQLR7C22A5U3QOLXY33JX/",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/K5HEPD7LEVDPCITY5IMDYWXUMX37VFMY",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/K5HEPD7LEVDPCITY5IMDYWXUMX37VFMY/",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/MMQXSZXNJT6ERABJZAAICI3DQSQLCP3D",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/MMQXSZXNJT6ERABJZAAICI3DQSQLCP3D/",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/WORRFHPQVAFKKXXWLSSW6XKUYLWM6CSH",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/WORRFHPQVAFKKXXWLSSW6XKUYLWM6CSH/",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/ZBJA3SGNJKCAYPSHOHWY3KBCWNM5NYK2",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/ZBJA3SGNJKCAYPSHOHWY3KBCWNM5NYK2/",
+          "https://nvd.nist.gov/vuln/detail/CVE-2020-1747",
+          "https://www.cve.org/CVERecord?id=CVE-2020-1747",
+          "https://www.oracle.com/security-alerts/cpujul2022.html"
+        ]
+      },
+      "severity": {
+        "canonical": "critical",
+        "original": "CRITICAL"
+      },
+      "confidence": "high",
+      "message": "A vulnerability was discovered in the PyYAML library in versions before 5.3.1, where it is susceptible to arbitrary code execution when it processes untrusted YAML files through the full_load method or with the FullLoader loader. Applications that use the library to process untrusted input may be vulnerable to this flaw. An attacker could use this flaw to execute arbitrary code on the system by abusing the python/object/new constructor.",
+      "artifact": {
+        "package": "pyyaml",
+        "installedVersion": "5.1",
+        "fixedVersion": "5.3.1",
+        "target": "requirements.txt"
+      },
+      "remediation": {
+        "fixedVersion": "5.3.1",
+        "guidance": "Upgrade pyyaml from 5.1 to 5.3.1"
+      },
+      "baselineState": "new",
+      "reachability": {
+        "state": "unreachable",
+        "reason": "package not imported by any walked python source"
+      },
+      "redaction": {
+        "applied": true
+      }
+    },
+    {
+      "schemaVersion": "secure-dev/finding/v1alpha1",
+      "id": "trivy-fs:00008",
+      "fingerprint": {
+        "algorithm": "sdt-v2",
+        "value": "sha256:74535ce0ab85537f9680292c5b597a12d6416a25fbf545c64858350c607ad2b3"
+      },
+      "scanner": {
+        "adapter": "trivy-fs",
+        "tool": "trivy",
+        "version": "Version: 0.73.0"
+      },
+      "category": "dependency-vulnerability",
+      "rule": {
+        "id": "CVE-2018-18074",
+        "cwe": [
+          "CWE-522"
+        ],
+        "references": [
+          "http://docs.python-requests.org/en/master/community/updates/#release-and-version-history",
+          "http://lists.opensuse.org/opensuse-security-announce/2019-07/msg00024.html",
+          "https://access.redhat.com/errata/RHSA-2019:2035",
+          "https://access.redhat.com/security/cve/CVE-2018-18074",
+          "https://bugs.debian.org/910766",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1643829",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1649153",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1659551",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1700824",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1702473",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1740347",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1749839",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=1762422",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2018-18074",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2018-20060",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2018-20852",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-11236",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-11324",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-16056",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-16935",
+          "https://errata.almalinux.org/8/ALSA-2020-1605.html",
+          "https://errata.rockylinux.org/RLSA-2020:1605",
+          "https://github.com/pypa/advisory-database/tree/main/vulns/requests/PYSEC-2018-28.yaml",
+          "https://github.com/requests/requests",
+          "https://github.com/requests/requests/commit/c45d7c49ea75133e52ab22a8e9e13173938e36ff",
+          "https://github.com/requests/requests/issues/4716",
+          "https://github.com/requests/requests/pull/4718",
+          "https://linux.oracle.com/cve/CVE-2018-18074.html",
+          "https://linux.oracle.com/errata/ELSA-2020-2081.html",
+          "https://nvd.nist.gov/vuln/detail/CVE-2018-18074",
+          "https://ubuntu.com/security/notices/USN-3790-1",
+          "https://ubuntu.com/security/notices/USN-3790-2",
+          "https://usn.ubuntu.com/3790-1",
+          "https://usn.ubuntu.com/3790-1/",
+          "https://usn.ubuntu.com/3790-2",
+          "https://usn.ubuntu.com/3790-2/",
+          "https://www.cve.org/CVERecord?id=CVE-2018-18074",
+          "https://www.oracle.com/security-alerts/cpujul2022.html"
+        ]
+      },
+      "severity": {
+        "canonical": "high",
+        "original": "HIGH"
+      },
+      "confidence": "high",
+      "message": "The Requests package before 2.20.0 for Python sends an HTTP Authorization header to an http URI upon receiving a same-hostname https-to-http redirect, which makes it easier for remote attackers to discover credentials by sniffing the network.",
+      "artifact": {
+        "package": "requests",
+        "installedVersion": "2.12.0",
+        "fixedVersion": "2.20.0",
+        "target": "requirements.txt"
+      },
+      "remediation": {
+        "fixedVersion": "2.20.0",
+        "guidance": "Upgrade requests from 2.12.0 to 2.20.0"
+      },
+      "baselineState": "new",
+      "reachability": {
+        "state": "unreachable",
+        "reason": "package not imported by any walked python source"
+      },
+      "redaction": {
+        "applied": true
+      }
+    },
+    {
+      "schemaVersion": "secure-dev/finding/v1alpha1",
+      "id": "trivy-fs:00009",
+      "fingerprint": {
+        "algorithm": "sdt-v2",
+        "value": "sha256:452e1a880fcfabc5e88afb79686f3e4b9667137aa8cdcc9f3976b3eaa2171326"
+      },
+      "scanner": {
+        "adapter": "trivy-fs",
+        "tool": "trivy",
+        "version": "Version: 0.73.0"
+      },
+      "category": "dependency-vulnerability",
+      "rule": {
+        "id": "CVE-2023-32681",
+        "cwe": [
+          "CWE-200"
+        ],
+        "references": [
+          "https://access.redhat.com/errata/RHSA-2023:7050",
+          "https://access.redhat.com/security/cve/CVE-2023-32681",
+          "https://bugzilla.redhat.com/2209469",
+          "https://bugzilla.redhat.com/263261",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=2209469",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2023-32681",
+          "https://errata.almalinux.org/8/ALSA-2023-7050.html",
+          "https://errata.rockylinux.org/RLSA-2023:4520",
+          "https://github.com/psf/requests",
+          "https://github.com/psf/requests/commit/74ea7cf7a6a27a4eeb2ae24e162bcc942a6706d5",
+          "https://github.com/psf/requests/releases/tag/v2.31.0",
+          "https://github.com/psf/requests/security/advisories/GHSA-j8r2-6x86-q33q",
+          "https://github.com/pypa/advisory-database/tree/main/vulns/requests/PYSEC-2023-74.yaml",
+          "https://linux.oracle.com/cve/CVE-2023-32681.html",
+          "https://linux.oracle.com/errata/ELSA-2023-7050.html",
+          "https://lists.debian.org/debian-lts-announce/2023/06/msg00018.html",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/AW7HNFGYP44RT3DUDQXG2QT3OEV2PJ7Y",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/AW7HNFGYP44RT3DUDQXG2QT3OEV2PJ7Y/",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/KOYASTZDGQG2BWLSNBPL3TQRL2G7QYNZ",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/KOYASTZDGQG2BWLSNBPL3TQRL2G7QYNZ/",
+          "https://nvd.nist.gov/vuln/detail/CVE-2023-32681",
+          "https://security.gentoo.org/glsa/202309-08",
+          "https://ubuntu.com/security/notices/USN-6155-1",
+          "https://ubuntu.com/security/notices/USN-6155-2",
+          "https://ubuntu.com/security/notices/USN-7568-1",
+          "https://ubuntu.com/security/notices/USN-7762-1",
+          "https://www.cve.org/CVERecord?id=CVE-2023-32681"
+        ]
+      },
+      "severity": {
+        "canonical": "medium",
+        "original": "MEDIUM"
+      },
+      "confidence": "high",
+      "message": "Requests is a HTTP library. Since Requests 2.3.0, Requests has been leaking Proxy-Authorization headers to destination servers when redirected to an HTTPS endpoint. This is a product of how we use `rebuild_proxies` to reattach the `Proxy-Authorization` header to requests. For HTTP connections sent through the tunnel, the proxy will identify the header in the request itself and remove it prior to forwarding to the destination server. However when sent over HTTPS, the `Proxy-Authorization` header must be sent in the CONNECT request as the proxy has no visibility into the tunneled request. This results in Requests forwarding proxy credentials to the destination server unintentionally, allowing a malicious actor to potentially exfiltrate sensitive information. This issue has been patched in version 2.31.0.",
+      "artifact": {
+        "package": "requests",
+        "installedVersion": "2.12.0",
+        "fixedVersion": "2.31.0",
+        "target": "requirements.txt"
+      },
+      "remediation": {
+        "fixedVersion": "2.31.0",
+        "guidance": "Upgrade requests from 2.12.0 to 2.31.0"
+      },
+      "baselineState": "new",
+      "reachability": {
+        "state": "unreachable",
+        "reason": "package not imported by any walked python source"
+      },
+      "redaction": {
+        "applied": true
+      }
+    },
+    {
+      "schemaVersion": "secure-dev/finding/v1alpha1",
+      "id": "trivy-fs:00010",
+      "fingerprint": {
+        "algorithm": "sdt-v2",
+        "value": "sha256:5fffca094367d657038f80eee9fb092ef6e6bda94b80128bd248da862dee8564"
+      },
+      "scanner": {
+        "adapter": "trivy-fs",
+        "tool": "trivy",
+        "version": "Version: 0.73.0"
+      },
+      "category": "dependency-vulnerability",
+      "rule": {
+        "id": "CVE-2024-35195",
+        "cwe": [
+          "CWE-670"
+        ],
+        "references": [
+          "https://access.redhat.com/errata/RHSA-2025:0012",
+          "https://access.redhat.com/errata/RHSA-2025:7049",
+          "https://access.redhat.com/security/cve/CVE-2024-35195",
+          "https://bugzilla.redhat.com/2282114",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=2282114",
+          "https://creativecommons.org/licenses/by/4.0/",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2024-35195",
+          "https://errata.almalinux.org/8/ALSA-2025-0012.html",
+          "https://errata.rockylinux.org/RLSA-2025:7049",
+          "https://github.com/psf/requests",
+          "https://github.com/psf/requests/commit/a58d7f2ffb4d00b46dca2d70a3932a0b37e22fac",
+          "https://github.com/psf/requests/pull/6655",
+          "https://github.com/psf/requests/security/advisories/GHSA-9wx4-h78v-vm56",
+          "https://linux.oracle.com/cve/CVE-2024-35195.html",
+          "https://linux.oracle.com/errata/ELSA-2025-7049.html",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/IYLSNK5TL46Q6XPRVMHVWS63MVJQOK4Q",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/IYLSNK5TL46Q6XPRVMHVWS63MVJQOK4Q/",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/N7WP6EYDSUOCOJYHDK5NX43PYZ4SNHGZ",
+          "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/N7WP6EYDSUOCOJYHDK5NX43PYZ4SNHGZ/",
+          "https://nvd.nist.gov/vuln/detail/CVE-2024-35195",
+          "https://ubuntu.com/security/notices/USN-8344-1",
+          "https://www.cve.org/CVERecord?id=CVE-2024-35195"
+        ]
+      },
+      "severity": {
+        "canonical": "medium",
+        "original": "MEDIUM"
+      },
+      "confidence": "high",
+      "message": "Requests is a HTTP library. Prior to 2.32.0, when making requests through a Requests `Session`, if the first request is made with `verify=False` to disable cert verification, all subsequent requests to the same host will continue to ignore cert verification regardless of changes to the value of `verify`. This behavior will continue for the lifecycle of the connection in the connection pool. This vulnerability is fixed in 2.32.0.",
+      "artifact": {
+        "package": "requests",
+        "installedVersion": "2.12.0",
+        "fixedVersion": "2.32.0",
+        "target": "requirements.txt"
+      },
+      "remediation": {
+        "fixedVersion": "2.32.0",
+        "guidance": "Upgrade requests from 2.12.0 to 2.32.0"
+      },
+      "baselineState": "new",
+      "reachability": {
+        "state": "unreachable",
+        "reason": "package not imported by any walked python source"
+      },
+      "redaction": {
+        "applied": true
+      }
+    },
+    {
+      "schemaVersion": "secure-dev/finding/v1alpha1",
+      "id": "trivy-fs:00011",
+      "fingerprint": {
+        "algorithm": "sdt-v2",
+        "value": "sha256:d7af2cfd29dd718d63f32392a822d81eb7b1524fc3da2da29ea7d5542129c8fe"
+      },
+      "scanner": {
+        "adapter": "trivy-fs",
+        "tool": "trivy",
+        "version": "Version: 0.73.0"
+      },
+      "category": "dependency-vulnerability",
+      "rule": {
+        "id": "CVE-2024-47081",
+        "cwe": [
+          "CWE-522"
+        ],
+        "references": [
+          "http://seclists.org/fulldisclosure/2025/Jun/2",
+          "http://www.openwall.com/lists/oss-security/2025/06/03/11",
+          "http://www.openwall.com/lists/oss-security/2025/06/03/9",
+          "http://www.openwall.com/lists/oss-security/2025/06/04/1",
+          "http://www.openwall.com/lists/oss-security/2025/06/04/6",
+          "https://access.redhat.com/errata/RHSA-2025:12519",
+          "https://access.redhat.com/errata/RHSA-2025:14999",
+          "https://access.redhat.com/security/cve/CVE-2024-47081",
+          "https://bugzilla.redhat.com/2371272",
+          "https://bugzilla.redhat.com/show_bug.cgi?id=2371272",
+          "https://creativecommons.org/licenses/by/4.0/",
+          "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2024-47081",
+          "https://errata.almalinux.org/8/ALSA-2025-14999.html",
+          "https://errata.rockylinux.org/RLSA-2025:12519",
+          "https://github.com/psf/requests",
+          "https://github.com/psf/requests/commit/96ba401c1296ab1dda74a2365ef36d88f7d144ef",
+          "https://github.com/psf/requests/pull/6965",
+          "https://github.com/psf/requests/security/advisories/GHSA-9hjg-9r4m-mvj7",
+          "https://linux.oracle.com/cve/CVE-2024-47081.html",
+          "https://linux.oracle.com/errata/ELSA-2025-14999.html",
+          "https://nvd.nist.gov/vuln/detail/CVE-2024-47081",
+          "https://requests.readthedocs.io/en/latest/api/#requests.Session.trust_env",
+          "https://seclists.org/fulldisclosure/2025/Jun/2",
+          "https://ubuntu.com/security/notices/USN-7568-1",
+          "https://ubuntu.com/security/notices/USN-7762-1",
+          "https://www.cve.org/CVERecord?id=CVE-2024-47081",
+          "https://www.openwall.com/lists/oss-security/2025/06/03/9"
+        ]
+      },
+      "severity": {
+        "canonical": "medium",
+        "original": "MEDIUM"
+      },
+      "confidence": "high",
+      "message": "Requests is a HTTP library. Due to a URL parsing issue, Requests releases prior to 2.32.4 may leak .netrc credentials to third parties for specific maliciously-crafted URLs. Users should upgrade to version 2.32.4 to receive a fix. For older versions of Requests, use of the .netrc file can be disabled with `trust_env=False` on one's Requests Session.",
+      "artifact": {
+        "package": "requests",
+        "installedVersion": "2.12.0",
+        "fixedVersion": "2.32.4",
+        "target": "requirements.txt"
+      },
+      "remediation": {
+        "fixedVersion": "2.32.4",
+        "guidance": "Upgrade requests from 2.12.0 to 2.32.4"
+      },
+      "baselineState": "new",
+      "reachability": {
+        "state": "unreachable",
+        "reason": "package not imported by any walked python source"
+      },
+      "redaction": {
+        "applied": true
+      }
+    },
+    {
+      "schemaVersion": "secure-dev/finding/v1alpha1",
+      "id": "trivy-fs:00012",
+      "fingerprint": {
+        "algorithm": "sdt-v2",
+        "value": "sha256:3c2587fb61bc8b6fc80d7109fe7280ccc97220a325d820bec6c21d511429e5ae"
+      },
+      "scanner": {
+        "adapter": "trivy-fs",
+        "tool": "trivy",
+        "version": "Version: 0.73.0"
+      },
+      "category": "dependency-vulnerability",
+      "rule": {
+        "id": "CVE-2026-25645",
+        "cwe": [
+          "CWE-377"
+        ],
+        "references": [
+          "https://access.redhat.com/security/cve/CVE-2026-25645",
+          "https://github.com/psf/requests",
+          "https://github.com/psf/requests/commit/66d21cb07bd6255b1280291c4fafb71803cdb3b7",
+          "https://github.com/psf/requests/releases/tag/v2.33.0",
+          "https://github.com/psf/requests/security/advisories/GHSA-gc5v-m9x4-r6x2",
+          "https://nvd.nist.gov/vuln/detail/CVE-2026-25645",
+          "https://www.cve.org/CVERecord?id=CVE-2026-25645"
+        ]
+      },
+      "severity": {
+        "canonical": "medium",
+        "original": "MEDIUM"
+      },
+      "confidence": "high",
+      "message": "Requests is a HTTP library. Prior to version 2.33.0, the `requests.utils.extract_zipped_paths()` utility function uses a predictable filename when extracting files from zip archives into the system temporary directory. If the target file already exists, it is reused without validation. A local attacker with write access to the temp directory could pre-create a malicious file that would be loaded in place of the legitimate one. Standard usage of the Requests library is not affected by this vulnerability. Only applications that call `extract_zipped_paths()` directly are impacted. Starting in version 2.33.0, the library extracts files to a non-deterministic location. If developers are unable to upgrade, they can set `TMPDIR` in their environment to a directory with restricted write access.",
+      "artifact": {
+        "package": "requests",
+        "installedVersion": "2.12.0",
+        "fixedVersion": "2.33.0",
+        "target": "requirements.txt"
+      },
+      "remediation": {
+        "fixedVersion": "2.33.0",
+        "guidance": "Upgrade requests from 2.12.0 to 2.33.0"
+      },
+      "baselineState": "new",
+      "reachability": {
+        "state": "unreachable",
+        "reason": "package not imported by any walked python source"
+      },
+      "redaction": {
+        "applied": true
+      }
+    }
+  ],
+  "policy": {
+    "status": "policy_failed",
+    "blockers": [
+      {
+        "findingId": "opengrep:00003",
+        "fingerprint": "sha256:7230d1c41a921d30332e93717ddc7df4568911bb3b2d3e67ffea61bf1f6a7e9d",
+        "ruleId": "block-new-high-sast",
+        "action": "fail"
+      },
+      {
+        "findingId": "trivy-fs:00005",
+        "fingerprint": "sha256:7f12a60ae478eaeb65830771c8dc4d15fe42112f68942d009a5d7b5d602aea20",
+        "ruleId": "block-new-critical-dependencies",
+        "action": "fail"
+      },
+      {
+        "findingId": "trivy-fs:00006",
+        "fingerprint": "sha256:fb8c3b7400ab2a36b8ef39d3375382c91191f75027df92fb58c2e3f70cc05832",
+        "ruleId": "block-new-critical-dependencies",
+        "action": "fail"
+      },
+      {
+        "findingId": "trivy-fs:00007",
+        "fingerprint": "sha256:0e3e057cb85dfe983e52114ee24a02c8879d15cb5122033a1ff55557532ff506",
+        "ruleId": "block-new-critical-dependencies",
+        "action": "fail"
+      }
+    ],
+    "trace": [
+      {
+        "ruleId": "block-new-high-sast",
+        "action": "fail",
+        "findings": 1
+      },
+      {
+        "ruleId": "block-new-critical-dependencies",
+        "action": "fail",
+        "findings": 3
+      }
+    ]
+  },
+  "generatedAt": "2026-09-16T05:49:54Z"
+}
