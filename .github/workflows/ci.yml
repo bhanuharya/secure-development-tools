@@ -38,8 +38,13 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: gofmt
+        # First-party sources only: the vendored trees under rules/ keep upstream
+        # bytes, and naming a directory that no longer exists makes gofmt exit 2.
         run: |
-          unformatted="$(gofmt -l cmd internal pkg)"
+          dirs=""
+          for d in cmd internal pkg; do [ -d "$d" ] && dirs="$dirs $d"; done
+          if [ -z "$dirs" ]; then echo "no first-party Go directories found"; exit 1; fi
+          unformatted="$(gofmt -l $dirs)"
           if [ -n "$unformatted" ]; then
             echo "gofmt required for:"; echo "$unformatted"; exit 1
           fi

@@ -28,7 +28,7 @@ Please include, once you have a private channel:
 
 ## Scope
 
-In scope — the runtime under `cmd/`, `internal/` and `pkg/`:
+In scope — the runtime under `cmd/`, `internal/` and `tools/`:
 
 - command execution and argument handling (the no-shell contract, ADR 0002);
 - report/policy correctness that could turn a **blocking** finding into a

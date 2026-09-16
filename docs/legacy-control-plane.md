@@ -1,6 +1,6 @@
 # Legacy: Secure SDLC Control Plane (Python, reference)
 
-> Superseded by the `sdt` runtime (`cmd/`, `internal/`, `pkg/`). It remains in the
+> Superseded by the `sdt` runtime (`cmd/`, `internal/`, `tools/`). It remains in the
 > tree as reference material for the project's Python-era design; it is **not**
 > the supported path and receives no fixes. Text below is the original README
 > section, kept verbatim apart from the heading level.

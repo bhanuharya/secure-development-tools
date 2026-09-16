@@ -332,7 +332,6 @@ cmd/sdt/          CLI entry point
 internal/         the runtime: app (commands), config, context, plan, execute,
                   scanner (opengrep/gitleaks/trivy adapters), finding, policy,
                   baseline, rules, reachability, fix, report, publish
-pkg/schema/       exported schema helpers
 tools/            offline, stdlib-only report/integration helpers (Sonar, PDF,
                   Dart analyzer converter, shared finding knowledge)
 rules/            governed rule bundle + manifest.yaml + NOTICE
@@ -379,8 +378,8 @@ Report a vulnerability as described in [`SECURITY.md`](SECURITY.md).
 
 **Pre-release: `sdt 0.1.0-dev`, schema `secure-dev/v1alpha1`.** The runtime is
 exercised end-to-end on this repository and on the bundled vulnerable fixture,
-but it has not been adopted by a live pipeline yet, and `pkg/schema` is not a
-frozen compatibility contract.
+but it has not been adopted by a live pipeline yet, and the `secure-dev/v1alpha1`
+schemas are not a frozen compatibility contract.
 
 - **CI runs the Go gate, the rule harness, an engine smoke test and a tools
   check** (`.github/workflows/ci.yml`). Actions are pinned by commit SHA and
