@@ -1,0 +1,15 @@
+apiVersion: secure-dev/v1alpha1
+kind: ScanConfiguration
+metadata:
+  name: sdt-demo
+project:
+  root: fixtures/vulnapp
+  defaultBranch: main
+profiles:
+  full:
+    mode: repository
+    scanners: [opengrep, trivy-fs]
+    requiredScanners: [opengrep, trivy-fs]
+    timeout: 10m
+    parallelism: 2
+    missingHistory: warn

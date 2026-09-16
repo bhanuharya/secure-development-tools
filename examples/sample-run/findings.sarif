@@ -1,0 +1,341 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "results": [
+        {
+          "fingerprints": {
+            "sdt-v2": "sha256:2093c322a9ca394e959b41a6905bd446f7dcf0d37ea10468402ac08cb09f9318"
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app.py"
+                },
+                "region": {
+                  "endLine": 6,
+                  "startLine": 6
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "MD5/SHA1 are cryptographically broken. Use SHA-256 or a password hashing function such as bcrypt/argon2."
+          },
+          "ruleId": "python.scp.python.crypto.weak-md5"
+        },
+        {
+          "fingerprints": {
+            "sdt-v2": "sha256:8dd4cd01cbfbda897c44e51ce666a319f88951a88173b5a5deb265452f83cece"
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app.py"
+                },
+                "region": {
+                  "endLine": 6,
+                  "startLine": 6
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Detected MD5 hash algorithm which is considered insecure. MD5 is not collision resistant and is therefore not suitable as a cryptographic signature. Use SHA256 or SHA3 instead."
+          },
+          "ruleId": "vendor.semgrep.python.lang.security.insecure-hash-algorithm-md5"
+        },
+        {
+          "fingerprints": {
+            "sdt-v2": "sha256:7230d1c41a921d30332e93717ddc7df4568911bb3b2d3e67ffea61bf1f6a7e9d"
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app.py"
+                },
+                "region": {
+                  "endLine": 15,
+                  "startLine": 15
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "eval() executes arbitrary code from its string argument. Remove it or use a safe parser."
+          },
+          "ruleId": "python.scp.python.exec.eval"
+        },
+        {
+          "fingerprints": {
+            "sdt-v2": "sha256:93223024a1348ecf483a55ca350c70dd9857280c378179e4253828418587d1ee"
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "requirements.txt"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Flask is a lightweight WSGI web application framework. When all of the following conditions are met, a response containing data intended for one client may be cached and subsequently sent by the proxy to other clients. If the proxy also caches `Set-Cookie` headers, it may send one client's `session` cookie to other clients. The severity depends on the application's use of the session and the proxy's behavior regarding cookies. The risk depends on all these conditions being met.\n\n1. The application must be hosted behind a caching proxy that does not strip cookies or ignore responses with cookies.\n2. The application sets `session.permanent = True`\n3. The application does not access or modify the session at any point during a request.\n4. `SESSION_REFRESH_EACH_REQUEST` enabled (the default).\n5. The application does not set a `Cache-Control` header to indicate that a page is private or should not be cached.\n\nThis happens because vulnerable versions of Flask only set the `Vary: Cookie` heade"
+          },
+          "ruleId": "CVE-2023-30861"
+        },
+        {
+          "fingerprints": {
+            "sdt-v2": "sha256:7f12a60ae478eaeb65830771c8dc4d15fe42112f68942d009a5d7b5d602aea20"
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "requirements.txt"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "PyYAML 5.1 through 5.1.2 has insufficient restrictions on the load and load_all functions because of a class deserialization issue, e.g., Popen is a class in the subprocess module. NOTE: this issue exists because of an incomplete fix for CVE-2017-18342."
+          },
+          "ruleId": "CVE-2019-20477"
+        },
+        {
+          "fingerprints": {
+            "sdt-v2": "sha256:fb8c3b7400ab2a36b8ef39d3375382c91191f75027df92fb58c2e3f70cc05832"
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "requirements.txt"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "A vulnerability was discovered in the PyYAML library in versions before 5.4, where it is susceptible to arbitrary code execution when it processes untrusted YAML files through the full_load method or with the FullLoader loader. Applications that use the library to process untrusted input may be vulnerable to this flaw. This flaw allows an attacker to execute arbitrary code on the system by abusing the python/object/new constructor. This flaw is due to an incomplete fix for CVE-2020-1747."
+          },
+          "ruleId": "CVE-2020-14343"
+        },
+        {
+          "fingerprints": {
+            "sdt-v2": "sha256:0e3e057cb85dfe983e52114ee24a02c8879d15cb5122033a1ff55557532ff506"
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "requirements.txt"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "A vulnerability was discovered in the PyYAML library in versions before 5.3.1, where it is susceptible to arbitrary code execution when it processes untrusted YAML files through the full_load method or with the FullLoader loader. Applications that use the library to process untrusted input may be vulnerable to this flaw. An attacker could use this flaw to execute arbitrary code on the system by abusing the python/object/new constructor."
+          },
+          "ruleId": "CVE-2020-1747"
+        },
+        {
+          "fingerprints": {
+            "sdt-v2": "sha256:74535ce0ab85537f9680292c5b597a12d6416a25fbf545c64858350c607ad2b3"
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "requirements.txt"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "The Requests package before 2.20.0 for Python sends an HTTP Authorization header to an http URI upon receiving a same-hostname https-to-http redirect, which makes it easier for remote attackers to discover credentials by sniffing the network."
+          },
+          "ruleId": "CVE-2018-18074"
+        },
+        {
+          "fingerprints": {
+            "sdt-v2": "sha256:452e1a880fcfabc5e88afb79686f3e4b9667137aa8cdcc9f3976b3eaa2171326"
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "requirements.txt"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Requests is a HTTP library. Since Requests 2.3.0, Requests has been leaking Proxy-Authorization headers to destination servers when redirected to an HTTPS endpoint. This is a product of how we use `rebuild_proxies` to reattach the `Proxy-Authorization` header to requests. For HTTP connections sent through the tunnel, the proxy will identify the header in the request itself and remove it prior to forwarding to the destination server. However when sent over HTTPS, the `Proxy-Authorization` header must be sent in the CONNECT request as the proxy has no visibility into the tunneled request. This results in Requests forwarding proxy credentials to the destination server unintentionally, allowing a malicious actor to potentially exfiltrate sensitive information. This issue has been patched in version 2.31.0."
+          },
+          "ruleId": "CVE-2023-32681"
+        },
+        {
+          "fingerprints": {
+            "sdt-v2": "sha256:5fffca094367d657038f80eee9fb092ef6e6bda94b80128bd248da862dee8564"
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "requirements.txt"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Requests is a HTTP library. Prior to 2.32.0, when making requests through a Requests `Session`, if the first request is made with `verify=False` to disable cert verification, all subsequent requests to the same host will continue to ignore cert verification regardless of changes to the value of `verify`. This behavior will continue for the lifecycle of the connection in the connection pool. This vulnerability is fixed in 2.32.0."
+          },
+          "ruleId": "CVE-2024-35195"
+        },
+        {
+          "fingerprints": {
+            "sdt-v2": "sha256:d7af2cfd29dd718d63f32392a822d81eb7b1524fc3da2da29ea7d5542129c8fe"
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "requirements.txt"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Requests is a HTTP library. Due to a URL parsing issue, Requests releases prior to 2.32.4 may leak .netrc credentials to third parties for specific maliciously-crafted URLs. Users should upgrade to version 2.32.4 to receive a fix. For older versions of Requests, use of the .netrc file can be disabled with `trust_env=False` on one's Requests Session."
+          },
+          "ruleId": "CVE-2024-47081"
+        },
+        {
+          "fingerprints": {
+            "sdt-v2": "sha256:3c2587fb61bc8b6fc80d7109fe7280ccc97220a325d820bec6c21d511429e5ae"
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "requirements.txt"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Requests is a HTTP library. Prior to version 2.33.0, the `requests.utils.extract_zipped_paths()` utility function uses a predictable filename when extracting files from zip archives into the system temporary directory. If the target file already exists, it is reused without validation. A local attacker with write access to the temp directory could pre-create a malicious file that would be loaded in place of the legitimate one. Standard usage of the Requests library is not affected by this vulnerability. Only applications that call `extract_zipped_paths()` directly are impacted. Starting in version 2.33.0, the library extracts files to a non-deterministic location. If developers are unable to upgrade, they can set `TMPDIR` in their environment to a directory with restricted write access."
+          },
+          "ruleId": "CVE-2026-25645"
+        }
+      ],
+      "tool": {
+        "driver": {
+          "name": "sdt",
+          "rules": [
+            {
+              "helpUri": "http://docs.python-requests.org/en/master/community/updates/#release-and-version-history",
+              "id": "CVE-2018-18074",
+              "shortDescription": {
+                "text": "The Requests package before 2.20.0 for Python sends an HTTP Authorization header to an http URI upon receiving a same-hostname https-to-http redirect, which makes it easier for remote attackers to discover credentials by sniffing the network."
+              }
+            },
+            {
+              "helpUri": "https://access.redhat.com/security/cve/CVE-2019-20477",
+              "id": "CVE-2019-20477",
+              "shortDescription": {
+                "text": "PyYAML 5.1 through 5.1.2 has insufficient restrictions on the load and load_all functions because of a class deserialization issue, e.g., Popen is a class in the subprocess module. NOTE: this issue exists because of an incomplete fix for CVE-2017-18342."
+              }
+            },
+            {
+              "helpUri": "https://access.redhat.com/security/cve/CVE-2020-14343",
+              "id": "CVE-2020-14343",
+              "shortDescription": {
+                "text": "A vulnerability was discovered in the PyYAML library in versions before 5.4, where it is susceptible to arbitrary code execution when it processes untrusted YAML files through the full_load method or with the FullLoader loader. Applications that use the library to process untrusted input may be vulnerable to this flaw. This flaw allows an attacker to execute arbitrary code on the system by abusing the python/object/new constructor. This flaw is due to an incomplete fix for CVE-2020-1747."
+              }
+            },
+            {
+              "helpUri": "http://lists.opensuse.org/opensuse-security-announce/2020-04/msg00017.html",
+              "id": "CVE-2020-1747",
+              "shortDescription": {
+                "text": "A vulnerability was discovered in the PyYAML library in versions before 5.3.1, where it is susceptible to arbitrary code execution when it processes untrusted YAML files through the full_load method or with the FullLoader loader. Applications that use the library to process untrusted input may be vulnerable to this flaw. An attacker could use this flaw to execute arbitrary code on the system by abusing the python/object/new constructor."
+              }
+            },
+            {
+              "helpUri": "https://access.redhat.com/security/cve/CVE-2023-30861",
+              "id": "CVE-2023-30861",
+              "shortDescription": {
+                "text": "Flask is a lightweight WSGI web application framework. When all of the following conditions are met, a response containing data intended for one client may be cached and subsequently sent by the proxy to other clients. If the proxy also caches `Set-Cookie` headers, it may send one client's `session` cookie to other clients. The severity depends on the application's use of the session and the proxy's behavior regarding cookies. The risk depends on all these conditions being met.\n\n1. The application must be hosted behind a caching proxy that does not strip cookies or ignore responses with cookies.\n2. The application sets `session.permanent = True`\n3. The application does not access or modify the session at any point during a request.\n4. `SESSION_REFRESH_EACH_REQUEST` enabled (the default).\n5. The application does not set a `Cache-Control` header to indicate that a page is private or should not be cached.\n\nThis happens because vulnerable versions of Flask only set the `Vary: Cookie` heade"
+              }
+            },
+            {
+              "helpUri": "https://access.redhat.com/errata/RHSA-2023:7050",
+              "id": "CVE-2023-32681",
+              "shortDescription": {
+                "text": "Requests is a HTTP library. Since Requests 2.3.0, Requests has been leaking Proxy-Authorization headers to destination servers when redirected to an HTTPS endpoint. This is a product of how we use `rebuild_proxies` to reattach the `Proxy-Authorization` header to requests. For HTTP connections sent through the tunnel, the proxy will identify the header in the request itself and remove it prior to forwarding to the destination server. However when sent over HTTPS, the `Proxy-Authorization` header must be sent in the CONNECT request as the proxy has no visibility into the tunneled request. This results in Requests forwarding proxy credentials to the destination server unintentionally, allowing a malicious actor to potentially exfiltrate sensitive information. This issue has been patched in version 2.31.0."
+              }
+            },
+            {
+              "helpUri": "https://access.redhat.com/errata/RHSA-2025:0012",
+              "id": "CVE-2024-35195",
+              "shortDescription": {
+                "text": "Requests is a HTTP library. Prior to 2.32.0, when making requests through a Requests `Session`, if the first request is made with `verify=False` to disable cert verification, all subsequent requests to the same host will continue to ignore cert verification regardless of changes to the value of `verify`. This behavior will continue for the lifecycle of the connection in the connection pool. This vulnerability is fixed in 2.32.0."
+              }
+            },
+            {
+              "helpUri": "http://seclists.org/fulldisclosure/2025/Jun/2",
+              "id": "CVE-2024-47081",
+              "shortDescription": {
+                "text": "Requests is a HTTP library. Due to a URL parsing issue, Requests releases prior to 2.32.4 may leak .netrc credentials to third parties for specific maliciously-crafted URLs. Users should upgrade to version 2.32.4 to receive a fix. For older versions of Requests, use of the .netrc file can be disabled with `trust_env=False` on one's Requests Session."
+              }
+            },
+            {
+              "helpUri": "https://access.redhat.com/security/cve/CVE-2026-25645",
+              "id": "CVE-2026-25645",
+              "shortDescription": {
+                "text": "Requests is a HTTP library. Prior to version 2.33.0, the `requests.utils.extract_zipped_paths()` utility function uses a predictable filename when extracting files from zip archives into the system temporary directory. If the target file already exists, it is reused without validation. A local attacker with write access to the temp directory could pre-create a malicious file that would be loaded in place of the legitimate one. Standard usage of the Requests library is not affected by this vulnerability. Only applications that call `extract_zipped_paths()` directly are impacted. Starting in version 2.33.0, the library extracts files to a non-deterministic location. If developers are unable to upgrade, they can set `TMPDIR` in their environment to a directory with restricted write access."
+              }
+            },
+            {
+              "helpUri": "",
+              "id": "python.scp.python.crypto.weak-md5",
+              "shortDescription": {
+                "text": "MD5/SHA1 are cryptographically broken. Use SHA-256 or a password hashing function such as bcrypt/argon2."
+              }
+            },
+            {
+              "helpUri": "",
+              "id": "python.scp.python.exec.eval",
+              "shortDescription": {
+                "text": "eval() executes arbitrary code from its string argument. Remove it or use a safe parser."
+              }
+            },
+            {
+              "helpUri": "",
+              "id": "vendor.semgrep.python.lang.security.insecure-hash-algorithm-md5",
+              "shortDescription": {
+                "text": "Detected MD5 hash algorithm which is considered insecure. MD5 is not collision resistant and is therefore not suitable as a cryptographic signature. Use SHA256 or SHA3 instead."
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "version": "2.1.0"
+}

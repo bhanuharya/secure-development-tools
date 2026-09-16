@@ -1,0 +1,7 @@
+sdt: status=policy_failed findings=12 (critical=3 high=3 medium=6 low=0 info=0 unknown=0) blockers=4 warnings=0
+  scanner opengrep     completed
+  scanner trivy-fs     completed
+  BLOCK opengrep:00003 sha256:7230d1c41a92 (block-new-high-sast)
+  BLOCK trivy-fs:00005 sha256:7f12a60ae478 (block-new-critical-dependencies)
+  BLOCK trivy-fs:00006 sha256:fb8c3b7400ab (block-new-critical-dependencies)
+  BLOCK trivy-fs:00007 sha256:0e3e057cb85d (block-new-critical-dependencies)
