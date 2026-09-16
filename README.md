@@ -1,5 +1,7 @@
 # `sdt` — Secure Development Tools
 
+[![ci](https://github.com/bhanuharya/secure-development-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/bhanuharya/secure-development-tools/actions/workflows/ci.yml)
+
 **One deterministic gate that turns OpenGrep, Gitleaks and Trivy into a single
 reproducible verdict on a pull request — on your laptop or in any CI runner.**
 
@@ -383,9 +385,9 @@ schemas are not a frozen compatibility contract.
 
 - **CI runs the Go gate, the rule harness, an engine smoke test and a tools
   check** (`.github/workflows/ci.yml`). Actions are pinned by commit SHA and
-  scanner downloads are verified against recorded SHA-256 digests. The status
-  badge is added once the first run on `main` is green — until then, treat the
-  commands in this README as verified locally at this revision.
+  scanner downloads are verified against recorded SHA-256 digests. The badge
+  above reflects the run on `main`; the commands in this README were also
+  verified locally at this revision.
 - **Subdirectory project roots need two overrides.** With `project.root` pointed
   at a subdirectory, relative paths stop agreeing between the runtime and the
   child processes:
