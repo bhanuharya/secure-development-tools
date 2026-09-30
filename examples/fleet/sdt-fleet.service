@@ -1,0 +1,12 @@
+[Unit]
+Description=Weekly SDT Bitbucket Cloud fleet scan
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=wishnu
+WorkingDirectory=/home/wishnu/secure-development-tools
+EnvironmentFile=/home/wishnu/.config/sdt-fleet/config
+UMask=0077
+ExecStart=/usr/bin/python3 /home/wishnu/secure-development-tools/tools/sdt_fleet.py --workspace ${SDT_FLEET_WORKSPACE} --bitbucket-token-file /home/wishnu/.config/sdt-fleet/bitbucket-token --sonar --jobs 2

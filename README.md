@@ -35,6 +35,11 @@ copy them to reproduce a run bit-for-bit:
 Reports are finalized before the exit code is returned — always retain
 `reports/`, even on failure. See `examples/README.md` for the CI contract.
 
+For scheduled scans across a Bitbucket Cloud workspace, local SonarQube import,
+and Excel/PDF fleet reports, see [central fleet scanning](docs/fleet-scanning.md).
+The per-scan SAST report (.docx: code security first, grouped secrets, dependencies, advisory review,
+Bitbucket links) is described in [SAST report](docs/sast-report.md).
+
 Scanner prerequisites (pinned at release; `sdt doctor` reports status):
 
 ```bash
@@ -52,7 +57,7 @@ missing or unresolvable base fails closed rather than silently widening to a
 current-tree scan. Shallow clones follow the profile `missingHistory` policy
 (`fail`/`warn`).
 
-SAST depth: 153 pinned rules (hand-written + curated semgrep-rules subsets
+SAST depth: 157 pinned rules (hand-written + curated semgrep-rules subsets
 for Python, JS/TS, Go, Kotlin, Java, Dart/Flutter, C, Rust,
 K8s/GitHub-Actions YAML, AWS JSON) with cross-function taint
 (`--taint-intrafile`), per-rule annotated tests, and manifest hash

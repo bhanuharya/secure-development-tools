@@ -106,13 +106,15 @@ func truncate(s string, n int) string {
 // stability across machines). Anything through "opengrep-rules." is cut,
 // keeping the pack-relative id (e.g.
 // "vendor.semgrep.java.lang.security.java-pattern-from-string-parameter").
-// First-party ids ("scp.common...") are kept from "scp." onward. Anything
-// else is returned trimmed as-is.
+// First-party ids ("scp.common..."), including language-prefixed IDs such as
+// "dart.scp.dart...", are kept from "scp." onward. Anything else is returned
+// trimmed as-is.
 func cleanRuleID(checkID string) string {
 	id := strings.TrimSpace(checkID)
 	if i := strings.LastIndex(id, "opengrep-rules."); i >= 0 {
 		id = id[i+len("opengrep-rules."):]
-	} else if i := strings.Index(id, "scp."); i >= 0 {
+	}
+	if i := strings.Index(id, "scp."); i >= 0 {
 		id = id[i:]
 	}
 	return id

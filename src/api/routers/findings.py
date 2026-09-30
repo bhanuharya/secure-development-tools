@@ -99,11 +99,22 @@ def get_finding(finding_id: int, session: Session = Depends(get_session)):
     return _serialize_finding(finding)
 
 
+def _refuse_fleet_findings(findings: list[Finding]) -> None:
+    """Fleet findings carry a verdict with reviewer, reason and expiry rules; a bare
+    status write here would bypass them, so the one review service owns them."""
+    fleet_ids = sorted(f.id for f in findings if f.branch)
+    if fleet_ids:
+        raise HTTPException(409, {"detail": "fleet findings are reviewed through "
+                                            "POST /api/fleet/v1/findings/{id}/review",
+                                  "finding_ids": fleet_ids})
+
+
 @router.patch("/{finding_id}")
 def update_finding(finding_id: int, body: FindingUpdate, session: Session = Depends(get_session)):
     finding = session.get(Finding, finding_id)
     if not finding:
         raise HTTPException(404, "finding not found")
+    _refuse_fleet_findings([finding])
     if body.status not in _VALID_STATUSES:
         raise HTTPException(400, f"invalid status; expected one of {sorted(_VALID_STATUSES)}")
     if body.status != finding.status:
@@ -142,6 +153,7 @@ def bulk_status_update(body: BulkStatusUpdate, session: Session = Depends(get_se
     if body.status not in _VALID_STATUSES:
         raise HTTPException(400, f"invalid status; expected one of {sorted(_VALID_STATUSES)}")
     rows = session.exec(select(Finding).where(Finding.id.in_(body.ids))).all()
+    _refuse_fleet_findings(rows)
     found_ids = {f.id for f in rows}
     missing = [i for i in body.ids if i not in found_ids]
     changed = 0

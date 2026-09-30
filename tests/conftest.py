@@ -32,7 +32,8 @@ def clean_db():
     init_db()
     with db.Session(engine) as session:
         # truncate between tests for isolation (children first for FK hygiene)
-        for table in (db.FindingAuditEvent, Finding, Scan, TargetAuditEvent, Target, Project):
+        for table in (db.FindingAuditEvent, db.FindingObservation, db.BaselineItem, db.Baseline,
+                       Finding, Scan, TargetAuditEvent, Target, Project):
             session.exec(table.__table__.delete())
         session.commit()
     yield

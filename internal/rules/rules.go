@@ -229,7 +229,7 @@ func BundleHash(dir string) (string, error) {
 // testExtensions are sibling annotated-test extensions (autofix fixtures
 // *.fixed.* are intentionally excluded: sdt never applies fixes).
 var testExtensions = []string{
-	".py", ".js", ".ts", ".go", ".java", ".kt", ".rb", ".php",
+	".py", ".js", ".ts", ".go", ".java", ".kt", ".dart", ".rb", ".php",
 	".c", ".cpp", ".h", ".hpp", ".cs", ".swift", ".scala", ".rs",
 	// Generic-language rules (secrets, IaC, CI) are tested with
 	// plain-text fixtures in these formats.

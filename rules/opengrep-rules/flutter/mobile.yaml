@@ -1,0 +1,184 @@
+rules:
+  - id: scp.flutter.network.cleartext-http
+    languages: [dart]
+    message: This URL uses cleartext http://. Traffic can be read and modified on the network; use https://.
+    severity: WARNING
+    metadata:
+      name: "Network URLs should use HTTPS"
+      category: security
+      cwe: ["CWE-319"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      owasp-mobile: ["M5: Insecure Communication"]
+      masvs: ["MASVS-NETWORK-1"]
+      confidence: MEDIUM
+      license: MIT
+      remediation: Use an https:// endpoint. Local development hosts (localhost, 127.0.0.1, 10.0.2.2) are not reported.
+      references:
+        - https://mas.owasp.org/MASVS/controls/MASVS-NETWORK-1/
+    patterns:
+      - pattern: '"$URL"'
+      - metavariable-regex:
+          metavariable: $URL
+          regex: ^http://(?!localhost|127\.0\.0\.1|10\.0\.2\.2|0\.0\.0\.0|www\.w3\.org/|schemas\.)[^\s]+
+
+  - id: scp.flutter.storage.shared-preferences-secret
+    languages: [dart]
+    message: A credential-like value is written to SharedPreferences, which is stored unencrypted on the device. Use flutter_secure_storage (Keychain / Keystore) instead.
+    severity: ERROR
+    metadata:
+      name: "Credentials should not be stored in SharedPreferences"
+      category: security
+      cwe: ["CWE-312"]
+      owasp: ["A04:2021 - Insecure Design"]
+      owasp-mobile: ["M9: Insecure Data Storage"]
+      masvs: ["MASVS-STORAGE-1"]
+      confidence: HIGH
+      license: MIT
+      remediation: Store tokens, passwords, PINs and session identifiers with flutter_secure_storage; keep SharedPreferences for non-sensitive settings.
+      references:
+        - https://pub.dev/packages/flutter_secure_storage
+        - https://mas.owasp.org/MASVS/controls/MASVS-STORAGE-1/
+    patterns:
+      - pattern-either:
+          - pattern: $PREFS.setString("$KEY", ...)
+          - pattern: $PREFS.setStringList("$KEY", ...)
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: (?i).*(token|password|passwd|secret|pin|session|credential|jwt|otp).*
+
+  - id: scp.flutter.secrets.hardcoded-api-key
+    languages: [dart]
+    message: An API key or authorization header value is hardcoded in the app. Anything shipped in the binary can be extracted; issue per-user credentials from the backend instead.
+    severity: ERROR
+    metadata:
+      name: "API keys and auth headers should not be hardcoded"
+      category: security
+      cwe: ["CWE-798"]
+      owasp: ["A07:2021 - Identification and Authentication Failures"]
+      owasp-mobile: ["M1: Improper Credential Usage"]
+      masvs: ["MASVS-STORAGE-1"]
+      confidence: HIGH
+      license: MIT
+      remediation: Remove the literal, rotate the key, and obtain credentials at runtime from an authenticated backend endpoint.
+      references:
+        - https://mas.owasp.org/MASTG/tests/android/MASVS-STORAGE/MASTG-TEST-0012/
+    patterns:
+      - pattern-either:
+          - pattern: '{..., "$HEADER": "$VALUE", ...}'
+          - pattern: $MAP["$HEADER"] = "$VALUE"
+      - metavariable-regex:
+          metavariable: $HEADER
+          regex: (?i)^(x-api-key|x-api-token|api[-_]?key|apikey|authorization|x-auth-token|client[-_]?secret)$
+      - metavariable-regex:
+          metavariable: $VALUE
+          # A literal secret, optionally after an auth scheme; "Bearer $token" is not one.
+          regex: ^(?:(?:Bearer|Basic|Token)\s+)?[^\s$]{8,}$
+
+  - id: scp.flutter.logging.sensitive-data
+    languages: [dart]
+    message: A credential-like value is written to the log. Device logs are readable by other tools and end up in crash reports; never log secrets.
+    severity: WARNING
+    metadata:
+      name: "Credentials and PINs should not be written to logs"
+      category: security
+      cwe: ["CWE-532"]
+      owasp: ["A09:2021 - Security Logging and Monitoring Failures"]
+      owasp-mobile: ["M6: Inadequate Privacy Controls"]
+      masvs: ["MASVS-STORAGE-2"]
+      confidence: MEDIUM
+      license: MIT
+      remediation: Remove the log statement or log a redacted form (for example the last four characters).
+    patterns:
+      - pattern-either:
+          - pattern: print($ARG)
+          - pattern: debugPrint($ARG, ...)
+          - pattern: log($ARG, ...)
+          - pattern: developer.log($ARG, ...)
+          - pattern: $LOGGER.d($ARG, ...)
+          - pattern: $LOGGER.i($ARG, ...)
+          - pattern: $LOGGER.info($ARG, ...)
+          - pattern: $LOGGER.debug($ARG, ...)
+      - metavariable-regex:
+          metavariable: $ARG
+          regex: (?i).*(token|password|passwd|secret|authorization|otp|\bpin\b|credential|cookie).*
+
+  - id: scp.flutter.webview.javascript-channel
+    languages: [dart]
+    message: A JavaScript channel exposes Dart code to every page the WebView loads. Make sure only trusted origins can reach it and validate every message.
+    severity: WARNING
+    metadata:
+      name: "WebView JavaScript channels should only be exposed to trusted pages"
+      category: security
+      cwe: ["CWE-749"]
+      owasp: ["A04:2021 - Insecure Design"]
+      owasp-mobile: ["M4: Insufficient Input/Output Validation"]
+      masvs: ["MASVS-PLATFORM-2"]
+      confidence: MEDIUM
+      license: MIT
+      remediation: Restrict navigation to an allow-list of origins (NavigationDelegate) and treat channel messages as untrusted input.
+      references:
+        - https://mas.owasp.org/MASVS/controls/MASVS-PLATFORM-2/
+    pattern-either:
+      - pattern: $CONTROLLER.addJavaScriptChannel(...)
+      - pattern: JavascriptChannel(...)
+
+  - id: scp.flutter.crypto.static-iv
+    languages: [dart]
+    message: The IV is constant (all zeros or a literal), so identical plaintexts encrypt identically and CBC/GCM security guarantees are lost. Generate a random IV per encryption.
+    severity: ERROR
+    metadata:
+      name: "Encryption IVs should be random, not constant"
+      category: security
+      cwe: ["CWE-329"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      owasp-mobile: ["M10: Insufficient Cryptography"]
+      masvs: ["MASVS-CRYPTO-1"]
+      confidence: HIGH
+      license: MIT
+      remediation: Use IV.fromSecureRandom(16) (package encrypt) and store the IV alongside the ciphertext.
+      references:
+        - https://pub.dev/packages/encrypt
+    pattern-either:
+      - pattern: IV.fromLength(...)
+      - pattern: IV.fromUtf8("...")
+      - pattern: IV.fromBase64("...")
+      - pattern: IV.allZerosOfLength(...)
+
+  - id: scp.flutter.auth.biometric-allows-fallback
+    languages: [dart]
+    message: local_auth is called with biometricOnly set to false, so a device PIN or pattern also passes. Review whether this action needs a biometric, and bind it to a Keystore/Keychain key rather than a boolean result.
+    severity: WARNING
+    metadata:
+      name: "Sensitive actions should require biometrics, not a device PIN fallback"
+      category: security
+      cwe: ["CWE-287"]
+      owasp: ["A07:2021 - Identification and Authentication Failures"]
+      owasp-mobile: ["M3: Insecure Authentication/Authorization"]
+      masvs: ["MASVS-AUTH-2"]
+      confidence: MEDIUM
+      license: MIT
+      references:
+        - https://mas.owasp.org/MASVS/controls/MASVS-AUTH-2/
+    pattern: 'AuthenticationOptions(..., biometricOnly: false, ...)'
+
+  - id: scp.flutter.deeplink.unvalidated-handler
+    languages: [dart]
+    message: Deep links are handled here. Anything that can open a URL can send this data; validate the scheme, host and parameters before navigating, loading a WebView or calling an API.
+    severity: WARNING
+    metadata:
+      name: "Deep link parameters should be validated before use"
+      category: security
+      cwe: ["CWE-939"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      owasp-mobile: ["M4: Insufficient Input/Output Validation"]
+      masvs: ["MASVS-PLATFORM-1"]
+      confidence: LOW
+      license: MIT
+      references:
+        - https://mas.owasp.org/MASVS/controls/MASVS-PLATFORM-1/
+    pattern-either:
+      - pattern: $LINKS.uriLinkStream.listen(...)
+      - pattern: uriLinkStream.listen(...)
+      - pattern: $LINKS.getInitialLink()
+      - pattern: getInitialUri()
+      - pattern: getInitialLink()

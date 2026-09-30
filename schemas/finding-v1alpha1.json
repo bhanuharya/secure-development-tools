@@ -11,7 +11,7 @@
       "type": "object",
       "required": ["algorithm", "value"],
       "properties": {
-        "algorithm": {"const": "sdt-v1"},
+        "algorithm": {"const": "sdt-v2"},
         "value": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
       }
     },

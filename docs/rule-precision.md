@@ -21,6 +21,13 @@ see also `rules/NOTICE` and ADR-0007.)
 Practical defaults today: ERROR→high blocks only for established rules;
 WARNING→medium never blocks; secrets always block (separate adapter).
 
+The Dart pack includes 10 rules for TLS, process execution, weak cryptography,
+SQL strings, and WebView script input. The process-shell, insecure-randomness,
+and unrestricted-JavaScript checks are contextual review findings: they do
+not by themselves prove attacker control. New Dart checks stay at WARNING
+until representative Flutter and backend applications have been scanned and
+every hit triaged under the promotion ladder above.
+
 ## Triage log (Wave 1+2, 2026-09-04, own repo)
 
 | Finding | Verdict | Action |

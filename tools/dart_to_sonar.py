@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Dart analyzer output -> SonarQube generic-issue JSON (offline, deterministic).
 
-`dart analyze` (or `flutter analyze`) is the only real SAST surface for Dart:
-SonarQube has no Dart analyzer, and opengrep/semgrep cannot parse Dart, so a
-Flutter app is otherwise 100% unscanned.
+`dart analyze` (or `flutter analyze`) adds compiler and lint diagnostics to
+OpenGrep's Dart security rules. This helper converts analyzer output for
+SonarQube; it is separate from the `sdt scan` pipeline.
 
 Usage:
   dart analyze --format=json > reports/dart-analyze.json
@@ -52,12 +52,6 @@ SECURITY_CODES = {
     # silently swallowing errors hides auth/validation failures
     "empty_catches",
     "avoid_catches_without_on_clauses",
-    # unresolved or missing imports: a package can be silently absent
-    "uri_does_not_exist",
-    "undefined_class",
-    "undefined_function",
-    "undefined_identifier",
-    "undefined_method",
 }
 
 # Sonar legacy severity + impact mapping per tier.
@@ -159,6 +153,20 @@ def convert(doc: dict, repo_root: Path, force_security: bool = False):
     return {"rules": [rules[k] for k in sorted(rules)], "issues": issues}, skipped
 
 
+UNRESOLVED_DEP_CODES = {"uri_does_not_exist", "undefined_class", "undefined_function",
+                        "undefined_identifier", "undefined_method"}
+
+
+def _missing_dependency_context(diagnostics: list) -> bool:
+    """True when the analyzer clearly ran without resolved package deps."""
+    if not diagnostics:
+        return False
+    unresolved = sum(1 for d in diagnostics
+                     if str(d.get("code") or "").rsplit("_", 0)[-1] in UNRESOLVED_DEP_CODES
+                     or str(d.get("code") or "") in UNRESOLVED_DEP_CODES)
+    return unresolved >= 25 and unresolved >= len(diagnostics) * 0.25
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="dart analyze JSON -> SonarQube generic issues.")
     ap.add_argument("--from", dest="src", default="reports/dart-analyze.json")
@@ -177,6 +185,12 @@ def main() -> int:
     except (OSError, ValueError) as exc:
         print(f"dart_to_sonar: invalid JSON: {exc}", file=sys.stderr)
         return 2
+    diagnostics = doc.get("diagnostics") if isinstance(doc, dict) else doc
+    if _missing_dependency_context(list(diagnostics or [])):
+        print("dart_to_sonar: analysis ran without resolved dependencies "
+              "(>=25% uri_does_not_exist/undefined_*); run 'dart pub get' and re-analyze. "
+              "Nothing imported.", file=sys.stderr)
+        return 3
     try:
         payload, skipped = convert(doc, Path(args.repo_root).resolve(), args.force_security)
     except Exception as exc:                                       # noqa: BLE001

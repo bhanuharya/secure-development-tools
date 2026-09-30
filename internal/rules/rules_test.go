@@ -82,6 +82,22 @@ func TestFindTests(t *testing.T) {
 	}
 }
 
+func TestFindTestsIncludesDart(t *testing.T) {
+	dir := t.TempDir()
+	rule := filepath.Join(dir, "security.yaml")
+	fixture := filepath.Join(dir, "security.test.dart")
+	writeFile(t, rule, "rules:\n- id: scp.dart.test\n  languages: [dart]\n  message: test\n  severity: WARNING\n  pattern: Random()\n")
+	writeFile(t, fixture, "// ruleid: scp.dart.test\nRandom();\n")
+	got := FindTests(rule)
+	if len(got) != 1 || got[0] != fixture {
+		t.Fatalf("Dart fixture not discovered: %v", got)
+	}
+	idx := IndexAnnotations([]string{dir})
+	if len(idx["scp.dart.test"]) != 1 || idx["scp.dart.test"][0] != fixture {
+		t.Fatalf("Dart annotation not indexed: %v", idx)
+	}
+}
+
 func TestRuleIDs(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "r.yaml")

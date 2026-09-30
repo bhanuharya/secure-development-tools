@@ -37,12 +37,25 @@ func (a *TrivyFSAdapter) Plan(ctx *sdtctx.ScanContext, cfg *config.ScanConfigura
 		return Task{}, err
 	}
 	sev := envOr("SDT_TRIVY_SEVERITY", "CRITICAL,HIGH,MEDIUM")
+	// Full visibility at scan time: development dependencies and unfixed
+	// advisories are recorded and only ever hidden by an explicit report
+	// filter. The values are written out so a captured argv shows the choice.
 	args := []string{"fs", "--quiet", "--format", "json",
 		"--scanners", "vuln,misconfig",
+		"--include-dev-deps=true", "--ignore-unfixed=false",
 		"--severity", sev,
 		"--no-progress", "--exit-code", "0",
 		"--skip-dirs", ".git,node_modules,vendor,dist,build,.venv,venv,target,__pycache__",
 		"--output", reportPath, root}
+	// Repository-scoped triage suppression: when the operator points
+	// SDT_TRIVY_IGNOREFILE at a maintained .trivyignore (CVE ids with optional
+	// expiry comments), trivy drops those findings before they reach reports.
+	// Findings are only added there after a recorded triage verdict.
+	if ignorefile := envOr("SDT_TRIVY_IGNOREFILE", ""); ignorefile != "" {
+		args = append(args[:len(args)-1],
+			"--ignorefile", ignorefile,
+			args[len(args)-1])
+	}
 	timeout := 1200
 	return Task{Adapter: "trivy-fs", Tool: "trivy", Executable: bin, Args: args, Targets: []string{root}, TimeoutSeconds: timeout, ReportPath: reportPath}, nil
 }

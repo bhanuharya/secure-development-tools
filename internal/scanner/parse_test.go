@@ -175,10 +175,10 @@ func TestTrivyMisconfigDistinctLinesDistinctFingerprints(t *testing.T) {
 // B1: vendored rule ids must not leak the operator's install path.
 func TestCleanRuleIDStripsInstallPath(t *testing.T) {
 	cases := map[string]string{
-		"home.wishnu.secure-development-tools.rules.opengrep-rules.vendor.semgrep.java.lang.security.x":
-			"vendor.semgrep.java.lang.security.x",
+		"home.wishnu.secure-development-tools.rules.opengrep-rules.vendor.semgrep.java.lang.security.x": "vendor.semgrep.java.lang.security.x",
 		"scp.common.secrets.private-key": "scp.common.secrets.private-key",
-		"CVE-2022-0839":                  "CVE-2022-0839",
+		"home.wishnu.secure-development-tools.rules.opengrep-rules.dart.scp.dart.crypto.aes-ecb": "scp.dart.crypto.aes-ecb",
+		"CVE-2022-0839": "CVE-2022-0839",
 	}
 	for in, want := range cases {
 		if got := cleanRuleID(in); got != want {

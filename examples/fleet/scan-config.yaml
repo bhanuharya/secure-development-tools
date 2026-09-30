@@ -1,0 +1,17 @@
+apiVersion: secure-dev/v1alpha1
+kind: ScanConfiguration
+metadata:
+  name: fleet-advisory
+project:
+  root: .
+profiles:
+  full:
+    mode: repository
+    scanners: [opengrep, gitleaks, trivy-fs]
+    requiredScanners: [opengrep, gitleaks, trivy-fs]
+    timeout: 45m
+    parallelism: 3
+    missingHistory: fail
+policy:
+  behaviorOnRequiredScannerError: inconclusive
+  defaultAction: report

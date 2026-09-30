@@ -12,17 +12,21 @@ rules:
       references:
         - https://api.dart.dev/stable/dart-io/HttpClient/badCertificateCallback.html
       remediation: Remove the override, or validate the certificate chain against a pinned known certificate instead of returning true.
-    pattern: $CLIENT.badCertificateCallback = ($A, $B, $C) => true
+    pattern-either:
+      - pattern: $CLIENT.badCertificateCallback = ($A, $B, $C) => true
+      - pattern: $CLIENT.badCertificateCallback = ($A, $B, $C) { return true; }
+      - pattern: $CLIENT.badCertificateCallback = ($TYPE $A, $TYPE2 $B, $TYPE3 $C) => true
+      - pattern: $CLIENT.badCertificateCallback = ($TYPE $A, $TYPE2 $B, $TYPE3 $C) { return true; }
 
   - id: scp.dart.injection.command
     languages: [dart]
-    message: Invoking a shell with -c lets the shell interpret metacharacters in the argument, enabling command injection when the argument is attacker-influenced.
-    severity: ERROR
+    message: This process runs through a shell. Review arguments for attacker-controlled values and shell metacharacters.
+    severity: WARNING
     metadata:
       category: security
       cwe: ["CWE-78"]
       owasp: ["A03:2021 - Injection"]
-      confidence: HIGH
+      confidence: MEDIUM
       license: MIT
       references:
         - https://api.dart.dev/stable/dart-io/Process/run.html
@@ -34,6 +38,12 @@ rules:
       - pattern: Process.runSync("sh", ["-c", ...])
       - pattern: Process.runSync("/bin/sh", ["-c", ...])
       - pattern: Process.runSync("bash", ["-c", ...])
+      - pattern: Process.start("sh", ["-c", ...])
+      - pattern: Process.start("/bin/sh", ["-c", ...])
+      - pattern: Process.start("bash", ["-c", ...])
+      - pattern: Process.run("cmd", ["/c", ...])
+      - pattern: Process.runSync("cmd", ["/c", ...])
+      - pattern: Process.start("cmd", ["/c", ...])
 
   - id: scp.dart.crypto.weak-md5
     languages: [dart]
@@ -48,7 +58,17 @@ rules:
       references:
         - https://api.dart.dev/stable/dart-typed_data/dart-typed_data-library.html
       remediation: Use sha256 from package:crypto for integrity, or a password hashing function such as bcrypt/argon2 for credentials.
-    pattern: md5.convert(...)
+    pattern-either:
+      - pattern: md5.convert(...)
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  import 'package:crypto/crypto.dart' as $CRYPTO;
+                  ...
+              - pattern-inside: |
+                  import "package:crypto/crypto.dart" as $CRYPTO;
+                  ...
+          - pattern: $CRYPTO.md5.convert(...)
 
   - id: scp.dart.crypto.weak-sha1
     languages: [dart]
@@ -63,7 +83,162 @@ rules:
       references:
         - https://shattered.io/
       remediation: Use sha256 from package:crypto instead of sha1.
-    pattern: sha1.convert(...)
+    pattern-either:
+      - pattern: sha1.convert(...)
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  import 'package:crypto/crypto.dart' as $CRYPTO;
+                  ...
+              - pattern-inside: |
+                  import "package:crypto/crypto.dart" as $CRYPTO;
+                  ...
+          - pattern: $CRYPTO.sha1.convert(...)
+
+  - id: scp.dart.crypto.aes-ecb
+    languages: [dart]
+    message: AES in ECB mode exposes patterns in plaintext; use an authenticated mode instead.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-327"]
+      confidence: HIGH
+      license: MIT
+      references:
+        - https://pub.dev/documentation/encrypt/latest/encrypt/AES-class.html
+      remediation: Use an authenticated encryption library with a mode such as AES-GCM and a fresh nonce for each encryption.
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              import 'package:encrypt/encrypt.dart';
+              ...
+          - pattern-inside: |
+              import "package:encrypt/encrypt.dart";
+              ...
+          - pattern-inside: |
+              import 'package:encrypt/encrypt.dart' as $PKG;
+              ...
+          - pattern-inside: |
+              import "package:encrypt/encrypt.dart" as $PKG;
+              ...
+      - pattern-either:
+          - pattern: 'AES(..., mode: AESMode.ecb, ...)'
+          - pattern: '$PKG.AES(..., mode: $PKG.AESMode.ecb, ...)'
+
+  - id: scp.dart.crypto.zero-key
+    languages: [dart]
+    message: An all-zero AES key is predictable and cannot protect encrypted data.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-321"]
+      confidence: HIGH
+      license: MIT
+      references:
+        - https://pub.dev/documentation/encrypt/latest/encrypt/Key-class.html
+      remediation: Generate a fresh cryptographically random key and store it using an appropriate secret-storage mechanism.
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              import 'package:encrypt/encrypt.dart';
+              ...
+          - pattern-inside: |
+              import "package:encrypt/encrypt.dart";
+              ...
+          - pattern-inside: |
+              import 'package:encrypt/encrypt.dart' as $PKG;
+              ...
+          - pattern-inside: |
+              import "package:encrypt/encrypt.dart" as $PKG;
+              ...
+      - pattern-either:
+          - pattern: AES(Key.allZerosOfLength(...), ...)
+          - pattern: $PKG.AES($PKG.Key.allZerosOfLength(...), ...)
+
+  - id: scp.dart.injection.sql
+    languages: [dart]
+    mode: taint
+    message: HTTP query input reaches a sqlite3 SQL string; bind data as a query parameter.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-89"]
+      confidence: MEDIUM
+      license: MIT
+      references:
+        - https://pub.dev/documentation/sqlite3/latest/sqlite3/Database-class.html
+      remediation: Keep the SQL text constant and pass untrusted values in the parameters list.
+    pattern-sources:
+      - pattern: $REQUEST.uri.queryParameters[$KEY]
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  import 'package:sqlite3/sqlite3.dart';
+                  ...
+              - pattern-inside: |
+                  import "package:sqlite3/sqlite3.dart";
+                  ...
+          - pattern: $DB.execute($SQL, ...)
+          - focus-metavariable: $SQL
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  import 'package:sqlite3/sqlite3.dart';
+                  ...
+              - pattern-inside: |
+                  import "package:sqlite3/sqlite3.dart";
+                  ...
+          - pattern: $DB.select($SQL, ...)
+          - focus-metavariable: $SQL
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  import 'package:sqlite3/sqlite3.dart';
+                  ...
+              - pattern-inside: |
+                  import "package:sqlite3/sqlite3.dart";
+                  ...
+          - pattern: $DB.prepare($SQL, ...)
+          - focus-metavariable: $SQL
+
+  - id: scp.dart.webview.untrusted-script
+    languages: [dart]
+    mode: taint
+    message: Untrusted input reaches a WebView JavaScript program; encode values as data instead of building script text.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-79"]
+      confidence: MEDIUM
+      license: MIT
+      references:
+        - https://pub.dev/documentation/webview_flutter/latest/webview_flutter/WebViewController-class.html
+      remediation: Use JSON encoding for values passed into fixed JavaScript and restrict the page origins that can receive them.
+    pattern-sources:
+      - pattern: $TEXT_CONTROLLER.text
+      - pattern: $MESSAGE.message
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  import 'package:webview_flutter/webview_flutter.dart';
+                  ...
+              - pattern-inside: |
+                  import "package:webview_flutter/webview_flutter.dart";
+                  ...
+          - pattern: $WEBVIEW.runJavaScript($SCRIPT)
+          - focus-metavariable: $SCRIPT
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  import 'package:webview_flutter/webview_flutter.dart';
+                  ...
+              - pattern-inside: |
+                  import "package:webview_flutter/webview_flutter.dart";
+                  ...
+          - pattern: $WEBVIEW.runJavaScriptReturningResult($SCRIPT)
+          - focus-metavariable: $SCRIPT
 
   - id: scp.dart.random.insecure
     languages: [dart]

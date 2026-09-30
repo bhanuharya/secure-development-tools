@@ -176,6 +176,12 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 	return ParseResult{Findings: out, Health: HealthCompleted}
 }
 
+// ruleFolderAliases adds rule folders beyond the one named after a detected language:
+// Flutter's rules target Dart code but live in their own pack folder.
+var ruleFolderAliases = map[string][]string{
+	"dart": {"flutter"},
+}
+
 func ruleFiles(root string, languages []string) []string {
 	pack := envOr("SDT_RULES_PACK_DIR", filepath.Join(root, "rules", "opengrep-rules"))
 	// Fall back to repo-bundled rules when scanning fixtures elsewhere.
@@ -188,6 +194,9 @@ func ruleFiles(root string, languages []string) []string {
 	}
 	var files []string
 	subs := append([]string{"common"}, languages...)
+	for _, l := range languages {
+		subs = append(subs, ruleFolderAliases[l]...)
+	}
 	for _, s := range subs {
 		d := filepath.Join(pack, s)
 		entries, err := os.ReadDir(d)

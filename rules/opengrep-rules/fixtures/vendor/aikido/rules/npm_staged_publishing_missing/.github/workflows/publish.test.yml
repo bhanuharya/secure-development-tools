@@ -1,0 +1,10 @@
+# Fixture for npm_staged_publishing_missing (SDT-authored; upstream ships none).
+on: release
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      # ruleid: npm_staged_publishing_missing
+      - run: npm publish
+      # ok: npm_staged_publishing_missing
+      - run: npm test
