@@ -1,0 +1,10 @@
+rules:
+  - id: scp.go.injection.command
+    languages: [go]
+    message: Avoid building shell commands with untrusted input.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021 - Injection"]
+    pattern: exec.Command("sh", "-c", $ARG)

@@ -1,0 +1,16 @@
+Local OpenGrep/Semgrep rule pack for the Secure SDLC Control Plane.
+
+Contents:
+  common/            Language-agnostic rules (secrets, generic patterns)
+  <lang>/            Rules scoped to a detected language
+  vendor/aikido/     Vendored third-party rules (see vendor/aikido/SOURCE)
+
+Loading:
+  The OpenGrep adapter always loads common/ plus the directories matching the
+  detected languages, then any rules under vendor/. Files are passed to the
+  engine in sorted order for deterministic, offline scanning.
+
+License:
+  Rules under common/ and the language directories are authored for this
+  project. Third-party rules are isolated under vendor/ with their original
+  license and source attribution preserved.

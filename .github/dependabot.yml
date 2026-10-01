@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # Runtime dependencies (cobra, yaml.v3).
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # Workflow actions are SHA-pinned; keep the pins current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # Legacy Python control plane (src/, reference only).
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3

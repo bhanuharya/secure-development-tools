@@ -1,0 +1,10 @@
+[Unit]
+Description=Run SDT fleet scan every Monday
+
+[Timer]
+OnCalendar=Mon *-*-* 02:00:00 Asia/Bangkok
+Persistent=true
+Unit=sdt-fleet.service
+
+[Install]
+WantedBy=timers.target

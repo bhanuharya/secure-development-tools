@@ -1,0 +1,20 @@
+rules:
+  - id: scp.javascript.injection.eval
+    languages: [javascript]
+    message: eval() executes arbitrary code from its string argument.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-95"]
+      owasp: ["A03:2021 - Injection"]
+    pattern: eval(...)
+
+  - id: scp.javascript.xss.innerHTML
+    languages: [javascript]
+    message: Assigning untrusted data to innerHTML enables cross-site scripting.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-79"]
+      owasp: ["A03:2021 - Injection"]
+    pattern: $ELEM.innerHTML = $DATA

@@ -1,0 +1,12 @@
+[
+  {
+    "Description": "Stripe Access Token",
+    "StartLine": 3,
+    "EndLine": 3,
+    "Match": "REDACTED_TEST_TOKEN",
+    "Secret": "REDACTED_TEST_TOKEN",
+    "File": "app.py",
+    "RuleID": "stripe-access-token",
+    "Fingerprint": "fp:1"
+  }
+]

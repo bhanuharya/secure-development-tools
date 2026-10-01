@@ -1,0 +1,33 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Runtime data / scan artifacts (may contain findings / scan output)
+data/
+scan_work/
+reports/
+.cache/
+
+# Go build output (root binary only; must not ignore cmd/sdt/ sources)
+# NOTE: bare `sdt` would ignore the cmd/sdt/ directory — use root-anchored path.
+/sdt
+dist/
+
+# Local tooling context — plans, prompts, lint results (keep private)
+.hermes/
+# Local agent/editor tooling (opencode config + node_modules; never a repo artifact)
+.opencode/
+node_modules/
+
+# OS/editor
+.DS_Store
+
+# Organisation logo for the SAST report: supply it locally (tools/templates/logo.png) or with --logo
+tools/templates/logo.png

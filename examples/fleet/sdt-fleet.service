@@ -1,0 +1,12 @@
+[Unit]
+Description=Weekly SDT Bitbucket Cloud fleet scan
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=sdt
+WorkingDirectory=/opt/secure-development-tools
+EnvironmentFile=/etc/sdt-fleet/config
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/secure-development-tools/tools/sdt_fleet.py --workspace ${SDT_FLEET_WORKSPACE} --bitbucket-token-file /etc/sdt-fleet/bitbucket-token --sonar --jobs 2

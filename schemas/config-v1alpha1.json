@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/secure-dev/config-v1alpha1.json",
+  "title": "SDT ScanConfiguration v1alpha1",
+  "type": "object",
+  "required": ["apiVersion", "kind", "profiles"],
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": {"const": "secure-dev/v1alpha1"},
+    "kind": {"const": "ScanConfiguration"},
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string"},
+        "labels": {"type": "object", "additionalProperties": {"type": "string"}}
+      }
+    },
+    "project": {
+      "type": "object",
+      "properties": {
+        "root": {"type": "string"},
+        "defaultBranch": {"type": "string"},
+        "include": {"type": "array", "items": {"type": "string"}},
+        "exclude": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "extends": {"type": "array", "items": {"type": "string"}},
+    "profiles": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "mode": {"enum": ["changed", "repository"]},
+          "scanners": {"type": "array", "items": {"enum": ["opengrep", "gitleaks", "trivy-fs", "trivy-image"]}},
+          "requiredScanners": {"type": "array", "items": {"enum": ["opengrep", "gitleaks", "trivy-fs", "trivy-image"]}},
+          "timeout": {"type": "string"},
+          "parallelism": {"type": "integer", "minimum": 1},
+          "missingHistory": {"enum": ["fail", "warn", "fallback"]},
+          "requireImage": {"type": "boolean"},
+          "updateMode": {"type": "string"}
+        }
+      }
+    },
+    "scanners": {"type": "object"},
+    "policy": {
+      "type": "object",
+      "properties": {
+        "behaviorOnRequiredScannerError": {"enum": ["fail", "inconclusive"]},
+        "defaultAction": {"enum": ["fail", "warn", "report"]},
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "match", "action"],
+            "properties": {
+              "id": {"type": "string"},
+              "match": {
+                "type": "object",
+                "properties": {
+                  "categories": {"type": "array", "items": {"type": "string"}},
+                  "severities": {"type": "array", "items": {"type": "string"}},
+                  "baselineStates": {"type": "array", "items": {"type": "string"}},
+                  "fixAvailable": {"type": "boolean"},
+                  "reachable": {"type": "array", "items": {"enum": ["reachable", "unreachable"]}}
+                }
+              },
+              "action": {"enum": ["fail", "warn", "report"]}
+            }
+          }
+        }
+      }
+    },
+    "baseline": {"type": "object"},
+    "exceptions": {"type": "object"},
+    "outputs": {"type": "object"},
+    "runtime": {"type": "object"},
+    "publish": {"type": "object"},
+    "ai": {"type": "object"}
+  }
+}

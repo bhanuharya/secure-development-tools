@@ -1,0 +1,23 @@
+Secure Development Tools — SAST rule bundle attributions
+=========================================================
+
+Authoritative pinning, hashes, and counts: rules/manifest.yaml
+(`sdt rules verify` enforces every entry).
+
+- project (rules/opengrep-rules, excluding vendor/): hand-written
+  high-signal rules. License: MIT (this repository).
+
+- aikido (rules/opengrep-rules/vendor/aikido): AikidoSec opengrep-rules,
+  revision 7ac79affecf709eb7263a243b518a417cd7e0ab2.
+  License: MIT.
+
+- semgrep-* (rules/opengrep-rules/vendor/semgrep/...): curated subsets of
+  semgrep-rules, revision 40b8c63f75dc7c22c8a77482d73bfb864b146f7e.
+  License: Semgrep Rules License v1.0 (see
+  rules/opengrep-rules/vendor/semgrep/LICENSE.semgrep-rules).
+  Internal business use. Not for use in competing products or SaaS
+  offerings. audit/ review rules, autofix fixtures, and Terraform provider
+  packs are deliberately excluded; see docs/rule-precision.md.
+
+Rule tests: colocated annotated fixtures (`opengrep test` pairing), plus
+ours `<stem>.test.<ext>` convention. Promotion policy: docs/rule-precision.md.

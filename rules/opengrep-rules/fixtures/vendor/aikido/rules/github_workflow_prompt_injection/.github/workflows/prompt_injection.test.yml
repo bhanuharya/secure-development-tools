@@ -1,0 +1,14 @@
+# Fixture for github_workflow_prompt_injection (SDT-authored; upstream ships none).
+on: issues
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: example/ai-action@v1
+        with:
+          # ruleid: github_workflow_prompt_injection
+          prompt: ${{ github.event.issue.body }}
+      - uses: example/ai-action@v1
+        with:
+          # ok: github_workflow_prompt_injection
+          prompt: "Summarise the repository README"
