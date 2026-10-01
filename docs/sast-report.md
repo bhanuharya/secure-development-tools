@@ -2,7 +2,8 @@
 
 `tools/sdt_to_docx.py` turns one scan of one repository (a branch or a pull request) into a Word report
 that developers can act on. It is stdlib-only: the layout, fonts and footer come from
-`tools/templates/sast-report.docx`; the logo from `tools/templates/logo.png`.
+`tools/templates/sast-report.docx`. No logo is shipped: put your organisation's PNG at
+`tools/templates/logo.png` (git-ignored) or pass `--logo path.png`; without one the report has no picture.
 
 ```bash
 SONAR_TOKEN=... python3 tools/sdt_to_docx.py \
@@ -22,16 +23,16 @@ configuration come from SDT, which knows commits, versions and reachability.
 
 | Page | Content |
 |---|---|
-| Cover | Logo, scope link, metadata (scanners, totals, coverage gaps), Executive Summary, Findings Summary, Changes Since Previous Scan, contents (a Word TOC field with clickable entries) |
+| Cover | Logo (when supplied), scope link, metadata (scanners, totals, coverage gaps), Executive Summary, Findings Summary, Changes Since Previous Scan, contents (a Word TOC field with clickable entries) |
 | Fix First | Ordered to-do list: 1 confirmed real issues, 2 secrets still in the code, 3 other open Critical/High code vulnerabilities, 4 Critical/High packages that have a fix |
 | 1. Code Security | Per rule: severity, type, status, assignee, risk, recommendation, then the findings (see layout below) |
 | 2. Secret Leaks | Grouped by secret type and file (gitleaks and SonarQube reports of the same file collapse); still-in-code first, Firebase/Google client keys last ("restrict, don't rotate") |
 | 3. Dependencies & Configuration | One row per vulnerable package with all its advisories and one **Upgrade To** version (the lowest release that fixes all of them), reachability; Trivy configuration checks |
 | Review Notes | Factual notes, then **Coverage**: what the scan could not cover (e.g. Dart lint skipped) and scanners that did not complete |
 
-Every page after the cover has a header (logo, project, scope) and a footer with "Page X of Y"; table
+Every page after the cover has a header (logo when supplied, project, scope) and a footer with "Page X of Y"; table
 header rows repeat on each page and rows never split. Fonts are Segoe UI / Segoe UI Semibold, headings and
-table headers use the Mirae Asset navy (`#003F7E`).
+table headers use navy (`#003F7E`).
 
 ### Code findings layout
 

@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sdt_advisory  # noqa: E402  (deterministic advisory; no model needed)
 
 TEMPLATE = Path(__file__).resolve().parent / "templates" / "sast-report.docx"
-LOGO = Path(__file__).resolve().parent / "templates" / "logo.png"  # cover and page header; optional
+LOGO = Path(__file__).resolve().parent / "templates" / "logo.png"  # cover and page header; optional, not shipped
 SEVERITY_ORDER = ["Critical", "High", "Medium", "Low", "Info"]
 SONAR_SEVERITY = {"BLOCKER": "Critical", "CRITICAL": "High", "MAJOR": "Medium", "MINOR": "Low", "INFO": "Info"}
 SDT_SEVERITY = {"critical": "Critical", "high": "High", "medium": "Medium", "low": "Low", "info": "Info"}
@@ -816,7 +816,7 @@ def review_notes(report: Report) -> list[str]:
 
 # ------------------------------------------------------------------ layout helpers
 ADVISORY_COLOR = "6B21A8"  # purple: the advisory review is visually distinct from scanner facts
-BRAND_COLOR = "003F7E"  # Mirae Asset navy (from the logo): headings and table headers
+BRAND_COLOR = "003F7E"  # navy: headings and table headers
 BODY_FONT = "Segoe UI"  # Windows system UI font: modern, installed on every Windows machine
 HEADING_FONT = "Segoe UI Semibold"
 SEVERITY_FILL = {"Critical": "FECACA", "High": "FED7AA", "Medium": "FEF08A", "Low": "E5E7EB", "Info": "F3F4F6"}
@@ -1346,7 +1346,7 @@ def main() -> int:
     ap.add_argument("--commit", default="")
     ap.add_argument("--project-name", default="")
     ap.add_argument("--template", type=Path, default=TEMPLATE)
-    ap.add_argument("--logo", type=Path, default=LOGO, help="PNG for the cover and page header (default: templates/logo.png)")
+    ap.add_argument("--logo", type=Path, default=LOGO, help="PNG for the cover and page header (default: templates/logo.png when present; none is shipped)")
     ap.add_argument("--triage", type=Path, help="per-finding review recommendations from sdt_triage_codex.py (optional)")
     ap.add_argument("--previous-findings", type=Path, help="findings.json of the previous scan of this branch (trend)")
     ap.add_argument("--coverage", type=Path, help="text file, one coverage gap per line (e.g. lint skipped)")

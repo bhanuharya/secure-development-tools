@@ -28,3 +28,6 @@ node_modules/
 
 # OS/editor
 .DS_Store
+
+# Organisation logo for the SAST report: supply it locally (tools/templates/logo.png) or with --logo
+tools/templates/logo.png

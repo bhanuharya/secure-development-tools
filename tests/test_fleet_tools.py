@@ -941,13 +941,27 @@ def _docx(path):
     return "".join(t.text or "" for t in root.iter(W_NS + "t")), document, footer, rels
 
 
-def _write_report(tmp_path, found, scope_url="https://example.test/pr/1", src_root=None):
+def _png(path):
+    """A 2x1 PNG, so the logo tests do not depend on a brand file in the repository."""
+    import struct
+    import zlib
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    raw = zlib.compress(b"\x00" + b"\x00\x3f\x7e" * 2)
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 2, 1, 8, 2, 0, 0, 0))
+                     + chunk(b"IDAT", raw) + chunk(b"IEND", b""))
+    return path
+
+
+def _write_report(tmp_path, found, scope_url="https://example.test/pr/1", src_root=None, logo=None):
     found = dict(found)
     found["dependency"] = sdt_to_docx.consolidate(found["dependency"])
     report = sdt_to_docx.Report("app", "ws/app", "pull request 1", scope_url, "abc1234", "SDT", found["code"],
                                 found["secret"], found["dependency"], found["config"], sdt_to_docx.date(2026, 9, 30))
     out = tmp_path / "r.docx"
-    sdt_to_docx.write_docx(report, src_root, out)
+    sdt_to_docx.write_docx(report, src_root, out, logo=logo)
     return _docx(out)
 
 
@@ -1232,7 +1246,7 @@ def test_report_shows_review_recommendations_without_ai_wording(tmp_path):
 def test_report_pages_have_header_page_numbers_logo_and_repeating_table_headers(tmp_path):
     root = _checkout(tmp_path)
     found = sdt_to_docx.merge(sdt_to_docx.from_findings(DOCX_FINDINGS, root), None)
-    text, document, footer, rels = _write_report(tmp_path, found, src_root=root)
+    text, document, footer, rels = _write_report(tmp_path, found, src_root=root, logo=_png(tmp_path / "logo.png"))
     with zipfile.ZipFile(tmp_path / "r.docx") as z:
         header = z.read("word/header1.xml").decode()
         names = z.namelist()
@@ -1246,6 +1260,17 @@ def test_report_pages_have_header_page_numbers_logo_and_repeating_table_headers(
     for anchor in ("sec_fix_first", "sec_code", "sec_secrets", "sec_dependencies", "sec_notes"):
         assert f'w:anchor="{anchor}"' in document and f'w:name="{anchor}"' in document
     assert "Scanners" in text
+
+
+def test_report_without_a_logo_has_no_picture(tmp_path):
+    root = _checkout(tmp_path)
+    found = sdt_to_docx.merge(sdt_to_docx.from_findings(DOCX_FINDINGS, root), None)
+    text, document, footer, rels = _write_report(tmp_path, found, src_root=root)
+    with zipfile.ZipFile(tmp_path / "r.docx") as z:
+        header = z.read("word/header1.xml").decode()
+        names = z.namelist()
+    assert "SAST Report - app" in header and "rIdHdrLogo" not in header
+    assert not any(n.startswith("word/media/") for n in names) and "rIdLogo" not in document + rels
 
 
 def test_review_wording_is_fixed_per_outcome():
