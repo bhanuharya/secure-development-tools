@@ -1,0 +1,82 @@
+{
+  "schemaVersion": "secure-dev/manifest/v1alpha1",
+  "runId": "run-fa5919ede66b7497",
+  "planId": "sha256:c31f2bb494322c48562d1a31d332da90ce1a3952b529d1452d580c6ec500992e",
+  "startedAt": "2026-09-16T05:49:31Z",
+  "completedAt": "2026-09-16T05:49:54Z",
+  "status": "policy_failed",
+  "exitCode": 1,
+  "profile": "full",
+  "contextDigest": "sha256:d69e1d0958ff28562835901f050912f6b04404e5b21f7951dab06694007b747d",
+  "configDigest": "sha256:59bcff0886d98b4114dab79a148e657c9c16d5325b5ccb6d07dfb89904b9d227",
+  "policyDigest": "sha256:96dfb6a7936423c9b351923f49ce1991b62b68d54e80416331cda68d91d1d02e",
+  "planDigest": "sha256:c31f2bb494322c48562d1a31d332da90ce1a3952b529d1452d580c6ec500992e",
+  "tools": [
+    {
+      "adapter": "opengrep",
+      "tool": "opengrep",
+      "version": "1.29.0"
+    },
+    {
+      "adapter": "trivy-fs",
+      "tool": "trivy",
+      "version": "Version: 0.73.0"
+    }
+  ],
+  "tasks": [
+    {
+      "adapter": "opengrep",
+      "state": "completed",
+      "durationMs": 21140
+    },
+    {
+      "adapter": "trivy-fs",
+      "state": "completed",
+      "durationMs": 1335
+    }
+  ],
+  "findings": {
+    "total": 12,
+    "byCategory": {
+      "dependency-vulnerability": 9,
+      "sast": 3
+    },
+    "bySeverity": {
+      "critical": 3,
+      "high": 3,
+      "medium": 6
+    },
+    "byState": {
+      "new": 12
+    },
+    "byAction": {
+      "fail": 4,
+      "warn": 0
+    }
+  },
+  "artifacts": [
+    {
+      "path": "findings.json",
+      "mediaType": "application/json",
+      "schema": "secure-dev/report/v1alpha1",
+      "checksum": "sha256:b8c305e604686196e929aef7e2bfa85c6a92930c993960c452d0db0ff302de70",
+      "status": "generated"
+    },
+    {
+      "path": "findings.sarif",
+      "mediaType": "application/sarif+json",
+      "schema": "sarif-2.1.0",
+      "checksum": "sha256:a356147cfba9dfc4a8ed62a5fea9a17aa6fdb7d47b6a820e8ea2a6cfe8575dca",
+      "status": "generated"
+    },
+    {
+      "path": "summary.txt",
+      "mediaType": "text/plain",
+      "checksum": "sha256:f1cbe5fdfbd3c88aa6438899329a7f2f0f65f1ddf8c75c000d768742512c3c47",
+      "status": "generated"
+    }
+  ],
+  "ai": {
+    "used": false
+  }
+}

@@ -1,418 +1,138 @@
-# Secure Development Tools (`sdt`)
+# `sdt` — Secure Development Tools
 
-A local-first, provider-agnostic **security scanning runtime** for repositories
-and delivery pipelines (PRD `Secure_Development_Tools_PRD_v0.1.docx`). One
-deterministic engine runs locally or inside any CI runner: it resolves a
-provider-neutral context, plans immutable scanner tasks, executes
-OpenGrep/Gitleaks/Trivy adapters, normalizes canonical findings, evaluates
-deterministic policy with baselines and expiring exceptions, and always
-finalizes `findings.json` + `findings.sarif` + `run-manifest.json` — even on
-policy failure. Secrets are redacted everywhere; AI is disabled by default
-and can never change a verdict.
+[![ci](https://github.com/bhanuharya/secure-development-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/bhanuharya/secure-development-tools/actions/workflows/ci.yml)
+
+`sdt` runs OpenGrep, Gitleaks and Trivy over a repository or a pull-request diff
+and returns one verdict: a policy decision, an exit code, and four evidence
+files. It runs on your machine or in a CI runner, with no server, no dashboard
+and no telemetry.
+
+**Status: pre-release** (`sdt 0.1.0-dev`, schema `secure-dev/v1alpha1`).
+Implemented and exercised on Linux against this repository and its bundled
+vulnerable fixture. Not yet used in a live pipeline.
+
+## What you would use it for
+
+You are reviewing a pull request and you want a gate that either passes or fails,
+with a reason you can paste into the review. Point `sdt` at the checkout: it runs
+the three engines, normalizes their output into one finding schema, evaluates a
+typed policy against your accepted-findings baseline, writes the artifacts, and
+exits non-zero if something new crosses the line.
+
+Here is a real run, this repository scanning the deliberately vulnerable fixture
+app it ships. The findings are the fixture working as designed, not a claim about
+the repository:
+
+```console
+$ SDT_RULES_PACK_DIR=$PWD/rules/opengrep-rules \
+    sdt scan --profile full --config examples/sample-run/demo.secure-dev.yaml \
+      --cache /tmp/sdt-cache --output /tmp/sdt-reports
+sdt: status=policy_failed findings=12 (critical=3 high=3 medium=6 low=0 info=0 unknown=0) blockers=4 warnings=0
+  scanner opengrep     completed
+  scanner trivy-fs     completed
+  BLOCK opengrep:00003 sha256:7230d1c41a92 (block-new-high-sast)
+  BLOCK trivy-fs:00005 sha256:7f12a60ae478 (block-new-critical-dependencies)
+  BLOCK trivy-fs:00006 sha256:fb8c3b7400ab (block-new-critical-dependencies)
+  BLOCK trivy-fs:00007 sha256:0e3e057cb85d (block-new-critical-dependencies)
+$ echo $?
+1
+```
+
+Twelve findings, four of them new and blocking, exit `1`. The `sha256` values
+identify specific occurrences, which is how the baseline records accepted debt.
+The two flags are only needed because this demo points `project.root` at a
+subdirectory, see [known limits](docs/known-limits.md).
+
+## Smallest working example
+
+Prerequisites, each of which `sdt doctor` checks and explains:
+
+- git, on Linux or macOS
+- OpenGrep 1.29.0, Gitleaks 8.30.1 and Trivy 0.73.0 on `PATH`, or point
+  `SDT_OPENGREP_BIN`, `SDT_GITLEAKS_BIN`, `SDT_TRIVY_BIN` at them
+- Go 1.24.6 only if you build from source
+- Python 3 only for the offline report helpers; Docker only if you build the
+  container image yourself
 
 ```bash
+git clone https://github.com/bhanuharya/secure-development-tools.git
+cd secure-development-tools
 go build -o sdt ./cmd/sdt
-./sdt init --dry-run
-./sdt doctor            # tools, rules, git history, writable paths
+
+./sdt doctor                     # one line per precondition, with the reason a check failed
+./sdt init --dry-run             # preview the starter config; nothing is written
+./sdt scan --profile full --output reports
+```
+
+Results land in `reports/`: `findings.json` (schema `secure-dev/v1alpha1`),
+`findings.sarif`, `run-manifest.json` (engine versions, digests, per-task state
+and native exit codes) and `summary.txt`. The cache defaults to `.cache/sdt`.
+No image download is needed for the local path; no container image is published
+yet.
+
+For a pull request, bound the scan to changed revisions instead of the whole
+tree:
+
+```bash
 ./sdt plan --profile pr --base origin/main
-./sdt scan --profile pr --base origin/main --output reports --cache .cache/sdt
-echo $?  # 0 passed | 1 policy_failed | 2 invalid_input | 3 execution_failed | 4 inconclusive | 5 internal_error
+./sdt scan --profile pr --base origin/main
 ```
 
-Every flag also reads from the environment, so CI sets values and humans
-copy them to reproduce a run bit-for-bit:
-
-| Flag | Env | Default |
-|---|---|---|
-| `--config` | `SDT_CONFIG` | `.secure-dev.yaml` |
-| `--profile` | `SDT_PROFILE` | `pr` |
-| `--event` | `SDT_EVENT` | `local` |
-| `--base` / `--head` | `SDT_BASE` / `SDT_HEAD` | — / `HEAD` |
-| `--image` | `SDT_IMAGE` | — |
-| `--output` / `--cache` | `SDT_OUTPUT_DIR` / `SDT_CACHE_DIR` | `reports` / `.cache/sdt` |
-| `--offline` | `SDT_OFFLINE` | `false` |
-
-Reports are finalized before the exit code is returned — always retain
-`reports/`, even on failure. See `examples/README.md` for the CI contract.
-
-For scheduled scans across a Bitbucket Cloud workspace, local SonarQube import,
-and Excel/PDF fleet reports, see [central fleet scanning](docs/fleet-scanning.md).
-The per-scan SAST report (.docx: code security first, grouped secrets, dependencies, advisory review,
-Bitbucket links) is described in [SAST report](docs/sast-report.md).
-
-Scanner prerequisites (pinned at release; `sdt doctor` reports status):
-
-```bash
-# OpenGrep SAST (v1.29.0 verified)
-curl -sL -o ~/.local/bin/opengrep \
-  https://github.com/opengrep/opengrep/releases/download/v1.29.0/opengrep_manylinux_x86
-chmod +x ~/.local/bin/opengrep
-# Gitleaks + Trivy per upstream install docs; sdt honors
-# SDT_OPENGREP_BIN / SDT_GITLEAKS_BIN / SDT_TRIVY_BIN overrides.
-```
-
-Gitleaks history modes: `pr`/`changed` profiles scan the explicit
-`base..head` commit range, `full`/`release` scan `--all` history, and a
-missing or unresolvable base fails closed rather than silently widening to a
-current-tree scan. Shallow clones follow the profile `missingHistory` policy
-(`fail`/`warn`).
-
-SAST depth: 157 pinned rules (hand-written + curated semgrep-rules subsets
-for Python, JS/TS, Go, Kotlin, Java, Dart/Flutter, C, Rust,
-K8s/GitHub-Actions YAML, AWS JSON) with cross-function taint
-(`--taint-intrafile`), per-rule annotated tests, and manifest hash
-enforcement — see `rules/NOTICE`, `docs/rule-precision.md`, and ADR-0007.
-Terraform provider rules stay out by design (Trivy owns IaC).
-
-Workflow commands:
-
-```bash
-./sdt baseline create --from reports/findings.json   # explicit legacy-debt snapshot
-./sdt baseline compare --from reports/findings.json  # new / existing / resolved
-./sdt policy test --from reports/findings.json       # re-evaluate saved report
-./sdt rules verify                                   # validate + per-rule tests + manifest hashes
-./sdt rules propose --from reports/                  # rank repeat findings, draft rule skeletons
-# Optional: junit/sbom/vex formats via outputs.formats, provider payloads, advisory explain
-./sdt publish --provider github   # needs publish.enabled=true; never rescans
-./sdt explain --finding <id>      # needs ai.enabled=true; local-only, advisory
-./sdt fix                         # dry-run diff of safe mechanical fixes (never commits)
-./sdt fix --apply                 # write working tree, per-file atomic + syntax-checked
-./sdt fix --only scp.python.crypto.weak-md5 --patch fix.diff
-```
-
-Fast pre-commit path and supply chain:
-
-```bash
-./sdt init --hook                 # install pre-commit hook running scan --staged
-./sdt scan --staged               # staged files only (opengrep+gitleaks); trivy deferred to CI
-SKIP_SDT=1 git commit ...         # bypass once; CI remains the authoritative gate
-```
-
-Add `sbom`/`vex` to `outputs.formats` for `sbom.cdx.json` (merged trivy
-CycloneDX inventory) and `vex.cdx.json` (policy-derived exploitability
-statements; `not_affected` is never emitted). The full format→artifact map:
-`console` (stdout), `json`→`findings.json`, `sarif`→`findings.sarif`,
-`manifest`→`run-manifest.json`, `junit`→`policy.junit.xml`,
-`sbom`→`sbom.cdx.json`, `vex`→`vex.cdx.json`, plus always-written
-`summary.txt`. Defaults are `console, json, sarif, manifest`.
-
-Dependency findings carry `reachability` (`reachable`/`unreachable`/`unknown`,
-proven for Go/Python/JS imports; anything doubtful resolves to `unknown`).
-Match on it in policy alongside the other dimensions:
-
-```yaml
-policy:
-  rules:
-    - id: block-reachable-critical-deps
-      match:
-        categories: [dependency-vulnerability]
-        severities: [critical]
-        baselineStates: [new, unknown]
-        reachable: [reachable]   # unknown matches neither value: uncertainty
-      action: fail               # can neither trigger nor silence a rule
-```
-
-`fix` covers three whitelisted, versioned transforms
-(`gha-pin-action/v1`, `py-hashlib-sha256/v1`, `py-yaml-safe-load/v1`):
-exact-line rewrites only, secrets never touched, syntax-checked after
-apply. Disable a transform generation without renaming it via
-`.secure-dev/fix-quarantine.yaml`:
-
-```yaml
-disabled: [py-hashlib-sha256/v1]
-```
-
-See `.secure-dev.yaml`, `schemas/`, `docs/adr/`, `examples/README.md`, and
-`packaging/Dockerfile`. The previous Python control plane remains under
-`src/` as reference.
-
----
-
-## Legacy: Secure SDLC Control Plane (Python, reference)
-
-A self-hosted **security scan orchestration platform** for a software delivery
-workflow. You register a project (or ingest code directly), and the platform runs
-multiple scanner engines — SAST, dependency/SCA, secrets, and DAST — collects
-normalized findings, enforces evidence capture with **credential redaction**, and
-generates reports.
-
-Backed by **FastAPI + SQLModel (SQLite)** with a **vanilla-JS dashboard** (no
-frontend build step). Everything runs locally / on your own network.
-
----
-
-## Features
-
-- **Multi-engine scanning** — per scan it can run, in parallel:
-  - **SAST** — `bandit` (Python) and `opengrep` (multi-language; falls back to
-    `semgrep` when its binary is available, and to a bundled local rule pack when
-    offline).
-  - **SCA / dependencies** — `trivy` fs vulnerability scanning plus `osv-scanner`
-    (Google OSV) for multi-ecosystem lockfile analysis.
-  - **IaC misconfiguration** — `checkov` (Terraform, Kubernetes, Dockerfile,
-    CloudFormation) plus Trivy's `misconfig` scanner.
-  - **Secrets** — `gitleaks`.
-  - **DAST** — `zap` (via the OWASP ZAP API).
-- **Two intake paths**
-  - **Bitbucket** — pick a workspace/repo/branch, optionally a pull-request diff
-    (only changed lines are scanned), and run a scan.
-  - **Upload** — push a source **ZIP**, scan a **local folder** on the host
-    (allowlisted via `SCP_LOCAL_SCAN_ROOTS`), or a **DAST target**
-    (auth-protected URL), directly through the dashboard or CLI. DAST targets
-    must be **approved** (an audited, server-side step) before any active scan
-    runs against them.
-- **Evidence with redaction** — findings capture code context (source snippet +
-  8 KiB cap), but **every credential-like value is redacted** (`AKIA…`, `sk_live_`,
-  `pk_live_`, `-----BEGIN PRIVATE KEY-----`, and `key=…` / `secret=…` / `token=…`
-  assignments) before anything is persisted — and **again client-side** when the
-  dashboard renders a finding, so secrets/keys never reach the DOM unredacted.
-- **Finding drill-down** — click any finding for a detail modal showing the
-  vulnerable source snippet with line numbers and flagged-line annotations, plus
-  plain-English "what is this / how to fix / references" explanations.
-- **Terminal dashboard** — a black, phosphor-green "hacker terminal" UI (CRT
-  scanlines, monospace, glow) across the Dashboard, Projects, and Upload screens.
-- **Finding lifecycle** — dedupe, status management (`PATCH /findings/{id}`),
-  bulk triage (`POST /findings/bulk-status`), and a per-finding **audit trail**.
-- **Reports** — per-scan or per-project HTML/PDF download.
-- **CLI for humans and bots** — `python -m src.cli` drives the whole platform
-  (scans, watch, findings triage, reports) with table output for people and
-  `--json` for automation.
-- **Hardened intake** — archive uploads are guarded against zip-bombs and path
-  traversal (size / file-count / compression-ratio / single-file limits).
-- **Resilient** — interrupted scans are recovered on startup; engines degrade
-  gracefully (e.g. on rate limits) instead of aborting the whole run.
-
----
-
-## Stack
-
-| Layer | Tech |
-|---|---|
-| Backend | FastAPI + SQLModel (SQLite), routers under `src/api/` |
-| Dashboard | Vanilla JS static app under `src/dashboard/` (no build step) |
-| Scanners | `bandit`, `opengrep`/`semgrep`, `trivy`, `gitleaks`, `checkov`, `osv-scanner`, `zap` via a central engine registry (`src/scanners/registry.py`) |
-| DAST client | ZAP API bridge in `src/dast/` |
-| Integrations | Bitbucket REST client + diff parser in `src/integrations/` |
-| CLI | httpx-based bot/human client in `src/cli.py` (`python -m src.cli`) |
-| Tests | pytest + pytest-asyncio (`tests/`) |
-
----
-
-## Quickstart
-
-```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-
-# run scans on code pulled from Bitbucket (optional: scan a PR diff)
-BITBUCKET_ACCESS_TOKEN=xxx BITBUCKET_WORKSPACE=acme \
-  .venv/bin/uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --no-server-header
-
-# or, self-contained: use the dashboard's Upload → Scan (source ZIP) path
-```
-
-Run the test suite:
-
-```bash
-.venv/bin/pytest
-```
-
-### CLI
-
-```bash
-export SCP_URL=http://127.0.0.1:8000
-export SCP_API_TOKEN=...          # or SCP_AUTH_USER / SCP_AUTH_PASS
-
-.venv/bin/python -m src.cli status
-.venv/bin/python -m src.cli projects list
-.venv/bin/python -m src.cli scan zip app.zip --preset full --watch
-.venv/bin/python -m src.cli scan folder /srv/repos/my-app --preset iac
-.venv/bin/python -m src.cli findings list --severity-gte high --status new
-.venv/bin/python -m src.cli findings bulk-triage 12 13 14 false_positive --reason "fp"
-.venv/bin/python -m src.cli report scan 42 -o report.pdf
-```
-
-Every command accepts `--json` for machine-readable output, so bots can drive
-the entire platform without scraping HTML.
-
-Scanners must be installed and on `PATH` (or pointed at via `SCP_*_BIN`). Engine
-availability and versions are reported at
-
-```text
-GET /api/scanners/status
-```
-
----
-
-## Configuration (environment)
-
-All settings are read from the environment (see `.env.example` for the full list).
-Key ones:
-
-| Variable | Purpose | Default |
-|---|---|---|
-| `SCP_DATABASE_URL` | SQLite URL | `sqlite:///./data/controlplane.db` |
-| `SCP_AUTH_USER` / `SCP_AUTH_PASS` | **Optional** HTTP Basic auth (see Security) | *off* |
-| `SCP_API_TOKEN` | **Optional** Bearer token for bots/automation (accepted instead of Basic) | *off* |
-| `SCP_LOCAL_SCAN_ROOTS` | Allowlisted roots for local folder scans (`os.pathsep`-separated); empty = disabled | *empty* |
-| `SCP_DAST_ALLOWED_HOSTS` | Allowlisted DAST target hosts (comma-separated, `*.suffix` wildcards);  empty = no DAST targets allowed (fail closed) | *empty* |
-| `SCP_SECRET_KEY` | Encryption key (Fernet key or passphrase) for DAST target credentials at rest; required to store passwords | *empty* |
-| `BITBUCKET_ACCESS_TOKEN` / `BITBUCKET_WORKSPACE` | Bitbucket intake credentials | *empty* |
-| `SCP_ZAP_API_URL` / `SCP_ZAP_API_KEY` | ZAP (DAST) bridge | `http://127.0.0.1:8080` / *empty* |
-| `SCP_MAX_CONCURRENT_ENGINES` / `SCP_MAX_CONCURRENT_SCANS` | parallelism | `4` / `4` |
-| `SCP_MAX_UPLOAD_BYTES` / `SCP_MAX_EXPANDED_BYTES` | upload / expanded size caps | `100 MB` / `500 MB` |
-| `SCP_MAX_FILES` / `SCP_MAX_FILE_BYTES` | archive file caps | `20000` / `50 MB` |
-| `SCP_MAX_COMPRESSION_RATIO` | zip-bomb guard | `100` |
-| `SCP_RULES_PACK_DIR` | local rule pack dir | `rules/opengrep-rules` |
-| `SCP_TRIVY_SEVERITY` / `SCP_TRIVY_IGNORE_UNFIXED` | Trivy tuning | `CRITICAL,HIGH,MEDIUM` / *off* |
-
----
-
-## Project layout
-
-```
-src/
-  api/          FastAPI app + routers (projects, scans, findings, bitbucket,
-                reports, uploads) + database + security middleware
-  dashboard/    vanilla-JS frontend (index, projects, upload, CSS, JS)
-  scanners/     engine adapters (bandit/opengrep/trivy/gitleaks), executor,
-                orchestrator, evidence capture + redaction, availability
-  dast/         ZAP API client
-  integrations/ Bitbucket client + PR diff parser
-  reporting/    HTML/PDF report generation
-  config.py     centralized env config (validated)
-data/           SQLite DB + generated reports       (gitignored)
-scan_work/      per-scan working directories        (gitignored)
-rules/          bundled OpenGrep rule pack (vendored)
-fixtures/       test fixtures: pr-diff.txt, a nested test repo, a vuln app
-tests/          pytest suite
-```
-
-`data/`, `scan_work/`, and the live `.env` are runtime artifacts and **gitignored —
-never committed**.
-
----
-
-## API surface
-
-Public (always available):
-
-```
-GET /api/health                  service + version
-GET /api/scanners/status         engine availability + versions
-```
-
-Intake:
-
-```
-POST /api/projects               create a project
-POST /api/projects/{id}/targets  attach a target
-POST /api/uploads/scan           scan an uploaded source ZIP
-POST /api/uploads/folder         scan a local folder (allowlisted roots only)
-POST /api/uploads/dast           register a DAST target (does NOT scan; see Targets)
-GET  /api/projects               list projects
-GET  /api/projects/{id}          project detail
-```
-
-Targets (DAST approval is a separate, audited step — never a client flag):
-
-```
-POST /api/targets/{id}/approve   approve a target for active scanning
-                                 (production targets require production_ack=true)
-POST /api/targets/{id}/revoke    withdraw approval
-GET  /api/targets/{id}/audit     approval audit trail
-```
-
-Scans & findings:
-
-```
-POST /api/scans                  kick off a scan (Bitbucket repo/branch or PR diff)
-GET  /api/scans                  list scans (?offset=&limit=; X-Total-Count header)
-GET  /api/scans/{id}             scan detail
-GET  /api/scans/{id}/events      live scan events
-GET  /api/findings               list findings (filters, ?severity_gte=, ?offset=,
-                                 ?include_evidence=; ordered by true severity rank;
-                                 X-Total-Count header; evidence omitted by default)
-GET  /api/findings/{id}          finding detail
-PATCH /api/findings/{id}         update finding status/metadata
-POST /api/findings/bulk-status   batch triage {ids, status, reason}
-GET  /api/findings/{id}/audit    finding audit trail
-```
-
-Bitbucket (workspace-scoped read):
-
-```
-GET /api/bitbucket/{workspace}/repos
-GET /api/bitbucket/{workspace}/{repo}/branches
-GET /api/bitbucket/{workspace}/{repo}/pullrequests
-```
-
-Reports:
-
-```
-POST /api/reports/scan/{scan_id}        generate a scan report
-POST /api/reports/project/{project_id}  generate a project report
-GET  /api/reports/scan/{scan_id}/download
-GET  /api/reports/project/{project_id}/download
-```
-
----
-
-## Security posture
-
-**This is hardening-in-progress** and is reviewed against OWASP. Current state:
-
-| Area | Status |
-|---|---|
-| **AuthN/AuthZ** | Optional **HTTP Basic auth** via `SCP_AUTH_USER` / `SCP_AUTH_PASS`, plus an optional **Bearer API token** (`SCP_API_TOKEN`) for bots — middleware covers the API *and* the dashboard. Partial config **fails closed** (raises rather than silently running open). With **no credentials configured the control plane is localhost-only**: remote peers are rejected on every path until auth is configured. `/api/health` stays public for observability once auth is on. |
-| **CSRF** | Cross-site state-changing requests are rejected (`Sec-Fetch-Site`, with an `Origin` fallback) — including the multipart upload endpoints, which browsers would otherwise send cross-site with ambient Basic credentials. |
-| **Brute force** | Failed auth attempts are throttled per client IP (lockout after repeated failures, `429` + `Retry-After`). |
-| **Security headers** | CSP (self + inline for the vanilla-JS dashboard), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Permissions-Policy` (no camera/mic/geo/payment/usb). |
-| **Injection** | SQLModel/ORM parameterization; input validation in routers; no raw SQL string building. |
-| **Secrets handling** | `.env` gitignored; `gitleaks` is a first-class scanner; evidence capture **redacts credential patterns** before persistence (AWS/GitHub/Slack/Stripe/Google/GitLab/OpenAI-style tokens, JWTs, private keys, `Bearer`/`Basic` headers, and `key=`/`secret=`/`token=`-style assignments incl. composed names like `aws_secret_access_key`), and the dashboard **masks the same families a second time in the browser** before rendering (defense-in-depth). |
-| **Upload hardening** | Zip-bomb guards (expanded-size, file-count, compression-ratio caps) + path-traversal protection. Local folder scans are restricted to operator-allowlisted roots (`SCP_LOCAL_SCAN_ROOTS`) and copied — never symlinked — into the scan workspace. |
-| **DAST gating** | Registering a target never launches a scan. Approval is a **separate server-side, audited action** (`POST /api/targets/{id}/approve`; production targets additionally require `production_ack=true`); there is no client-supplied confirmation flag. Target hosts can be restricted with `SCP_DAST_ALLOWED_HOSTS` (exact names or `*.suffix` wildcards; empty = fail closed, no targets allowed). Resolved addresses are re-validated against private/metadata ranges at every stage — registration, approval, scan creation, launch, and again inside the ZAP bridge immediately before the scan runs. DAST target credentials are **encrypted at rest** with `SCP_SECRET_KEY` (storing a password without a key fails closed). |
-| **Dependencies** | `>=` ranges in `requirements.txt` — **run `uvx pip-audit -r requirements.txt` and pin with `pip freeze` before any prod deploy.** |
-| **XSS** | Dashboard is vanilla JS; dynamic HTML uses escaping — keep escaping in mind when extending it. |
-| **Binding** | An internal tool — run on trusted networks / behind auth only; don't expose to the public internet. |
-
-### ⚠️ Before you expose it
-
-- **Enable auth**: set both `SCP_AUTH_USER` and `SCP_AUTH_PASS`, or an
-  `SCP_API_TOKEN` (the middleware intentionally fails closed if only one Basic
-  var is set). Remote access is **impossible without credentials** — an
-  unauthenticated instance accepts localhost connections only.
-- **Pin dependencies** and run `pip-audit`.
-- **Physical access control**: bind to a trusted interface, use TLS in front of it
-  (e.g. a reverse proxy / tunnel), and restrict who can reach it.
-- Engines that aren't installed simply report unavailable and are skipped — they
-  never crash the platform.
-
----
-
-## Development
-
-```bash
-# backend
-.venv/bin/uvicorn src.api.main:app --reload
-
-# tests
-.venv/bin/pytest
-```
-
-### Adding a scanner engine
-
-Implement a subclass of `src/scanners/base.py:Scanner`, then register a single
-`EngineSpec` in `src/scanners/registry.py` (name, source type, build/skip/status
-hooks) and add a `SCP_*_BIN`-style override in `src/config.py`. The orchestrator,
-engine validation, and `/api/scanners/status` all derive from the registry — no
-other files need editing. See the bundled adapters for the contract (availability
-check, `run`, evidence, error taxonomy).
-
----
-
-## License / Disclaimer
-
-For **authorized security work on systems you own or are contracted to assess**.
-The operator is responsible for ensuring they have permission to scan every
-target. No warranty is provided. Do not use this tool against systems you lack
-written authorization to test.
+A `pr` plan refuses to run without a merge base rather than falling back to a
+full scan.
+
+## How it works
+
+Each engine runs as a direct argv process, never through a shell. Its native
+report is parsed into one finding schema, and every finding gets a content-derived
+fingerprint so the same occurrence keeps its identity between runs. A typed YAML
+policy is evaluated against a baseline of accepted fingerprints, and the run
+always writes the same four artifacts before returning an exit code: `0` passed,
+`1` policy failed, `2` invalid input, `3` execution failed, `4` inconclusive, `5`
+internal error. `3` is never a pass, so a missing or unhealthy scanner cannot look
+green.
+
+## When to use this, and when not to
+
+Use it if you want one command that gates a pull request across SAST, secrets and
+dependencies, with policy as a file, a baseline for existing debt, and evidence
+attached to the review, and you would rather not run a service to get that. It is
+also the reason the second engine is worth wiring up: normalization across
+engines plus one policy is what the tool contributes.
+
+Skip it if your current setup already gives you that. `sdt` is not a better
+OpenGrep and it is not a replacement for SonarQube's review UI. If one engine
+behind your existing CI gate is enough, another gate will not help.
+
+## Limitations
+
+The full list with reproduction steps is in
+[`docs/known-limits.md`](docs/known-limits.md). The material ones:
+
+- **Pre-release.** Schema is not frozen, and no live pipeline uses this yet.
+- **Engines are prerequisites.** They are not bundled in the local build path.
+- **No scanner isolation.** The image runs as non-root, but `sdt` does not
+  sandbox the engines. Process isolation is whatever you run them in.
+- **Redaction is pattern-based**, applied to evidence and scanner stderr. It is
+  not a guarantee about your own CI logs.
+- **`fix`, `reachability`, `publish`, `explain` and the `sbom`/`vex` formats are
+  implemented and unit-tested, with no record of use outside tests.**
+- **A full self-scan of this repository exits `1` by design**, because the tree
+  ships fixtures that exist to be detected.
+
+CI on `main` builds the Go code, verifies the rule bundle against manifest hashes
+and per-rule tests, and runs an end-to-end smoke test that asserts the gate still
+blocks the vulnerable fixture.
+
+## Documentation
+
+- [`docs/adr/`](docs/adr/) — decisions, including why the runtime was rebuilt in Go
+- [`docs/known-limits.md`](docs/known-limits.md) — reproducible rough edges
+- [`docs/security-posture.md`](docs/security-posture.md) — what each control does and does not cover
+- [`docs/rule-precision.md`](docs/rule-precision.md) — rule governance
+- [`docs/fleet-scanning.md`](docs/fleet-scanning.md) — scheduled workspace scans, SonarQube import, fleet store, review sync
+- [`docs/sast-report.md`](docs/sast-report.md) — the per-scan SAST report (.docx) developers receive
+- [`SECURITY.md`](SECURITY.md) — reporting a vulnerability
+- [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [`rules/NOTICE`](rules/NOTICE) — licenses, including the vendored Semgrep rules
+- [`examples/`](examples/README.md) — CI envelopes for GitHub, GitLab, Bitbucket, Jenkins and generic runners
+- [`docs/legacy-control-plane.md`](docs/legacy-control-plane.md) — the superseded Python platform, kept as reference
