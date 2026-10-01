@@ -57,11 +57,13 @@ def call(Map args = [:]) {
       }
       writeFile file: '.sdt/scan.sh', text: libraryResource('sdt/scan.sh')
       writeFile file: '.sdt/reports.sh', text: libraryResource('sdt/reports.sh')
-      // Jenkins environment names are case-insensitive: a job parameter "branch" would swallow
-      // BRANCH, so it is passed as SDT_SCAN_BRANCH and renamed in the shell (see runScript).
+      // Jenkins environment names are case-insensitive: job parameters such as "branch" or
+      // "pr_id" would swallow BRANCH / PR_ID, so the scope is passed as SDT_SCAN_* and
+      // renamed in the shell (see runScript).
       def environment = ["SRC=${pwd()}/source", "OUT=${pwd()}/out", "REPO_SLUG=${cfg.repo}",
-                         "SDT_SCAN_BRANCH=${cfg.branch}", "PR_ID=${cfg.prId}", "PR_BRANCH=${cfg.prBranch}",
-                         "PR_BASE=${cfg.prBase}", "WORKSPACE_NAME=${cfg.workspace}",
+                         "SDT_SCAN_BRANCH=${cfg.branch}", "SDT_SCAN_PR_ID=${cfg.prId}",
+                         "SDT_SCAN_PR_BRANCH=${cfg.prBranch}", "SDT_SCAN_PR_BASE=${cfg.prBase}",
+                         "WORKSPACE_NAME=${cfg.workspace}",
                          "SONAR_HOST_URL=${cfg.sonarUrl}", "SCOPE_URL=${scopeUrl}",
                          "FLEET_DATABASE=${cfg.fleetDatabase}", "QUALITY_GATE_ENFORCE=${cfg.enforceGate}"]
       withCredentials([string(credentialsId: cfg.sonarCredentials, variable: 'SONAR_TOKEN')]) {
@@ -92,9 +94,10 @@ def call(Map args = [:]) {
   }
 }
 
-/** Run .sdt/<name>.sh with BRANCH restored from SDT_SCAN_BRANCH; returns the exit code. */
+/** Run .sdt/<name>.sh with BRANCH / PR_* restored from SDT_SCAN_*; returns the exit code. */
 private int runScript(String name) {
-  return sh(script: "BRANCH=\"\$SDT_SCAN_BRANCH\" bash .sdt/${name}.sh", returnStatus: true)
+  return sh(script: 'BRANCH="$SDT_SCAN_BRANCH" PR_ID="$SDT_SCAN_PR_ID" PR_BRANCH="$SDT_SCAN_PR_BRANCH" ' +
+                    "PR_BASE=\"\$SDT_SCAN_PR_BASE\" bash .sdt/${name}.sh", returnStatus: true)
 }
 
 /** Load the Bitbucket key into an ssh-agent, unless the agent user's own key is used ("none"). */
