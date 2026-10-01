@@ -1,0 +1,3 @@
+-r requirements.txt
+bandit>=1.7
+semgrep>=1.90
