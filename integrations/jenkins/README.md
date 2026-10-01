@@ -87,13 +87,15 @@ and set `SDT_HOME` (and `FLUTTER_HOME`) in the agent's environment.
 4. Global Pipeline Libraries: name `sdt-pipeline`, the secure-development-tools repository,
    **Library Path** `integrations/jenkins/`, default version a tag (for example `v1.0.0`).
 5. Jobs: *Pipeline script from SCM* → the secure-development-tools repository → script path:
-   - `integrations/jenkins/jobs/sonarqube-scanner.Jenkinsfile`: on-demand, same parameters as the current job
-   - `integrations/jenkins/jobs/pull-request.Jenkinsfile`: per PR, quality gate enforced
+   - `integrations/jenkins/jobs/scan.Jenkinsfile`: on-demand. Pick `scan_type`:
+     `branch` scans the whole branch (gate reported); `pull-request` scans only what the PR adds over
+     `pr_base`, using the target branch as the baseline (gate enforced)
+   - `integrations/jenkins/jobs/pull-request.Jenkinsfile`: the same PR scan, for webhook-triggered jobs
    - `integrations/jenkins/jobs/nightly-fleet.Jenkinsfile`: nightly, repositories from `config/repos.txt`
 
 ### 4. Check it
 
-Run `sonarqube-scanner` for one repository. Expect, in order: `SonarQube import confirmed`,
+Run the on-demand job (`scan_type` = `branch`) for one repository. Expect, in order: `SonarQube import confirmed`,
 `quality gate: OK|ERROR`, and in the build artifacts `SAST Report - <repo>.docx`, `security-report.pdf`,
 `fleet-findings.xlsx`, `sbom.cdx.json`, `findings.sarif`.
 
