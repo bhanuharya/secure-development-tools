@@ -31,3 +31,7 @@ node_modules/
 
 # Organisation logo for the SAST report: supply it locally (tools/templates/logo.png) or with --logo
 tools/templates/logo.png
+
+# Agent instruction files that reference this machine stay local
+/AGENTS.md
+/RC-CONTEXT.md

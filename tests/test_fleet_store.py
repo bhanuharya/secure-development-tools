@@ -280,7 +280,7 @@ def test_the_scan_row_keeps_the_time_and_digests_the_artifacts_attest_to(session
     fleet_store.ingest_run(run, session)
     scan = session.exec(select(Scan)).one()
     # SQLite hands back a naive UTC moment, like every other column on the row.
-    assert scan.scan_time == datetime(2026, 9, 20, 10, 0)
+    assert fleet_store._utc(scan.scan_time) == datetime(2026, 9, 20, 10, 0, tzinfo=timezone.utc)
     assert (scan.config_digest, scan.policy_digest) == ("cfg-A", "pol-A")
 
 
@@ -290,12 +290,12 @@ def test_scan_time_falls_back_to_the_record_and_then_the_clock(session, tmp_path
     fleet_store.ingest_run(stamped, session)
     report = json.loads((stamped / "repositories" / "app" / "findings.json").read_text())
     assert not report["generatedAt"]
-    assert session.exec(select(Scan)).one().scan_time == datetime(2026, 9, 19, 8, 30)
+    assert fleet_store._utc(session.exec(select(Scan)).one().scan_time) == datetime(2026, 9, 19, 8, 30, tzinfo=timezone.utc)
 
     undated = make_run(tmp_path, run_id="run-2", findings=[])
     fleet_store.ingest_run(undated, session)
     newest = session.exec(select(Scan).where(Scan.run_id == "run-2")).one()
-    assert datetime.now(timezone.utc).replace(tzinfo=None) - newest.scan_time < timedelta(minutes=5)
+    assert datetime.now(timezone.utc) - fleet_store._utc(newest.scan_time) < timedelta(minutes=5)
     # The undated run is later than the dated one, so it may still resolve it.
     assert newest.scan_time > session.exec(select(Scan).where(Scan.run_id == "run-1")).one().scan_time
 
@@ -535,9 +535,9 @@ def test_the_same_idempotency_key_records_one_event(session, tmp_path):
               "expires_at": deadline, "idempotency_key": "review-1"}
     accepted = fleet_store.review_finding(session, finding.id, **review)
     assert (accepted.verdict, accepted.status) == ("accepted_risk", "accepted_risk")
-    assert accepted.accepted_until == deadline.replace(tzinfo=None)
+    assert fleet_store._utc(accepted.accepted_until) == fleet_store._utc(deadline)
     replayed = fleet_store.review_finding(session, finding.id, **review)
-    assert (replayed.status, replayed.accepted_until) == ("accepted_risk", deadline.replace(tzinfo=None))
+    assert (replayed.status, fleet_store._utc(replayed.accepted_until)) == ("accepted_risk", deadline)
     events = session.exec(select(FindingAuditEvent)).all()
     assert len(events) == 1
     assert events[0].event_key == f"{finding.id}:accepted_risk:alice:review-1"
@@ -545,7 +545,7 @@ def test_the_same_idempotency_key_records_one_event(session, tmp_path):
         "alice", "new", "accepted_risk")
     # The whole decision is in the trail: what it was before, and what it is now.
     assert (events[0].from_verdict, events[0].to_verdict) == ("unreviewed", "accepted_risk")
-    assert events[0].expires_at == deadline.replace(tzinfo=None)
+    assert fleet_store._utc(events[0].expires_at) == deadline
 
     # A different key is a different decision, and a caller that says nothing
     # gets a fresh key, so it is recorded on its own merits.

@@ -7,9 +7,41 @@ and returns one verdict: a policy decision, an exit code, and four evidence
 files. It runs on your machine or in a CI runner, with no server, no dashboard
 and no telemetry.
 
+## Why sdt
+
+Most teams already have the scanners. What they lack is one answer per pull
+request that developers trust and security can defend. `sdt` is built for that:
+
+- **One gate, three engines.** Code (SAST), secrets and vulnerable dependencies
+  are normalized into a single finding schema and judged by one policy file.
+  You stop reconciling three report formats and three severity scales.
+- **Only new problems block.** Every finding gets a stable, content-derived
+  fingerprint. Existing debt goes into a baseline, so a legacy codebase can adopt
+  the gate today without a cleanup sprint, and nothing new slips in afterwards.
+- **Fails closed.** A scanner that is missing, crashes or times out produces exit
+  `3`, never a green build. Every run writes a manifest with engine versions,
+  rule digests and native exit codes, so a result can be audited later.
+- **Low noise by design.** Rules are curated and versioned with per-rule tests and
+  hash checks in CI, and a precision report tells you which rules to keep,
+  demote or disable based on how reviewers actually decided.
+- **Mobile is covered.** Dart and Flutter rules ship alongside Go, Java, Kotlin,
+  JavaScript/TypeScript, Python, YAML and Terraform, a gap most open-source
+  SAST setups leave open.
+- **Fits the tools you have.** SARIF for GitHub/GitLab code scanning, an import
+  into SonarQube (with a companion plugin for native Dart issues), CI templates
+  for GitHub, GitLab, Bitbucket and Jenkins, and a Word report developers can act
+  on: code first, each finding with its excerpt, a fixed advisory and a link to
+  the exact line in the scanned commit.
+- **Nothing leaves your machine.** No service, no account, no telemetry. Secrets
+  are redacted from evidence and reports, and a test plants a key to prove it.
+- **Scales past one repo.** Fleet mode scans a whole Bitbucket workspace on a
+  schedule, keeps history in a local store, and syncs review decisions back from
+  SonarQube.
+
 **Status: pre-release** (`sdt 0.1.0-dev`, schema `secure-dev/v1alpha1`).
-Implemented and exercised on Linux against this repository and its bundled
-vulnerable fixture. Not yet used in a live pipeline.
+Runs on Linux in a Jenkins pipeline that scans a Bitbucket workspace of mobile
+and web repositories, and against this repository and its bundled vulnerable
+fixture in CI. The schema is not frozen yet.
 
 ## What you would use it for
 
@@ -109,7 +141,7 @@ behind your existing CI gate is enough, another gate will not help.
 The full list with reproduction steps is in
 [`docs/known-limits.md`](docs/known-limits.md). The material ones:
 
-- **Pre-release.** Schema is not frozen, and no live pipeline uses this yet.
+- **Pre-release.** Schema is not frozen; expect breaking changes before 1.0.
 - **Engines are prerequisites.** They are not bundled in the local build path.
 - **No scanner isolation.** The image runs as non-root, but `sdt` does not
   sandbox the engines. Process isolation is whatever you run them in.
@@ -123,6 +155,18 @@ The full list with reproduction steps is in
 CI on `main` builds the Go code, verifies the rule bundle against manifest hashes
 and per-rule tests, and runs an end-to-end smoke test that asserts the gate still
 blocks the vulnerable fixture.
+
+## Developing
+
+```bash
+go build ./... && go test ./...
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+.venv/bin/pytest -q
+```
+
+Machine-specific paths and tokens are read from flags or environment variables,
+never from tracked files; see [`docs/fleet-scanning.md`](docs/fleet-scanning.md)
+for the fleet runner's settings.
 
 ## Documentation
 
