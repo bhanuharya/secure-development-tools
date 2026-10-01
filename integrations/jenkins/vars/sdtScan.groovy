@@ -57,8 +57,10 @@ def call(Map args = [:]) {
       }
       writeFile file: '.sdt/scan.sh', text: libraryResource('sdt/scan.sh')
       writeFile file: '.sdt/reports.sh', text: libraryResource('sdt/reports.sh')
+      // Jenkins environment names are case-insensitive: a job parameter "branch" would swallow
+      // BRANCH, so it is passed as SDT_SCAN_BRANCH and renamed in the shell (see runScript).
       def environment = ["SRC=${pwd()}/source", "OUT=${pwd()}/out", "REPO_SLUG=${cfg.repo}",
-                         "BRANCH=${cfg.branch}", "PR_ID=${cfg.prId}", "PR_BRANCH=${cfg.prBranch}",
+                         "SDT_SCAN_BRANCH=${cfg.branch}", "PR_ID=${cfg.prId}", "PR_BRANCH=${cfg.prBranch}",
                          "PR_BASE=${cfg.prBase}", "WORKSPACE_NAME=${cfg.workspace}",
                          "SONAR_HOST_URL=${cfg.sonarUrl}", "SCOPE_URL=${scopeUrl}",
                          "FLEET_DATABASE=${cfg.fleetDatabase}", "QUALITY_GATE_ENFORCE=${cfg.enforceGate}"]
@@ -68,12 +70,12 @@ def call(Map args = [:]) {
           inScanner(cfg.image) {
             stage('scan') {
               // A failed scan still produces reports from the SDT findings.
-              def rc = sh(script: 'bash .sdt/scan.sh', returnStatus: true)
+              def rc = runScript('scan')
               if (rc == 2) { outcome = 'FAILURE'; echo 'quality gate failed' }
               else if (rc != 0) { outcome = 'FAILURE'; sh 'rm -f out/sonar-project-key' }
             }
             stage('reports') {
-              if (sh(script: 'bash .sdt/reports.sh', returnStatus: true) != 0 && outcome == 'SUCCESS') { outcome = 'UNSTABLE' }
+              if (runScript('reports') != 0 && outcome == 'SUCCESS') { outcome = 'UNSTABLE' }
             }
           }
           }
@@ -88,6 +90,11 @@ def call(Map args = [:]) {
     }
     currentBuild.result = outcome
   }
+}
+
+/** Run .sdt/<name>.sh with BRANCH restored from SDT_SCAN_BRANCH; returns the exit code. */
+private int runScript(String name) {
+  return sh(script: "BRANCH=\"\$SDT_SCAN_BRANCH\" bash .sdt/${name}.sh", returnStatus: true)
 }
 
 /** Load the Bitbucket key into an ssh-agent, unless the agent user's own key is used ("none"). */
