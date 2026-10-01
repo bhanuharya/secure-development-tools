@@ -11,7 +11,8 @@
  *
  *   SDT_SONAR_URL             SonarQube URL
  *   SDT_SONAR_CREDENTIALS     "Secret text" credential holding the Sonar token
- *   SDT_GIT_CREDENTIALS       "SSH username with private key" credential for Bitbucket
+ *   SDT_GIT_CREDENTIALS       "SSH username with private key" credential for Bitbucket;
+ *                             "none" = use the agent user's own SSH key (~/.ssh)
  *   SDT_WORKSPACE             Bitbucket workspace (e.g. my-workspace)
  *   SDT_IMAGE                 scanner image (docker/Dockerfile); empty = tools on the agent
  *   SDT_AGENT_LABEL           agent label to run on
@@ -44,9 +45,10 @@ def call(Map args = [:]) {
     try {
       stage('checkout') {
         dir('source') {
+          def remote = [url: "git@bitbucket.org:${cfg.workspace}/${cfg.repo}.git"]
+          if (cfg.gitCredentials != 'none') { remote.credentialsId = cfg.gitCredentials }
           checkout([$class: 'GitSCM', branches: [[name: ref]],
-                    userRemoteConfigs: [[url: "git@bitbucket.org:${cfg.workspace}/${cfg.repo}.git",
-                                         credentialsId: cfg.gitCredentials]],
+                    userRemoteConfigs: [remote],
                     // Full history: secrets in past commits are findings too.
                     extensions: [[$class: 'CloneOption', shallow: false, noTags: false],
                                  [$class: 'CleanBeforeCheckout']]])
@@ -62,7 +64,7 @@ def call(Map args = [:]) {
                          "FLEET_DATABASE=${cfg.fleetDatabase}", "QUALITY_GATE_ENFORCE=${cfg.enforceGate}"]
       withCredentials([string(credentialsId: cfg.sonarCredentials, variable: 'SONAR_TOKEN')]) {
         withEnv(environment) {
-          sshagent([cfg.gitCredentials]) {
+          withGitKey(cfg.gitCredentials) {
           inScanner(cfg.image) {
             stage('scan') {
               // A failed scan still produces reports from the SDT findings.
@@ -86,6 +88,11 @@ def call(Map args = [:]) {
     }
     currentBuild.result = outcome
   }
+}
+
+/** Load the Bitbucket key into an ssh-agent, unless the agent user's own key is used ("none"). */
+private void withGitKey(String credentials, Closure body) {
+  if (credentials == 'none') { body() } else { sshagent([credentials]) { body() } }
 }
 
 /** Run the body in the scanner image when one is configured, else on the agent. */

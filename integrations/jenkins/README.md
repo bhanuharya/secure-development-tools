@@ -74,6 +74,8 @@ and set `SDT_HOME` (and `FLUTTER_HOME`) in the agent's environment.
    |---|---|---|
    | `sdt-sonar-token` | Secret text | the SonarQube analysis token |
    | `sdt-bitbucket-ssh` | SSH username with private key | a read-only Bitbucket access key for the workspace |
+   On a single machine where the Jenkins user already has a Bitbucket SSH key, set
+   `SDT_GIT_CREDENTIALS=none` instead: no credential and no ssh-agent plugin needed.
 3. Global properties (Manage Jenkins → System → Environment variables):
    | name | example |
    |---|---|
