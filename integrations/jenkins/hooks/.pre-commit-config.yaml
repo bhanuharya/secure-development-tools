@@ -1,0 +1,7 @@
+# Stop secrets before they reach history (history secrets can only be rotated, not removed).
+# Developers: pip install pre-commit && pre-commit install   (in each repository)
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks

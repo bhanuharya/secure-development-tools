@@ -1,0 +1,3 @@
+# One repository per line, optionally @branch (default main). Lines starting with # are ignored.
+# mobile-app@release/1.0
+# web-portal

@@ -1,0 +1,10 @@
+# Jenkins plugins sdt-pipeline needs (jenkins-plugin-cli --plugin-file plugins.txt)
+workflow-aggregator
+pipeline-groovy-lib
+git
+credentials-binding
+ssh-agent
+ws-cleanup
+docker-workflow
+# optional: pull-request triggers from Bitbucket Cloud webhooks
+generic-webhook-trigger

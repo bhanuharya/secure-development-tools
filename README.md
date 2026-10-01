@@ -39,8 +39,8 @@ request that developers trust and security can defend. `sdt` is built for that:
   SonarQube.
 
 **Status: pre-release** (`sdt 0.1.0-dev`, schema `secure-dev/v1alpha1`).
-Runs on Linux in a Jenkins pipeline that scans a Bitbucket workspace of mobile
-and web repositories, and against this repository and its bundled vulnerable
+Runs on Linux in a Jenkins pipeline ([`integrations/jenkins/`](integrations/jenkins/README.md))
+that scans a Bitbucket workspace of mobile and web repositories, and against this repository and its bundled vulnerable
 fixture in CI. The schema is not frozen yet.
 
 ## What you would use it for
@@ -178,5 +178,6 @@ for the fleet runner's settings.
 - [`docs/sast-report.md`](docs/sast-report.md) — the per-scan SAST report (.docx) developers receive
 - [`SECURITY.md`](SECURITY.md) — reporting a vulnerability
 - [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [`rules/NOTICE`](rules/NOTICE) — licenses, including the vendored Semgrep rules
+- [`integrations/jenkins/`](integrations/jenkins/README.md) — Jenkins shared library, scanner image and SonarQube setup for per-PR, on-demand and nightly fleet scans
 - [`examples/`](examples/README.md) — CI envelopes for GitHub, GitLab, Bitbucket, Jenkins and generic runners
 - [`docs/legacy-control-plane.md`](docs/legacy-control-plane.md) — the superseded Python platform, kept as reference
