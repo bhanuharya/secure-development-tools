@@ -35,9 +35,12 @@ if [ -f "$OUT/sonar-project-key" ] && [ -n "${SONAR_TOKEN:-}" ]; then
     HISTORY="$SDT_HISTORY_DIR/$REPO_SLUG/$(printf '%s' "${BRANCH:-main}" | tr '/' '_')"
     [ -s "$HISTORY/findings.json" ] && TRIAGE+=(--previous-findings "$HISTORY/findings.json")
   fi
+  # A pull request reports only what it adds (scan.sh wrote findings-new.json from the baseline).
+  REPORT_FINDINGS="$OUT/sdt/findings.json"
+  [ -n "${PR_ID:-}" ] && [ -s "$OUT/sdt/findings-new.json" ] && REPORT_FINDINGS="$OUT/sdt/findings-new.json"
   # Code security from SonarQube (review states); secrets and dependencies from SDT (commits, versions, reachability).
   python3 "$SDT_HOME/tools/sdt_to_docx.py" --sonar-url "$SONAR_HOST_URL" --project-key "$(cat "$OUT/sonar-project-key")" \
-    "${SCOPE[@]}" --findings "$OUT/sdt/findings.json" --src-root "$SRC" \
+    "${SCOPE[@]}" --findings "$REPORT_FINDINGS" --src-root "$SRC" \
     --repository "$WORKSPACE_NAME/$REPO_SLUG" --scope-url "${SCOPE_URL:-}" \
     --commit "$COMMIT" "${TRIAGE[@]}" --out "$OUT/SAST Report - $REPO_SLUG.docx" || { log "DOCX report failed"; status=1; }
 else

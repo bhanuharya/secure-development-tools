@@ -30,10 +30,33 @@ PROFILE=full; BASE_ARGS=()
 if [ -n "${PR_ID:-}" ]; then
   PROFILE=pr; BASE_ARGS=(--base "origin/${PR_BASE:?PR_BASE is required for a pull request}")
 fi
+REPORT_FINDINGS="$OUT/sdt/findings.json"
+if [ -n "${PR_ID:-}" ]; then
+  # Baseline from the target branch: whatever already exists there is "existing", so only
+  # what this pull request adds is "new" -- for the policy gate, SonarQube and the report.
+  log "baseline: full scan of origin/$PR_BASE"
+  rm -rf "$OUT/base-src"; git -C "$SRC" worktree add -q --detach "$OUT/base-src" "origin/$PR_BASE"
+  ( cd "$OUT/base-src" && "$SDT_HOME/sdt" scan --config "$SDT_CONFIG" --profile full --offline \
+      --output "$OUT/base" --cache "$OUT/cache" ) >/dev/null || true
+  test -f "$OUT/base/findings.json"  # no baseline, no PR verdict
+  git -C "$SRC" worktree remove --force "$OUT/base-src"
+  ( cd "$SRC" && "$SDT_HOME/sdt" baseline create --config "$SDT_CONFIG" --from "$OUT/base/findings.json" )
+fi
 log "SDT scan (profile $PROFILE)"
 ( cd "$SRC" && "$SDT_HOME/sdt" scan --config "$SDT_CONFIG" --profile "$PROFILE" --offline "${BASE_ARGS[@]}" \
     --output "$OUT/sdt" --cache "$OUT/cache" ) || log "sdt exit $? (policy findings exit 1; the report is still complete)"
 test -f "$OUT/sdt/findings.json"
+if [ -n "${PR_ID:-}" ]; then
+  REPORT_FINDINGS="$OUT/sdt/findings-new.json"
+  python3 - "$OUT/sdt/findings.json" "$REPORT_FINDINGS" <<'PY'
+import json, sys
+report = json.load(open(sys.argv[1]))
+total = len(report["findings"])
+report["findings"] = [f for f in report["findings"] if f.get("baselineState") != "existing"]
+json.dump(report, open(sys.argv[2], "w"), indent=2)
+print(f"[sdt] pull request adds {len(report['findings'])} of {total} findings (the rest already exist on the target branch)")
+PY
+fi
 
 # ------------------------------------------------------------------- 2. SBOM
 if [ "$SBOM" = 1 ] && command -v trivy >/dev/null; then
@@ -89,7 +112,7 @@ fi
 # ------------------------------------------------------ 4. SonarQube analysis
 # OpenGrep, secrets and dependencies go through sonar-opengrep-dart as native rules;
 # only what it cannot represent (misconfigurations, image scans) is an external issue.
-python3 "$SDT_HOME/tools/sdt_to_sonar.py" --from "$OUT/sdt/findings.json" --out "$OUT/sonar-external.json" \
+python3 "$SDT_HOME/tools/sdt_to_sonar.py" --from "$REPORT_FINDINGS" --out "$OUT/sonar-external.json" \
   --repo-root "$SRC" --skip-adapter opengrep --skip-adapter gitleaks --skip-adapter trivy-fs
 SUFFIX=$(printf '%s' "$WORKSPACE_NAME/$REPO_SLUG" | sha256sum | cut -c1-10)
 PROJECT_KEY="sdt_$(printf '%s' "${WORKSPACE_NAME}_$REPO_SLUG" | tr '.-' '__' | cut -c1-160)_$SUFFIX"
@@ -110,7 +133,7 @@ log "SonarQube analysis of $PROJECT_KEY"
 ( cd "$SRC" && "$SONAR_SCANNER" -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.projectKey="$PROJECT_KEY" \
     -Dsonar.projectName="$WORKSPACE_NAME/$REPO_SLUG" -Dsonar.sources=. -Dsonar.tests= \
     -Dsonar.externalIssuesReportPaths="$OUT/sonar-external.json" \
-    -Dsonar.opengrep.reportPaths="$OUT/sdt/findings.json" -Dsonar.xml.file.suffixes=.xml,.plist \
+    -Dsonar.opengrep.reportPaths="$REPORT_FINDINGS" -Dsonar.xml.file.suffixes=.xml,.plist \
     -Dsonar.dart.analyzer.mode=MANUAL -Dsonar.dart.analyzer.report.mode=MACHINE \
     -Dsonar.dart.analyzer.report.path="$DART_REPORT" -Dsonar.dart.analyzer.options.override=false \
     -Dsonar.working.directory="$OUT/scannerwork" "${SCOPE_ARGS[@]}" ) > "$OUT/sonar-scanner.log" 2>&1 \

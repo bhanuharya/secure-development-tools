@@ -85,7 +85,7 @@ def call(Map args = [:]) {
       }
     } finally {
       archiveArtifacts artifacts: 'out/*.docx, out/*.pdf, out/*.xlsx, out/fleet/*.pdf, out/fleet/*.xlsx, ' +
-                                  'out/sdt/findings.json, out/sdt/findings.sarif, out/sdt/run-manifest.json, ' +
+                                  'out/sdt/findings.json, out/sdt/findings-new.json, out/sdt/findings.sarif, out/sdt/run-manifest.json, ' +
                                   'out/sbom.cdx.json, out/triage.json, out/quality-gate.txt, out/sonar-scanner.log',
                        allowEmptyArchive: true
       cleanWs()
