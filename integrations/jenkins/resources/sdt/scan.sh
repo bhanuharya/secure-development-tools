@@ -9,7 +9,8 @@
 # Optional:  WORKSPACE_NAME (Bitbucket workspace, used in the project key), MAIN_BRANCHES ("main master"),
 #            SDT_HOME (/opt/sdt), SDT_CONFIG, RULES_DIR, SONAR_SCANNER (sonar-scanner), FLUTTER_HOME,
 #            QUALITY_GATE_ENFORCE (0|1), SBOM (1|0),
-#            FLEET_DATABASE (fleet store: reviewed false positives are applied to this scan)
+#            FLEET_DATABASE (fleet store: reviewed false positives are applied to this scan),
+#            SONAR_TEST_PATTERNS (comma-separated globs of test code; empty analyses tests as application code)
 set -euo pipefail
 set +x  # never trace: SONAR_TOKEN is in the environment
 
@@ -22,6 +23,7 @@ WORKSPACE_NAME="${WORKSPACE_NAME:-workspace}"
 MAIN_BRANCHES=" ${MAIN_BRANCHES:-main master} "
 QUALITY_GATE_ENFORCE="${QUALITY_GATE_ENFORCE:-0}"
 SBOM="${SBOM:-1}"
+SONAR_TEST_PATTERNS="${SONAR_TEST_PATTERNS-**/test/**,**/tests/**,**/__tests__/**,**/*.test.*,**/*.spec.*,**/*_test.go,**/*_test.dart}"
 mkdir -p "$OUT/sdt" "$OUT/cache"
 log() { printf '[sdt] %s\n' "$*"; }
 
@@ -149,9 +151,24 @@ elif [ "$EXISTS" = 200 ] && [[ "$MAIN_BRANCHES" != *" ${BRANCH:?} "* ]]; then
   SCOPE_ARGS=(-Dsonar.branch.name="$BRANCH"); SCOPE_QUERY="&branch=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]))' "$BRANCH")"
 fi
 echo "$SCOPE_QUERY" > "$OUT/sonar-scope-query"
+# Test code is analysed as test code: SonarQube's security rules for application code (hard-coded
+# credentials, weak hashing, ...) do not report fixtures and negative test inputs. SDT's own scanners
+# still cover these files, so a real secret in a test is reported all the same.
+TEST_ARGS=(-Dsonar.tests=)
+if [ -n "$SONAR_TEST_PATTERNS" ]; then
+  TEST_ARGS=(-Dsonar.tests=. -Dsonar.test.inclusions="$SONAR_TEST_PATTERNS" -Dsonar.exclusions="$SONAR_TEST_PATTERNS")
+  # That is only right if tests are not shipped. Say so when an image build would include them.
+  if [ -f "$SRC/Dockerfile" ]; then
+    for dir in test tests __tests__; do
+      [ -d "$SRC/$dir" ] || continue
+      grep -qxE "/?$dir(/|/\*\*)?" "$SRC/.dockerignore" 2>/dev/null \
+        || echo "Test directory '$dir' is not excluded in .dockerignore: it may ship in the image, but SonarQube analysed it as test code only." >> "$OUT/coverage.txt"
+    done
+  fi
+fi
 log "SonarQube analysis of $PROJECT_KEY"
 ( cd "$SRC" && "$SONAR_SCANNER" -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.projectKey="$PROJECT_KEY" \
-    -Dsonar.projectName="$WORKSPACE_NAME/$REPO_SLUG" -Dsonar.sources=. -Dsonar.tests= \
+    -Dsonar.projectName="$WORKSPACE_NAME/$REPO_SLUG" -Dsonar.sources=. "${TEST_ARGS[@]}" \
     -Dsonar.externalIssuesReportPaths="$OUT/sonar-external.json" \
     -Dsonar.opengrep.reportPaths="$REPORT_FINDINGS" -Dsonar.xml.file.suffixes=.xml,.plist \
     -Dsonar.dart.analyzer.mode=MANUAL -Dsonar.dart.analyzer.report.mode=MACHINE \

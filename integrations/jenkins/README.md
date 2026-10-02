@@ -158,6 +158,11 @@ the report is produced exactly as before. Check with your data policy that sendi
   findings reviewers judged false positive on any branch of the repository (`sdt_fleet_exceptions.py`) and applies
   them as exceptions: they stay in `findings.json`, marked, and are left out of SonarQube and the reports. Secrets
   are never excepted this way; see SDT's `docs/false-positives.md`.
+- **Test code is analysed as test code.** Paths matching `SONAR_TEST_PATTERNS` (default: `test/`, `tests/`,
+  `__tests__/`, `*.test.*`, `*.spec.*`, `*_test.go`, `*_test.dart`) are given to SonarQube as tests, so its security
+  rules for application code do not report fixtures. SDT's own scanners still cover them. If a repository has a
+  Dockerfile and its `.dockerignore` does not exclude a test directory, the report's coverage notes say so. Set
+  `SONAR_TEST_PATTERNS` to empty to analyse everything as application code.
 - **Secrets in git history** show as project-level Vulnerabilities (`sdt:secret-in-history`). Rotate the credential,
   then mark the issue *Accepted* with the rotation reference as comment.
 - **Noisy rules:** `python3 tools/sdt_rule_precision.py --database $SDT_FLEET_DATABASE` in SDT lists precision per
