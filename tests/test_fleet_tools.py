@@ -1637,3 +1637,54 @@ def test_autoclose_marks_safe_only_the_clearest_false_positives():
     # Two findings on one line cannot be told apart: neither is closed.
     closes, left = sdt_sonar_autoclose.closable([_review(), _review()], [_open_hotspot("H1"), _open_hotspot("H2")])
     assert closes == [] and left == {"more than one finding on the line": 2}
+
+
+DIFF = """diff --git a/routes/report.js b/routes/report.js
+--- a/routes/report.js
++++ b/routes/report.js
+@@ -10,3 +10,5 @@ const router = express.Router()
+ router.get('/reports', auth, list)
+-router.get('/reports/:id', auth, owner, show)
++router.get('/reports/:id', show)
++router.delete('/reports/:id', remove)
+ module.exports = router
+"""
+
+
+def test_change_review_numbers_the_new_file_and_skips_what_is_not_code():
+    import sdt_review_diff
+    text, added, cut = sdt_review_diff.numbered_diff(DIFF)
+    assert added == {11, 12} and not cut
+    assert "+   11 | router.get('/reports/:id', show)" in text and "-      | router.get('/reports/:id', auth, owner, show)" in text
+    assert "   13 | module.exports = router" in text
+    assert sdt_review_diff.reviewable("routes/report.js") and sdt_review_diff.reviewable("Dockerfile")
+    for path in ("test/report.test.js", "package-lock.json", "docs/readme.md", "assets/logo.png", "src/__tests__/a.ts"):
+        assert not sdt_review_diff.reviewable(path), path
+
+
+def test_change_review_keeps_only_findings_on_added_lines():
+    import sdt_review_diff
+    finding = {"path": "routes/report.js", "line": 11, "title": "Owner check removed", "severity": "high",
+               "confidence": "high", "evidence": "Line 11 drops auth and owner.", "check": "confirm show() checks the owner",
+               "fix": "restore auth, owner"}
+    prompts = []
+
+    def call(codex, model, prompt, timeout, schema):
+        prompts.append(prompt)
+        return {"findings": [finding, {**finding, "line": 10}, {**finding, "path": "other.js"},
+                             {**finding, "line": 12, "severity": "urgent"}]}
+
+    report = sdt_review_diff.review({"routes/report.js": DIFF}, "codex", "gpt-6-luna", per_call_timeout=30, budget=300, call=call)
+    assert [(f["path"], f["line"], f["severity"]) for f in report["findings"]] == [("routes/report.js", 11, "high")]
+    assert report["advisory"] is True and report["files_reviewed"] == ["routes/report.js"]
+    assert "+   12 | router.delete('/reports/:id', remove)" in prompts[0]
+    text = sdt_review_diff.markdown(report, "origin/main", 3)
+    assert "## 1. Owner check removed" in text and "`routes/report.js:11`" in text and "3 changed files were not sent" in text
+
+
+def test_change_review_never_sends_secret_values():
+    import sdt_review_diff
+    secret = "sk_" + "live_" + "0123456789abcdefghij"
+    diff = f"@@ -1,1 +1,2 @@\n context\n+const apiKey = \"{secret}\";\n"
+    text, added, _ = sdt_review_diff.numbered_diff(diff)
+    assert secret not in text and "[REDACTED]" in text and added == {2}

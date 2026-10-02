@@ -129,6 +129,7 @@ status or an SDT verdict, and secret findings and secret-looking values are neve
 | `SDT_AI_TRIAGE` | `1` | `0` turns the review off |
 | `SDT_TRIAGE_MEMORY` | `~/.cache/sdt/triage/<project>.json` | remembered verdicts: unchanged code is not asked again |
 | `SDT_AI_AUTOCLOSE` | `0` | `1` marks the clearest false positives Safe in SonarQube (see SDT's `docs/sast-report.md`) |
+| `SDT_AI_DIFF_REVIEW` | `0` | `1` adds an AI read of each pull request's changed lines (`ai-change-review.md`), advisory only |
 
 Without Codex every code finding still gets a **deterministic** advisory: fixed per-rule checks (what to confirm
 before marking Safe, what to fix), and a conclusion only on strong signals in the flagged line (test code, a log

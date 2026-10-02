@@ -100,6 +100,14 @@ hotspot carries the model, the evidence and what to confirm; it can be reopened,
 changed. Vulnerabilities and other issues are never closed this way. The build log lists what was marked and
 counts what was left for a person, by reason.
 
+**Change review** (`tools/sdt_review_diff.py`, off unless `SDT_AI_DIFF_REVIEW=1`, pull requests only): the
+changed lines of the pull request, with a few lines around them, are read by the model for security problems
+that rules do not find: a route without a permission check, a record fetched by id without an owner check, a
+validation removed, a secret logged, a setting weakened. The result is `ai-change-review.md` (and `.json`) next
+to the report. Every item points at a line the change added and says what to verify; it never blocks the build
+and never enters SonarQube. Tests, lock files and non-code files are not sent, secret values are redacted, and
+files beyond the per-review limit are named as unread rather than silently skipped.
+
 Once reviewers decide findings in SonarQube, the cover shows "Advisory accuracy so far: agreed with X of Y".
 
 ## Trend and coverage

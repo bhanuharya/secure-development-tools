@@ -57,6 +57,14 @@ else
     --commit "$COMMIT" --out "$OUT/SAST Report - $REPO_SLUG.docx" || { log "DOCX report failed"; status=1; }
 fi
 
+# Opt-in, pull requests only: an AI read of the changed lines for what rules miss (missing permission
+# checks, unvalidated input, weakened settings). Advice for the reviewer; never blocks, never enters SonarQube.
+if [ "${SDT_AI_DIFF_REVIEW:-0}" = 1 ] && [ -n "${PR_ID:-}" ] && [ -n "${PR_BASE:-}" ]; then
+  timeout "$(( ${SDT_CODEX_BUDGET:-600} + 120 ))" python3 "$SDT_HOME/tools/sdt_review_diff.py" --src-root "$SRC" \
+    --base "origin/$PR_BASE" --out "$OUT/ai-change-review.json" --markdown "$OUT/ai-change-review.md" \
+    --budget "${SDT_CODEX_BUDGET:-600}" || log "AI change review skipped (error or timeout)"
+fi
+
 [ -n "${HISTORY:-}" ] && mkdir -p "$HISTORY" && cp "$OUT/sdt/findings.json" "$HISTORY/findings.json"
 
 # The fleet register: the same inputs the nightly fleet report uses, for one repository.

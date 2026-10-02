@@ -286,12 +286,12 @@ def validate(answer: object, ids: set[str]) -> list[dict]:
     return out
 
 
-def run_codex(codex: str, model: str, prompt: str, timeout: float) -> dict:
+def run_codex(codex: str, model: str, prompt: str, timeout: float, response_schema: dict | None = None) -> dict:
     """One non-interactive, read-only Codex call in an empty directory; its JSON answer."""
     with tempfile.TemporaryDirectory(prefix="sdt-triage-") as work:
         schema = Path(work) / "schema.json"
         answer = Path(work) / "answer.json"
-        schema.write_text(json.dumps(RESPONSE_SCHEMA))
+        schema.write_text(json.dumps(response_schema or RESPONSE_SCHEMA))
         command = [codex, "exec", "--model", model, "--sandbox", "read-only", "--skip-git-repo-check",
                    "--ephemeral", "--cd", work, "--output-schema", str(schema), "--output-last-message", str(answer), "-"]
         result = subprocess.run(command, input=prompt, capture_output=True, text=True, timeout=timeout, cwd=work)
