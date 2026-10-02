@@ -158,6 +158,11 @@ the report is produced exactly as before. Check with your data policy that sendi
   findings reviewers judged false positive on any branch of the repository (`sdt_fleet_exceptions.py`) and applies
   them as exceptions: they stay in `findings.json`, marked, and are left out of SonarQube and the reports. Secrets
   are never excepted this way; see SDT's `docs/false-positives.md`.
+- **A review decision holds on every branch.** SonarQube keeps a decision on the branch where it was made, so a
+  new release branch would ask again. After each analysis, `sdt_sonar_carry.py` copies Safe / Acknowledged /
+  False positive / Accepted decisions from the project's other branches onto the same finding here: same rule,
+  same file, same line of code. Each copy is commented with the branch and date it came from. A line that was
+  edited is a new finding and is not decided for you. `SONAR_CARRY_DECISIONS=0` turns it off.
 - **Test code is analysed as test code.** Paths matching `SONAR_TEST_PATTERNS` (default: `test/`, `tests/`,
   `__tests__/`, `*.test.*`, `*.spec.*`, `*_test.go`, `*_test.dart`) are given to SonarQube as tests, so its security
   rules for application code do not report fixtures. SDT's own scanners still cover them. If a repository has a

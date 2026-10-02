@@ -10,6 +10,7 @@
 #            SDT_HOME (/opt/sdt), SDT_CONFIG, RULES_DIR, SONAR_SCANNER (sonar-scanner), FLUTTER_HOME,
 #            QUALITY_GATE_ENFORCE (0|1), SBOM (1|0),
 #            FLEET_DATABASE (fleet store: reviewed false positives are applied to this scan),
+#            SONAR_CARRY_DECISIONS (1|0: copy review decisions from the project's other branches),
 #            SONAR_TEST_PATTERNS (comma-separated globs of test code; empty analyses tests as application code)
 set -euo pipefail
 set +x  # never trace: SONAR_TOKEN is in the environment
@@ -185,6 +186,16 @@ for _ in $(seq 1 120); do
   sleep 5
 done
 [ "$STATUS" = SUCCESS ] || { log "import unconfirmed after 10 minutes"; exit 1; }
+
+# A review decision made on another branch of this project (Safe, False positive, Accepted) holds
+# here too, for the same rule on the same line of code. Best effort; SONAR_CARRY_DECISIONS=0 turns it off.
+if [ "${SONAR_CARRY_DECISIONS:-1}" = 1 ]; then
+  CARRY_SCOPE=()
+  if [ -n "${PR_ID:-}" ]; then CARRY_SCOPE=(--pull-request "$PR_ID")
+  elif [ -n "$SCOPE_QUERY" ]; then CARRY_SCOPE=(--branch "$BRANCH"); fi
+  python3 "$SDT_HOME/tools/sdt_sonar_carry.py" --sonar-url "$SONAR_HOST_URL" --project-key "$PROJECT_KEY" \
+    "${CARRY_SCOPE[@]}" || log "review decisions were not carried over from other branches"
+fi
 
 # ------------------------------------------------------------ 5. quality gate
 GATE=$(sonar_api "/api/qualitygates/project_status?projectKey=$PROJECT_KEY$SCOPE_QUERY" \

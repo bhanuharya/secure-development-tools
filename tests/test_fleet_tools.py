@@ -23,6 +23,7 @@ import sdt_to_docx  # noqa: E402
 import sdt_sonar_sync  # noqa: E402
 import sdt_rule_precision  # noqa: E402
 import sdt_fleet_exceptions  # noqa: E402
+import sdt_sonar_carry  # noqa: E402
 import sdt_triage_codex  # noqa: E402
 import sdt_to_sonar  # noqa: E402
 
@@ -1501,3 +1502,39 @@ def test_docx_trend_leaves_out_findings_an_exception_covers():
     kept, gone = _suppressed_pair()
     before = {"findings": [kept, {k: v for k, v in gone.items() if k != "suppression"}]}
     assert sdt_to_docx.compare({"findings": [kept, gone]}, before)["code"] == (0, 0, 1)
+
+
+def _hotspot(key, path, line, **extra):
+    return {"key": key, "component": "proj:" + path, "ruleKey": "javascript:S5852", "line": line, **extra}
+
+
+def test_sonar_decision_follows_the_same_code_line_to_another_branch():
+    release = {("src/a.js", 12): "  const re = /(a+)+$/;", ("src/a.js", 40): "const other = /x/;"}
+    develop = {("src/a.js", 7): "const re = /(a+)+$/;", ("src/a.js", 30): "const other = /y/;"}
+    undecided = sdt_sonar_carry.signatures(
+        [_hotspot("N1", "src/a.js", 12), _hotspot("N2", "src/a.js", 40)], lambda p, l: release[(p, l)])
+    decided = {"development": sdt_sonar_carry.signatures(
+        [_hotspot("D1", "src/a.js", 7, decision=("hotspot", "SAFE"), updateDate="2026-10-02T08:00:00+0000"),
+         _hotspot("D2", "src/a.js", 30, decision=("hotspot", "SAFE"), updateDate="2026-10-02T08:00:00+0000")],
+        lambda p, l: develop[(p, l)])}
+    copies = sdt_sonar_carry.plan(undecided, decided)
+    # The moved line keeps its decision; the edited line is a new finding and stays undecided.
+    assert [(c["key"], c["decision"], c["from_branch"], c["line"]) for c in copies] == [
+        ("N1", ("hotspot", "SAFE"), "development", 12)]
+    assert "branch 'development' (decided 2026-10-02)" in sdt_sonar_carry.comment(copies[0])
+
+
+def test_sonar_carry_keeps_identical_lines_apart_and_prefers_the_newest_decision():
+    text = lambda p, l: "md5(value)"
+    undecided = sdt_sonar_carry.signatures([_hotspot("N1", "a.js", 5), _hotspot("N2", "a.js", 9)], text)
+    old = sdt_sonar_carry.signatures(
+        [_hotspot("O1", "a.js", 5, decision=("hotspot", "ACKNOWLEDGED"), updateDate="2026-09-01")], text)
+    new = sdt_sonar_carry.signatures(
+        [_hotspot("M1", "a.js", 5, decision=("hotspot", "SAFE"), updateDate="2026-10-01")], text)
+    copies = sdt_sonar_carry.plan(undecided, {"release/1.0": old, "main": new})
+    # Only the first of the two identical lines was decided anywhere; the newest decision wins.
+    assert [(c["key"], c["decision"][1], c["from_branch"]) for c in copies] == [("N1", "SAFE", "main")]
+
+
+def test_sonar_carry_skips_findings_it_cannot_recognise():
+    assert sdt_sonar_carry.signatures([_hotspot("N1", "a.js", 5)], lambda p, l: "") == {}
