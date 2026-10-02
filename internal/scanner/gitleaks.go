@@ -1,8 +1,14 @@
 package scanner
 
 import (
+	"crypto/sha256"
+	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
 
 	"github.com/bhanuharya/secure-development-tools/internal/config"
 	sdtctx "github.com/bhanuharya/secure-development-tools/internal/context"
@@ -23,6 +29,32 @@ func (a *GitleaksAdapter) Validate(cfg *config.ScanConfiguration) []string { ret
 
 func (a *GitleaksAdapter) Detect(root string, languages []string) Applicability {
 	return Applicability{State: "applicable", Reason: "secret scan always applicable"}
+}
+
+// gitleaksDefaults are the sdt allowlists and added rules that every secret
+// scan runs with unless the scan configuration names its own Gitleaks config.
+//
+//go:embed gitleaks_default.toml
+var gitleaksDefaults string
+
+// gitleaksDefaultConfig writes the sdt defaults into the cache and returns the
+// path. They extend the Gitleaks built-in rules, or the scanned repository's own
+// .gitleaks.toml when it has one, so a repository's allowlists keep working.
+func gitleaksDefaultConfig(cacheRoot, root string) (string, error) {
+	extend := "useDefault = true"
+	if repoCfg, err := filepath.Abs(filepath.Join(root, ".gitleaks.toml")); err == nil {
+		if info, statErr := os.Stat(repoCfg); statErr == nil && !info.IsDir() {
+			extend = "path = " + strconv.Quote(repoCfg)
+		}
+	}
+	path, err := nativeReportPath(cacheRoot, "gitleaks-config.toml")
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte("[extend]\n"+extend+"\n\n"+gitleaksDefaults), 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // historyMode resolves the scan mode: explicit config history map wins,
@@ -81,10 +113,23 @@ func (a *GitleaksAdapter) PlanForProfile(ctx *sdtctx.ScanContext, cfg *config.Sc
 		args = append(args, "--no-git")
 		mode = "tree"
 	}
-	if custom := cfg.Scanners.Gitleaks.Config; custom != "" {
+	task := Task{Adapter: "gitleaks", Tool: "gitleaks", Executable: bin, Targets: targets, TimeoutSeconds: 600, ReportPath: reportPath, Mode: mode}
+	switch custom := cfg.Scanners.Gitleaks.Config; {
+	case custom != "":
 		args = append(args, "--config", custom)
+	case os.Getenv("GITLEAKS_CONFIG") != "":
+		// The operator configured Gitleaks directly; leave that in charge.
+	default:
+		defaults, err := gitleaksDefaultConfig(ctx.CacheRoot, root)
+		if err != nil {
+			return Task{}, err
+		}
+		args = append(args, "--config", defaults)
+		sum := sha256.Sum256([]byte(gitleaksDefaults))
+		task.RuleBundle, task.RuleChecksums = "sdt-gitleaks-defaults", []string{"sha256:" + hex.EncodeToString(sum[:])}
 	}
-	return Task{Adapter: "gitleaks", Tool: "gitleaks", Executable: bin, Args: args, Targets: targets, TimeoutSeconds: 600, ReportPath: reportPath, Mode: mode}, nil
+	task.Args = args
+	return task, nil
 }
 
 func (a *GitleaksAdapter) Parse(toolVersion string, root string, stdout []byte, stderrRedacted string, nativeExit int) ParseResult {

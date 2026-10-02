@@ -1,0 +1,71 @@
+# sdt secret-scanning defaults, layered on top of the Gitleaks built-in rules.
+# The adapter prepends the [extend] section at scan time (see gitleaks.go), so
+# this file must not declare one. Every entry here is exercised by
+# gitleaks_config_test.go; see docs/false-positives.md before changing it.
+
+title = "sdt secret-scanning defaults"
+
+# --- False-positive cuts -----------------------------------------------------
+
+[[allowlists]]
+description = "Dependency lock files hold package checksums, not credentials"
+targetRules = ["generic-api-key"]
+paths = [
+  '''(?:^|/)Podfile\.lock$''',
+  '''(?:^|/)pubspec\.lock$''',
+  '''(?:^|/)Gemfile\.lock$''',
+  '''(?:^|/)composer\.lock$''',
+  '''(?:^|/)Cargo\.lock$''',
+  '''(?:^|/)Package\.resolved$''',
+  '''(?:^|/)packages\.lock\.json$''',
+  '''(?:^|/)flake\.lock$''',
+  '''(?:^|/)gradle\.lockfile$''',
+]
+
+[[allowlists]]
+description = "Firebase client configuration: these API keys identify the app and ship inside it by design"
+targetRules = ["gcp-api-key", "generic-api-key"]
+condition = "AND"
+regexes = ['''^AIza[\w-]{35}$''']
+paths = [
+  '''(?:^|/)google-services\.json$''',
+  '''(?:^|/)GoogleService-Info\.plist$''',
+  '''(?:^|/)firebase_options\.dart$''',
+]
+
+# --- Added detections --------------------------------------------------------
+
+[[rules]]
+id = "sdt-url-embedded-credentials"
+description = "Password embedded in a connection URL"
+regex = '''(?i)\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|amqps?|mssql|sqlserver|s?ftp|https?)://[^\s:@/'"]{0,64}:([^\s:@/'"]{3,128})@[\w.\-]+'''
+secretGroup = 1
+keywords = ["://"]
+
+  [[rules.allowlists]]
+  description = "Placeholders, template variables and documentation values"
+  regexes = [
+    '''^[$<{%\[]''',
+    '''^[*xX.]+$''',
+    '''(?i)^(?:pass(?:word|wd)?|pwd|secret|changeme|example|test|guest|redacted)$''',
+  ]
+
+  [[rules.allowlists]]
+  description = "Local and documentation hosts"
+  regexTarget = "match"
+  regexes = ['''(?i)@(?:localhost|127\.0\.0\.1|0\.0\.0\.0|host\.docker\.internal|(?:[\w-]+\.)*example\.(?:com|org|net))$''']
+
+[[rules]]
+id = "sdt-jdbc-url-password"
+description = "Password passed as a JDBC URL parameter"
+regex = '''(?i)\bjdbc:[^\s'"]{1,300}?[?&;]password=([^&;\s'"]{3,128})'''
+secretGroup = 1
+keywords = ["jdbc:"]
+
+  [[rules.allowlists]]
+  description = "Placeholders, template variables and documentation values"
+  regexes = [
+    '''^[$<{%\[]''',
+    '''^[*xX.]+$''',
+    '''(?i)^(?:pass(?:word|wd)?|pwd|secret|changeme|example|test|guest|redacted)$''',
+  ]
