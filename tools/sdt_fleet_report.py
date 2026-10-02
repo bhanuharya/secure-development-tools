@@ -155,6 +155,10 @@ def build_rows(manifest: dict, root: Path, triage: dict[tuple[str, str], dict] |
             continue
         report = json.loads(report_path.read_text())
         for finding in report.get("findings", []):
+            if finding.get("suppression"):
+                # Covered by an approved exception (e.g. a reviewed false positive): counted, not listed.
+                totals["suppressed"] += 1
+                continue
             if hide_unfixed and unfixed_advisory(finding):
                 totals["hidden_unfixed"] += 1
                 continue
@@ -216,6 +220,8 @@ def write_pdf(path: Path, manifest: dict, coverage: list[tuple], totals: Counter
     totals_line = ", ".join(f"{severity}: {totals[severity]}" for severity in SEVERITIES)
     if "hidden_unfixed" in totals:
         totals_line += f", Hidden unfixed: {totals['hidden_unfixed']}"
+    if totals["suppressed"]:
+        totals_line += f", Suppressed by an exception: {totals['suppressed']}"
     story.append(Paragraph(escape(totals_line), styles["Normal"]))
     story.append(Paragraph(escape("Triage: " + ", ".join(f"{status}: {totals['verdict_' + status]}" for status in ("true_positive", "false_positive", "needs_context", "accepted_risk", "unreviewed"))), styles["Normal"]))
     story.append(Paragraph("Full finding details and scanner coverage are in fleet-findings.xlsx. Repository PDFs and canonical SDT reports are stored under repositories/.", styles["Normal"]))

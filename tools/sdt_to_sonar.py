@@ -390,6 +390,7 @@ def main() -> int:
         print(f"sdt_to_sonar: invalid findings.json: {exc}", file=sys.stderr)
         return 2
     doc, left_out = without_adapters(doc, args.skip_adapter)
+    doc, suppressed = without_suppressed(doc)
     try:
         payload, skipped = convert(doc, args.repo_root)
     except Exception as exc:
@@ -399,7 +400,8 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, indent=2) + "\n")
     print(f"sdt_to_sonar: wrote {out} ({len(payload['issues'])} issues, "
-          f"{len(payload['rules'])} rules, {skipped} skipped-no-path, {left_out} left to other importers)")
+          f"{len(payload['rules'])} rules, {skipped} skipped-no-path, {left_out} left to other importers, "
+          f"{suppressed} suppressed by an exception)")
     return 0
 
 
@@ -410,6 +412,13 @@ def without_adapters(doc: dict, adapters: list[str]) -> tuple[dict, int]:
         return doc, 0
     findings = doc.get("findings", [])
     kept = [f for f in findings if str((f.get("scanner", {}) or {}).get("adapter", "")).lower() not in skip]
+    return {**doc, "findings": kept}, len(findings) - len(kept)
+
+
+def without_suppressed(doc: dict) -> tuple[dict, int]:
+    """The findings document minus findings an approved exception covers, and how many those were."""
+    findings = doc.get("findings", [])
+    kept = [f for f in findings if not f.get("suppression")]
     return {**doc, "findings": kept}, len(findings) - len(kept)
 
 

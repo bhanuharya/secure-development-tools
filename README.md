@@ -174,6 +174,7 @@ for the fleet runner's settings.
 - [`docs/known-limits.md`](docs/known-limits.md) — reproducible rough edges
 - [`docs/security-posture.md`](docs/security-posture.md) — what each control does and does not cover
 - [`docs/rule-precision.md`](docs/rule-precision.md) — rule governance
+- [`docs/false-positives.md`](docs/false-positives.md) — secret-scanning defaults, dependency reachability, and how to check a finding locally
 - [`docs/fleet-scanning.md`](docs/fleet-scanning.md) — scheduled workspace scans, SonarQube import, fleet store, review sync
 - [`docs/sast-report.md`](docs/sast-report.md) — the per-scan SAST report (.docx) developers receive
 - [`SECURITY.md`](SECURITY.md) — reporting a vulnerability

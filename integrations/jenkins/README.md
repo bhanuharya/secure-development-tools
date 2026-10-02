@@ -154,6 +154,10 @@ the report is produced exactly as before. Check with your data policy that sendi
 - **Reviews happen in SonarQube.** Mark hotspots Safe/Fixed/Acknowledged and issues False positive/Accepted there;
   every scan copies those decisions into the fleet store (`sdt_sonar_sync.py`), where accepted risks get a 90-day
   review deadline and the audit trail lives.
+- **A reviewed false positive is not reported again.** With `SDT_FLEET_DATABASE` set, each scan first exports the
+  findings reviewers judged false positive on any branch of the repository (`sdt_fleet_exceptions.py`) and applies
+  them as exceptions: they stay in `findings.json`, marked, and are left out of SonarQube and the reports. Secrets
+  are never excepted this way; see SDT's `docs/false-positives.md`.
 - **Secrets in git history** show as project-level Vulnerabilities (`sdt:secret-in-history`). Rotate the credential,
   then mark the issue *Accepted* with the rotation reference as comment.
 - **Noisy rules:** `python3 tools/sdt_rule_precision.py --database $SDT_FLEET_DATABASE` in SDT lists precision per

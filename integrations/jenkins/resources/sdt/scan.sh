@@ -8,7 +8,8 @@
 # Scope:     BRANCH, or PR_ID + PR_BRANCH + PR_BASE for a pull request
 # Optional:  WORKSPACE_NAME (Bitbucket workspace, used in the project key), MAIN_BRANCHES ("main master"),
 #            SDT_HOME (/opt/sdt), SDT_CONFIG, RULES_DIR, SONAR_SCANNER (sonar-scanner), FLUTTER_HOME,
-#            QUALITY_GATE_ENFORCE (0|1), SBOM (1|0)
+#            QUALITY_GATE_ENFORCE (0|1), SBOM (1|0),
+#            FLEET_DATABASE (fleet store: reviewed false positives are applied to this scan)
 set -euo pipefail
 set +x  # never trace: SONAR_TOKEN is in the environment
 
@@ -31,6 +32,19 @@ if [ -n "${PR_ID:-}" ]; then
   PROFILE=pr; BASE_ARGS=(--base "origin/${PR_BASE:?PR_BASE is required for a pull request}")
 fi
 REPORT_FINDINGS="$OUT/sdt/findings.json"
+# Findings a reviewer already judged false positive (on any branch of this repository) become
+# exceptions for this scan. Best effort: without them the scan just reports everything again.
+if [ -n "${FLEET_DATABASE:-}" ]; then
+  if [ -e "$SRC/.secure-dev/exceptions.yaml" ] || grep -q '^exceptions:' "$SDT_CONFIG"; then
+    log "reviewed false positives not applied: the repository or the scan configuration has its own exceptions file"
+  elif python3 "$SDT_HOME/tools/sdt_fleet_exceptions.py" --database "$FLEET_DATABASE" --repository "$REPO_SLUG" \
+         --out "$OUT/reviewed-exceptions.yaml"; then
+    { cat "$SDT_CONFIG"; printf '\nexceptions:\n  file: %s\n' "$OUT/reviewed-exceptions.yaml"; } > "$OUT/scan-config.yaml"
+    SDT_CONFIG="$OUT/scan-config.yaml"
+  else
+    log "reviewed false positives not applied (no decisions exported; a first scan has none yet)"
+  fi
+fi
 if [ -n "${PR_ID:-}" ]; then
   # Baseline from the target branch: whatever already exists there is "existing", so only
   # what this pull request adds is "new" -- for the policy gate, SonarQube and the report.
@@ -46,17 +60,23 @@ log "SDT scan (profile $PROFILE)"
 ( cd "$SRC" && "$SDT_HOME/sdt" scan --config "$SDT_CONFIG" --profile "$PROFILE" --offline "${BASE_ARGS[@]}" \
     --output "$OUT/sdt" --cache "$OUT/cache" ) || log "sdt exit $? (policy findings exit 1; the report is still complete)"
 test -f "$OUT/sdt/findings.json"
-if [ -n "${PR_ID:-}" ]; then
-  REPORT_FINDINGS="$OUT/sdt/findings-new.json"
-  python3 - "$OUT/sdt/findings.json" "$REPORT_FINDINGS" <<'PY'
+# What goes to SonarQube: not the findings an exception covers (they stay in findings.json, marked),
+# and for a pull request only what it adds.
+REPORT_FINDINGS="$OUT/sdt/findings-report.json"
+[ -n "${PR_ID:-}" ] && REPORT_FINDINGS="$OUT/sdt/findings-new.json"
+python3 - "$OUT/sdt/findings.json" "$REPORT_FINDINGS" "${PR_ID:-}" <<'PY'
 import json, sys
 report = json.load(open(sys.argv[1]))
 total = len(report["findings"])
-report["findings"] = [f for f in report["findings"] if f.get("baselineState") != "existing"]
+report["findings"] = [f for f in report["findings"] if not f.get("suppression")]
+if total != len(report["findings"]):
+    print(f"[sdt] {total - len(report['findings'])} of {total} findings are covered by an exception and left out of SonarQube")
+if sys.argv[3]:
+    kept = len(report["findings"])
+    report["findings"] = [f for f in report["findings"] if f.get("baselineState") != "existing"]
+    print(f"[sdt] pull request adds {len(report['findings'])} of {kept} findings (the rest already exist on the target branch)")
 json.dump(report, open(sys.argv[2], "w"), indent=2)
-print(f"[sdt] pull request adds {len(report['findings'])} of {total} findings (the rest already exist on the target branch)")
 PY
-fi
 
 # ------------------------------------------------------------------- 2. SBOM
 if [ "$SBOM" = 1 ] && command -v trivy >/dev/null; then

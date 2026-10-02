@@ -336,6 +336,8 @@ def from_findings(doc: dict, src_root: Path | None = None) -> dict:
     secrets, config = [], []
     packages: "OrderedDict[tuple, DependencyRow]" = OrderedDict()
     for f in doc.get("findings", []):
+        if f.get("suppression"):
+            continue  # covered by an approved exception, e.g. a reviewed false positive
         rule = f.get("rule") or {}
         rule_id = str(rule.get("id") or "unknown")
         adapter = str((f.get("scanner") or {}).get("adapter") or "sdt")
@@ -1301,12 +1303,18 @@ def _category_of(finding: dict) -> str:
 
 
 def compare(current: dict, previous: dict) -> dict:
-    """category -> (new, fixed, still open), by SDT finding fingerprint."""
+    """category -> (new, fixed, still open), by SDT finding fingerprint.
+
+    A finding an exception covers in the current scan is none of the three: it was not
+    fixed, and it is no longer open, so it is left out of both sides.
+    """
+    excepted = {(f.get("fingerprint") or {}).get("value") for f in current.get("findings", []) if f.get("suppression")}
+
     def index(doc):
         out = {"code": set(), "secret": set(), "dependency": set()}
         for f in doc.get("findings", []):
             value = (f.get("fingerprint") or {}).get("value")
-            if value:
+            if value and value not in excepted:
                 out[_category_of(f)].add(value)
         return out
     now, before = index(current), index(previous)

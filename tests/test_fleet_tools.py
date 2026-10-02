@@ -22,6 +22,7 @@ import sdt_repo_manifest  # noqa: E402
 import sdt_to_docx  # noqa: E402
 import sdt_sonar_sync  # noqa: E402
 import sdt_rule_precision  # noqa: E402
+import sdt_fleet_exceptions  # noqa: E402
 import sdt_triage_codex  # noqa: E402
 import sdt_to_sonar  # noqa: E402
 
@@ -1437,3 +1438,66 @@ def test_file_links_open_bitbucket_at_the_scanned_commit_with_the_lines_highligh
     assert "File (opens Bitbucket)" in text
     assert 'Target="https://bitbucket.org/example/app/src/2d50829cc3b8/lib/api.dart#lines-3"' in rels
     assert "localhost" not in rels
+
+
+def _fp_review(fingerprint, reviewed_on, source_type="sast", reviewer="sonar:alice"):
+    from datetime import date
+    return {"fingerprint": fingerprint, "source_type": source_type, "rule": "scp.sql.concat", "path": "src/a.py",
+            "reviewer": reviewer, "reason": "input is a constant", "reviewed_on": date.fromisoformat(reviewed_on)}
+
+
+def test_reviewed_false_positives_become_expiring_exceptions():
+    from datetime import date
+    entries, counts = sdt_fleet_exceptions.exceptions_from(
+        [_fp_review("sha256:" + "a" * 64, "2026-09-01"), _fp_review("sha256:" + "a" * 64, "2026-09-20", reviewer="bob")],
+        180, date(2026, 10, 2))
+    assert counts == {"exported": 1, "secret": 0, "expired": 0}
+    assert entries == [{"id": "fp-" + "a" * 16, "fingerprints": ["sha256:" + "a" * 64],
+                        "reason": "false positive: input is a constant (scp.sql.concat at src/a.py)",
+                        "owner": "bob", "createdAt": "2026-09-20", "expiresAt": "2027-03-19"}]
+
+
+def test_secret_and_stale_false_positives_are_never_exported():
+    from datetime import date
+    entries, counts = sdt_fleet_exceptions.exceptions_from(
+        [_fp_review("sha256:" + "b" * 64, "2026-09-01", source_type="secrets"),
+         _fp_review("sha256:" + "c" * 64, "2026-01-01")], 180, date(2026, 10, 2))
+    assert entries == [] and counts == {"exported": 0, "secret": 1, "expired": 1}
+
+
+def test_exceptions_file_is_a_bare_list_even_when_empty(tmp_path):
+    out = tmp_path / "nested" / "app.exceptions.yaml"
+    sdt_fleet_exceptions.write_exceptions(out, [])
+    assert json.loads(out.read_text()) == []
+
+
+def _suppressed_pair():
+    base = {"scanner": {"adapter": "opengrep"}, "category": "sast", "severity": {"canonical": "high"},
+            "location": {"path": "src/app.py", "startLine": 3}, "message": "tainted query"}
+    kept = {**base, "rule": {"id": "kept"}, "fingerprint": {"value": "sha256:" + "1" * 64}}
+    gone = {**base, "rule": {"id": "gone"}, "fingerprint": {"value": "sha256:" + "2" * 64},
+            "suppression": {"exceptionId": "fp-2222222222222222", "reason": "false positive: constant input"}}
+    return kept, gone
+
+
+def test_fleet_register_counts_but_does_not_list_suppressed_findings(tmp_path):
+    manifest, run = fleet_run(tmp_path, list(_suppressed_pair()))
+    rows, _, totals = sdt_fleet_report.build_rows(manifest, run)
+    assert [row[5] for row in rows[1:]] == ["kept"]
+    assert totals["suppressed"] == 1 and totals["high"] == 1
+
+
+def test_sonar_import_leaves_out_suppressed_findings():
+    doc, suppressed = sdt_to_sonar.without_suppressed({"findings": list(_suppressed_pair())})
+    assert suppressed == 1 and [f["rule"]["id"] for f in doc["findings"]] == ["kept"]
+
+
+def test_docx_leaves_out_suppressed_findings(tmp_path):
+    report = sdt_to_docx.from_findings({"findings": list(_suppressed_pair())}, tmp_path)
+    assert len(report["code"]) == 1
+
+
+def test_docx_trend_leaves_out_findings_an_exception_covers():
+    kept, gone = _suppressed_pair()
+    before = {"findings": [kept, {k: v for k, v in gone.items() if k != "suppression"}]}
+    assert sdt_to_docx.compare({"findings": [kept, gone]}, before)["code"] == (0, 0, 1)
