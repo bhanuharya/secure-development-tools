@@ -26,6 +26,7 @@ Guardrails, because tokens cost money and code is sensitive:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -44,6 +45,7 @@ DEFAULT_MODEL = "gpt-6-luna"
 VERDICTS = ("likely_true_positive", "likely_false_positive", "needs_context")
 CONFIDENCE = ("low", "medium", "high")
 CONTEXT_LINES = 40  # enough to see where a flagged value comes from
+PROMPT_VERSION = "2"  # part of every remembered verdict: change it when the prompt or context changes
 MAX_REASON = 400
 
 RESPONSE_SCHEMA = {
@@ -107,9 +109,54 @@ def enclosing_block(lines: list[str], index: int) -> tuple[int, int] | None:
     return None
 
 
+IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]{3,}")
+COMMON_WORDS = frozenset("""await async break case catch class const continue default else export false final from
+function import return static string super switch this throw true undefined void while with null new let var
+value values item items data result results index length name type key keys error props attrs slot template
+href class style http https""".split())
+RELATED_MATCHES, RELATED_PAD, RELATED_MAX_LINES = 6, 2, 60
+
+
+def related_lines(lines: list[str], index: int, start: int, end: int) -> list[tuple[int, int]]:
+    """Ranges elsewhere in the file that mention the names used on the flagged line.
+
+    A value is often built or sanitised far from where it is used; the lines that share its
+    names (most shared names first, then nearest) are where a reviewer would look next.
+    """
+    # The raw line, strings included: in a template the expression is inside an attribute value.
+    names = {n for n in IDENTIFIER.findall(lines[index]) if n.lower() not in COMMON_WORDS}
+    if not names:
+        return []
+    scored = []
+    for n, text in enumerate(lines):
+        if start <= n <= end:
+            continue
+        hits = len(names & set(IDENTIFIER.findall(text)))
+        if hits:
+            scored.append((-hits, abs(n - index), n))
+    ranges: list[tuple[int, int]] = []
+    budget = RELATED_MAX_LINES
+    for _, _, n in sorted(scored)[:RELATED_MATCHES]:
+        low, high = max(0, n - RELATED_PAD), min(len(lines) - 1, n + RELATED_PAD)
+        low = end + 1 if start <= low <= end else low
+        high = start - 1 if start <= high <= end else high
+        if high - low + 1 > budget or low > high:
+            continue
+        budget -= high - low + 1
+        ranges.append((low, high))
+    merged: list[tuple[int, int]] = []
+    for low, high in sorted(ranges):
+        if merged and low <= merged[-1][1] + 1:
+            merged[-1] = (merged[-1][0], max(high, merged[-1][1]))
+        else:
+            merged.append((low, high))
+    return merged
+
+
 def context(src_root: Path | None, occurrence: sdt_to_docx.Occurrence) -> str:
     """The enclosing function (up to MAX_BLOCK_LINES) or +/-CONTEXT_LINES around the flagged line,
-    numbered with ">" marking it, redacted; "" when unreadable."""
+    then the lines elsewhere in the file that share its names; numbered with ">" marking the
+    flagged line, redacted; "" when unreadable."""
     if not src_root or not occurrence.path or occurrence.line < 1:
         return ""
     root = src_root.resolve()
@@ -128,8 +175,36 @@ def context(src_root: Path | None, occurrence: sdt_to_docx.Occurrence) -> str:
         start, end = block
     else:
         start, end = max(0, index - CONTEXT_LINES), min(len(lines) - 1, index + CONTEXT_LINES)
-    body = [f"{'>' if n == index else ' '}{n + 1:>5}  {lines[n].rstrip()[:200]}" for n in range(start, end + 1)]
+    def numbered(low: int, high: int) -> list[str]:
+        return [f"{'>' if n == index else ' '}{n + 1:>5}  {lines[n].rstrip()[:200]}" for n in range(low, high + 1)]
+
+    body = numbered(start, end)
+    for low, high in related_lines(lines, index, start, end):
+        body += ["   ...  (elsewhere in this file, same names)"] + numbered(low, high)
     return redact("\n".join(body))
+
+
+def memory_key(model: str, rule: str, path: str, code: str) -> str:
+    """Identity of one review question: same model, rule, file and code shown -> same verdict."""
+    digest = hashlib.sha256("\x00".join((PROMPT_VERSION, model, rule, path, code)).encode()).hexdigest()
+    return "sha256:" + digest
+
+
+def load_memory(path: Path | None) -> dict:
+    """Remembered verdicts; an unreadable or foreign file is an empty memory, never an error."""
+    try:
+        data = json.loads(path.read_text()) if path and path.is_file() else {}
+    except (OSError, ValueError):
+        return {}
+    entries = data.get("entries") if isinstance(data, dict) else None
+    return entries if isinstance(entries, dict) else {}
+
+
+def save_memory(path: Path, entries: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps({"version": 1, "entries": entries}, indent=1) + "\n")
+    temporary.replace(path)
 
 
 def build_prompt(group: sdt_to_docx.Group, items: list[tuple[str, sdt_to_docx.Occurrence, str]]) -> str:
@@ -150,7 +225,8 @@ For each occurrence, first check these false-positive causes against the code sh
 1. Test, example, mock or generated code (paths or names with test/spec/mock/example/generated).
 2. The flagged value is a constant, a literal, or comes only from the app itself (not user,
    network, deep link, clipboard, file or another app).
-3. The input is validated, escaped, allow-listed or sanitised before the risky call.
+3. The input is validated, escaped, allow-listed or sanitised before the risky call, or where
+   the value is built (check the lines shown after "..." from elsewhere in the file).
 4. The framework or API used is safe by default for this case, or the risky option is disabled.
 5. The code is unreachable, debug-only, or behind a check that makes the risk impossible.
 6. The rule matched something that only looks like the pattern (a name, a comment, a string).
@@ -221,26 +297,39 @@ def run_codex(codex: str, model: str, prompt: str, timeout: float) -> dict:
 
 def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, model: str, *,
            per_call_timeout: float, budget: float, max_rules: int, max_per_rule: int, max_failures: int,
-           call=run_codex, clock=time.monotonic) -> dict:
-    """Review up to max_rules code rules, stopping on budget or repeated failure."""
+           call=run_codex, clock=time.monotonic, memory: dict | None = None) -> dict:
+    """Review up to max_rules code rules, stopping on budget or repeated failure.
+
+    ``memory`` holds earlier verdicts by memory_key: a question already answered for the same
+    code is answered from it, so a rescan of unchanged code repeats the verdict instead of
+    asking again; new answers are added to it.
+    """
     started, failures = clock(), 0
     report = {"engine": "codex", "model": model, "advisory": True,
               "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-              "calls": 0, "failed_calls": 0, "stopped": "", "results": []}
+              "calls": 0, "failed_calls": 0, "remembered": 0, "stopped": "", "results": []}
+    memory = {} if memory is None else memory
     for group in groups[:max_rules]:
         remaining = budget - (clock() - started)
         if remaining < 10:
             report["stopped"] = "time budget spent"
             break
-        items, lookup = [], {}
+        items, lookup, keys, considered = [], {}, {}, 0
         for occurrence in group.occurrences:
             code = context(src_root, occurrence)
             if not code:
                 continue
-            item_id = f"o{len(items) + 1}"
-            items.append((item_id, occurrence, code))
-            lookup[item_id] = occurrence
-            if len(items) >= max_per_rule:
+            considered += 1
+            key = memory_key(model, group.rule, occurrence.path, code)
+            if isinstance(memory.get(key), dict):
+                report["remembered"] += 1
+                report["results"].append({"rule": group.rule, "path": occurrence.path, "line": occurrence.line,
+                                          **memory[key], "remembered": True})
+            else:
+                item_id = f"o{len(items) + 1}"
+                items.append((item_id, occurrence, code))
+                lookup[item_id], keys[item_id] = occurrence, key
+            if considered >= max_per_rule:
                 break
         if not items:
             continue
@@ -259,7 +348,9 @@ def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, m
             continue
         failures = 0
         for result in results:
-            occurrence = lookup[result.pop("id")]
+            item_id = result.pop("id")
+            occurrence = lookup[item_id]
+            memory[keys[item_id]] = dict(result)
             report["results"].append({"rule": group.rule, "path": occurrence.path, "line": occurrence.line, **result})
     return report
 
@@ -286,6 +377,9 @@ def main() -> int:
     ap.add_argument("--max-rules", type=int, default=15)
     ap.add_argument("--max-per-rule", type=int, default=6)
     ap.add_argument("--max-failures", type=int, default=2, help="stop after this many consecutive failed calls")
+    ap.add_argument("--memory", type=Path, help="file of remembered verdicts (default: $SDT_TRIAGE_MEMORY, else "
+                                                "~/.cache/sdt/triage/<project>.json); unchanged code is not asked again")
+    ap.add_argument("--refresh", action="store_true", help="ignore remembered verdicts and ask again")
     args = ap.parse_args()
 
     codex = find_codex(args.codex)
@@ -305,13 +399,21 @@ def main() -> int:
         print(f"sdt_triage_codex: cannot read findings ({exc}): no AI review", file=sys.stderr)
         return 0
     groups = sdt_to_docx.merge(found, None)["code"]
+    memory_path = args.memory or Path(os.environ.get("SDT_TRIAGE_MEMORY", "") or Path.home() / ".cache" / "sdt" / "triage" /
+                                      (re.sub(r"[^\w.-]", "_", args.project_key or "findings") + ".json"))
+    memory = {} if args.refresh else load_memory(memory_path)
     report = triage(groups, args.src_root, codex, args.model, per_call_timeout=args.per_call_timeout,
                     budget=args.budget, max_rules=args.max_rules, max_per_rule=args.max_per_rule,
-                    max_failures=args.max_failures)
+                    max_failures=args.max_failures, memory=memory)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2) + "\n")
+    try:
+        save_memory(memory_path, memory)
+    except OSError as exc:
+        print(f"sdt_triage_codex: verdicts not remembered ({exc})", file=sys.stderr)
     print(f"sdt_triage_codex: {len(report['results'])} occurrences reviewed by {args.model} in {report['calls']} calls "
-          f"({report['failed_calls']} failed){'; stopped: ' + report['stopped'] if report['stopped'] else ''}")
+          f"({report['failed_calls']} failed, {report['remembered']} remembered from earlier scans)"
+          f"{'; stopped: ' + report['stopped'] if report['stopped'] else ''}")
     return 0  # advisory: never fails the build
 
 

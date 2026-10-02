@@ -1538,3 +1538,49 @@ def test_sonar_carry_keeps_identical_lines_apart_and_prefers_the_newest_decision
 
 def test_sonar_carry_skips_findings_it_cannot_recognise():
     assert sdt_sonar_carry.signatures([_hotspot("N1", "a.js", 5)], lambda p, l: "") == {}
+
+
+def _fp_answer(codex, model, prompt, timeout):
+    return {"results": [{"id": "o1", "verdict": "likely_false_positive", "confidence": "high",
+                         "reason": "pinned elsewhere", "check": "confirm pinning", "suggested_fix": "note"}]}
+
+
+def test_triage_remembers_a_verdict_until_the_code_changes(tmp_path):
+    root, groups = _triage_groups(tmp_path)
+    one = [groups[0]]
+    memory, calls = {}, []
+
+    def counted(*args):
+        calls.append(1)
+        return _fp_answer(*args)
+
+    first = _run_triage(root, one, counted, memory=memory, max_per_rule=1)
+    again = _run_triage(root, one, counted, memory=memory, max_per_rule=1)
+    assert len(calls) == 1 and first["remembered"] == 0 and again["calls"] == 0 and again["remembered"] == 1
+    assert again["results"][0]["verdict"] == first["results"][0]["verdict"] and again["results"][0]["remembered"] is True
+
+    # An edit in the code shown is a new question.
+    path = root / one[0].occurrences[0].path
+    path.write_text(path.read_text().replace("\n", "\n// reviewed\n", 1))
+    changed = _run_triage(root, one, counted, memory=memory, max_per_rule=1)
+    assert len(calls) == 2 and changed["remembered"] == 0
+
+
+def test_triage_memory_survives_a_round_trip_and_ignores_a_broken_file(tmp_path):
+    store = tmp_path / "cache" / "proj.json"
+    sdt_triage_codex.save_memory(store, {"sha256:a": {"verdict": "likely_false_positive"}})
+    assert sdt_triage_codex.load_memory(store) == {"sha256:a": {"verdict": "likely_false_positive"}}
+    store.write_text("{not json")
+    assert sdt_triage_codex.load_memory(store) == {} and sdt_triage_codex.load_memory(tmp_path / "none.json") == {}
+
+
+def test_triage_context_includes_where_the_flagged_value_is_sanitised(tmp_path):
+    lines = ["<script setup>", "const sanitizeFileUrl = (url) => (url.startsWith('http') ? url : undefined)",
+             "const load = (payload) => {", "  overviewAttachments.value = payload.map((attachment) => ({",
+             "    fileUrl: sanitizeFileUrl(attachment.fileUrl),", "  }))", "}", "</script>"]
+    lines += [f"<!-- filler {n} -->" for n in range(120)]
+    lines += ['<a v-for="attachment in overviewAttachments"', '   :href="attachment.fileUrl || undefined">']
+    (tmp_path / "Case.vue").write_text("\n".join(lines) + "\n")
+    shown = sdt_triage_codex.context(tmp_path, sdt_to_docx.Occurrence("Case.vue", len(lines), "", "To review", ""))
+    assert f">{len(lines):>5}  " in shown  # the flagged line, marked
+    assert "elsewhere in this file, same names" in shown and "fileUrl: sanitizeFileUrl(attachment.fileUrl)," in shown

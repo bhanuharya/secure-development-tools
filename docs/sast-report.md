@@ -77,7 +77,8 @@ A generic rule-based check is printed once per rule in the grouped layout.
 
 **Optional model review** (`tools/sdt_triage_codex.py`): when the `codex` CLI is installed and logged in, the
 code findings are sent, rule by rule, to Codex (`SDT_CODEX_MODEL`, default `gpt-6-luna`) with the enclosing
-function as context. The prompt's main job is ruling out false positives against a six-point checklist; the
+function as context, followed by the lines elsewhere in the same file that use the same names (where the flagged
+value is built or sanitised). The prompt's main job is ruling out false positives against a six-point checklist; the
 answer is an enforced JSON schema (verdict, confidence, evidence, check, fix). Guardrails:
 
 * only code findings are sent, never secret findings, and likely secret values are redacted first;
@@ -85,6 +86,11 @@ answer is an enforced JSON schema (verdict, confidence, evidence, check, fix). G
 * per-call timeout (`SDT_CODEX_TIMEOUT`, 120 s), whole-run budget (`SDT_CODEX_BUDGET`, 600 s), and a stop after
   two consecutive failed calls;
 * without Codex (or with `SDT_AI_TRIAGE=0`) the step is a no-op and the deterministic advisory is used.
+
+A verdict is remembered per question (model, rule, file and the code shown) in `SDT_TRIAGE_MEMORY` (default
+`~/.cache/sdt/triage/<project>.json`). A rescan of unchanged code repeats the earlier verdict instead of asking
+again, on any branch, so the advisory is stable between reports and costs nothing when nothing changed. Edited
+code is a new question. `--refresh` asks everything again.
 
 Once reviewers decide findings in SonarQube, the cover shows "Advisory accuracy so far: agreed with X of Y".
 
