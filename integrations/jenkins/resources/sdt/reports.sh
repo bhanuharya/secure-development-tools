@@ -40,7 +40,11 @@ if [ -f "$OUT/sonar-project-key" ] && [ -n "${SONAR_TOKEN:-}" ]; then
   HISTORY=""
   if [ -n "${SDT_HISTORY_DIR:-}" ] && [ -z "${PR_ID:-}" ]; then
     HISTORY="$SDT_HISTORY_DIR/$REPO_SLUG/$(printf '%s' "${BRANCH:-main}" | tr '/' '_')"
-    [ -s "$HISTORY/findings.json" ] && TRIAGE+=(--previous-findings "$HISTORY/findings.json")
+    PREVIOUS="$HISTORY/findings.json"
+    # A branch scanned for the first time (a new release branch) is compared with the most recently
+    # scanned other branch of the repository, so the report still says what was fixed since then.
+    [ -s "$PREVIOUS" ] || PREVIOUS=$(ls -t "$SDT_HISTORY_DIR/$REPO_SLUG"/*/findings.json 2>/dev/null | head -1 || true)
+    [ -n "$PREVIOUS" ] && [ -s "$PREVIOUS" ] && TRIAGE+=(--previous-findings "$PREVIOUS")
   fi
   # A pull request reports only what it adds (scan.sh wrote findings-new.json from the baseline).
   REPORT_FINDINGS="$OUT/sdt/findings.json"

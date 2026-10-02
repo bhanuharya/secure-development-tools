@@ -375,12 +375,17 @@ def from_findings(doc: dict, src_root: Path | None = None) -> dict:
     return {"code": list(groups.values()), "secret": secrets, "dependency": list(packages.values()), "config": config}
 
 
+PLACEHOLDER = re.compile(r"your|example|change-?me|placeholder|dummy|replace|todo|xxx|\*\*\*|^<|^\$\{|^\{\{|^[\"']{0,2}$",
+                         re.IGNORECASE)
+
+
 def _where(src_root: Path | None, path: str, line: int, evidence: str = "") -> str:
     """Whether a secret is still in the checkout, or only in git history.
 
     gitleaks scans history, so its line number is where the secret was first committed.
     With the redacted evidence ('key = "[REDACTED]"') the answer is whether that line still
-    exists anywhere in the current file; without it, only whether the line number exists.
+    exists anywhere in the current file with a real-looking value (not a placeholder such as
+    "your-api-key"); without it, only whether the line number exists.
     """
     if src_root is None or not path:
         return "Unknown"
@@ -393,8 +398,12 @@ def _where(src_root: Path | None, path: str, line: int, evidence: str = "") -> s
         return "Git history only"
     if "[REDACTED]" in evidence:
         parts = [re.escape(part.strip()) for part in evidence.split("[REDACTED]")]
-        pattern = re.compile(r"\S+".join(parts))
-        return "Current code" if any(pattern.search(text) for text in lines) else "Git history only"
+        pattern = re.compile(r"(\S+)".join(parts))
+        # The line may still be there with the secret replaced by a placeholder (an example
+        # file cleaned up after the leak): then the secret itself is only in history.
+        values = [m.groups() for m in map(pattern.search, lines) if m]
+        return "Current code" if any(not all(PLACEHOLDER.search(v) for v in found) for found in values) \
+            else "Git history only"
     return "Current code" if 0 < line <= len(lines) else "Git history only"
 
 

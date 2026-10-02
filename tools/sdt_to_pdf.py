@@ -139,10 +139,15 @@ def _count_table(styles, title_row, counts: Counter, order) -> Table:
     return t
 
 
+def reported_findings(findings_doc: dict) -> list:
+    """Findings the report lists: not the ones an approved exception covers (a reviewed false positive)."""
+    return [f for f in findings_doc.get("findings", []) if not f.get("suppression")]
+
+
 def build_pdf(findings_doc: dict, manifest: dict, project: str, profile: str, out: Path, src_root: Path | None = None) -> None:
     styles = _styles()
     story: list = []
-    findings = findings_doc.get("findings", [])
+    findings = reported_findings(findings_doc)
     policy = findings_doc.get("policy", {}) or {}
     blockers = {b.get("findingId") for b in policy.get("blockers", []) if isinstance(b, dict)}
 

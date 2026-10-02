@@ -930,7 +930,7 @@ DOCX_FINDINGS = {"findings": [
 
 def _checkout(tmp_path):
     (tmp_path / "lib").mkdir()
-    (tmp_path / "lib" / "api.dart").write_text("a\nkey = \"placeholder\"\nclient.badCertificateCallback = (c, h, p) => true;\nd\n")
+    (tmp_path / "lib" / "api.dart").write_text("a\nkey = \"v9Qm2Lx7TrB4\"\nclient.badCertificateCallback = (c, h, p) => true;\nd\n")
     return tmp_path
 
 
@@ -1688,3 +1688,18 @@ def test_change_review_never_sends_secret_values():
     diff = f"@@ -1,1 +1,2 @@\n context\n+const apiKey = \"{secret}\";\n"
     text, added, _ = sdt_review_diff.numbered_diff(diff)
     assert secret not in text and "[REDACTED]" in text and added == {2}
+
+
+def test_docx_a_secret_replaced_by_a_placeholder_is_history_only(tmp_path):
+    (tmp_path / ".env.example").write_text("SITE_URL=https://app.example.com\nRECAPTCHA_SECRET_KEY=your-recaptcha-secret-key\nSMTP_PASS=\n")
+    (tmp_path / ".env").write_text("RECAPTCHA_SECRET_KEY=" + "6L" + "d" * 38 + "\n")
+    where = sdt_to_docx._where
+    assert where(tmp_path, ".env.example", 2, "RECAPTCHA_SECRET_KEY=[REDACTED]") == "Git history only"
+    assert where(tmp_path, ".env.example", 3, "SMTP_PASS=[REDACTED]") == "Git history only"
+    assert where(tmp_path, ".env", 1, "RECAPTCHA_SECRET_KEY=[REDACTED]") == "Current code"
+
+
+def test_pdf_leaves_out_suppressed_findings():
+    import sdt_to_pdf
+    kept, gone = _suppressed_pair()
+    assert [f["rule"]["id"] for f in sdt_to_pdf.reported_findings({"findings": [kept, gone]})] == ["kept"]

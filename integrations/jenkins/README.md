@@ -135,7 +135,9 @@ Without Codex every code finding still gets a **deterministic** advisory: fixed 
 before marking Safe, what to fix), and a conclusion only on strong signals in the flagged line (test code, a log
 of static text, an XML namespace URL, a PIN/password/token variable in a log). Same input, same report.
 
-Set `SDT_HISTORY_DIR` to a persistent directory to add "Changes Since Previous Scan" (new / fixed / still open).
+Set `SDT_HISTORY_DIR` to a persistent directory to add "Changes Since Previous Scan" (new / fixed / still open). A
+branch scanned for the first time is compared with the most recently scanned other branch of the repository, so a
+new release branch shows what changed since the previous release.
 
 It stops after two consecutive failed calls (wrong model, auth, outage) instead of spending more. Without Codex,
 the report is produced exactly as before. Check with your data policy that sending code to Codex is allowed.
