@@ -1020,7 +1020,7 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
                  ' TOC \\o "1-2" \\h \\z \\u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r></w:p>')
     parts.append(internal_link("Fix First", "sec_fix_first"))
     parts.append(internal_link("1. Code Security", "sec_code"))
-    parts += [internal_link(f"1.{n} {g.name} ({len(g.occurrences)})", f"sec_code_{n}", indent=360)
+    parts += [internal_link(f"1.{n} {g.name} [{rule_ref(g.rule)}] ({len(g.occurrences)})", f"sec_code_{n}", indent=360)
               for n, g in enumerate(report.code, 1)]
     parts.append(internal_link("2. Secret Leaks", "sec_secrets"))
     parts.append(internal_link("3. Dependencies & Configuration (Trivy)", "sec_dependencies"))
@@ -1053,7 +1053,8 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
                                 [[f"1.{n}", g.name, g.rule, g.kind, g.severity, len(g.occurrences)]
                                  for n, g in enumerate(report.code, 1)], severity_col=4))
     for n, g in enumerate(report.code, 1):
-        parts.append(section_heading(f"1.{n} {g.name} - {plural(len(g.occurrences), 'Finding')}", 2, f"sec_code_{n}"))
+        parts.append(section_heading(f"1.{n} {g.name} [{rule_ref(g.rule)}] - {plural(len(g.occurrences), 'Finding')}",
+                                     2, f"sec_code_{n}"))
         parts += [label("Severity", g.severity), label("Rule", g.rule), label("Type", g.kind),
                   label("Status", status_summary(g.occurrences)), label("Assignee", assignee_summary(g.occurrences))]
         if g.risk:
@@ -1309,6 +1310,11 @@ def _category_of(finding: dict) -> str:
     if (finding.get("artifact") or {}).get("package") or kind == "misconfiguration":
         return "dependency"
     return "code"
+
+
+def rule_ref(rule: str) -> str:
+    """A short name for a rule that is the same in every report, unlike its section number."""
+    return rule.rsplit(":", 1)[-1].rsplit(".", 1)[-1] or rule
 
 
 def compare(current: dict, previous: dict) -> dict:

@@ -236,6 +236,7 @@ func TestJSTransitiveFollowsLockGraph(t *testing.T) {
 // Without a dependency graph a missing import cannot rule a package out.
 func TestJSLockWithoutGraphIsUnknown(t *testing.T) {
 	root := t.TempDir()
+	// A version 1 lock file without its package.json has no first-party dependency list.
 	write(t, root, "package-lock.json", `{"lockfileVersion": 1, "dependencies": {"qs": {"version": "6.0.0"}}}`)
 	write(t, root, "yarn.lock", "qs@^6:\n  version \"6.0.0\"\n")
 	write(t, root, "index.js", "import express from 'express';\n")
@@ -296,6 +297,33 @@ func TestJSFrameworkRunByScriptOrNamedInConfigIsReachable(t *testing.T) {
 		{"minimatch", Reachable}, // below eslint, run by the lint script
 		{"left-over", Unreachable},
 		{"left-pad", Unreachable},
+	}
+	var fs []*finding.Finding
+	for _, c := range cases {
+		fs = append(fs, depFinding(c.pkg, "package-lock.json"))
+	}
+	Annotate(root, fs)
+	for i, c := range cases {
+		if fs[i].Reachability.State != c.want {
+			t.Fatalf("%s: want %s, got %+v", c.pkg, c.want, fs[i].Reachability)
+		}
+	}
+}
+
+// lockfileVersion 1 nests packages and keeps the direct dependencies in package.json.
+func TestJSLockVersion1FollowsRequires(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "package.json", `{"name": "app", "bin": "cli.js", "dependencies": {"express": "^4", "lodash": "^4"}, "devDependencies": {"jest": "^26"}}`)
+	write(t, root, "package-lock.json", `{"lockfileVersion": 1, "dependencies": {
+	  "express": {"version": "4.0.0", "requires": {"qs": "^6"}},
+	  "qs": {"version": "6.0.0"},
+	  "lodash": {"version": "4.0.0"},
+	  "jest": {"version": "26.0.0", "requires": {"micromatch": "^4"}, "dependencies": {"micromatch": {"version": "4.0.0", "requires": {"braces": "^3"}}}},
+	  "braces": {"version": "3.0.0"}
+	}}`)
+	write(t, root, "index.js", "const express = require('express')\n")
+	cases := []struct{ pkg, want string }{
+		{"qs", Reachable}, {"lodash", Unreachable}, {"micromatch", Unreachable}, {"braces", Unreachable},
 	}
 	var fs []*finding.Finding
 	for _, c := range cases {

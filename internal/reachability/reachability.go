@@ -555,14 +555,60 @@ func (inv *inventory) npmGraph(target string) *npmGraph {
 		return nil
 	}
 	var lock struct {
-		Packages map[string]npmLockEntry `json:"packages"`
+		Packages     map[string]npmLockEntry `json:"packages"`
+		Dependencies map[string]npmV1Entry   `json:"dependencies"`
 	}
-	if json.Unmarshal(raw, &lock) != nil || len(lock.Packages) == 0 {
+	if json.Unmarshal(raw, &lock) != nil {
+		return nil
+	}
+	if len(lock.Packages) == 0 {
+		// lockfileVersion 1: a nested tree, and the direct dependencies are in package.json.
+		lock.Packages = inv.npmV1Packages(target, lock.Dependencies)
+	}
+	if len(lock.Packages) == 0 {
 		return nil
 	}
 	g := buildNpmGraph(lock.Packages)
 	inv.npmLocks[target] = g
 	return g
+}
+
+// npmV1Entry is one package in a lockfileVersion 1 tree.
+type npmV1Entry struct {
+	Requires     map[string]string     `json:"requires"`
+	Dependencies map[string]npmV1Entry `json:"dependencies"`
+}
+
+// npmV1Packages rewrites a lockfileVersion 1 tree in the shape of the newer "packages"
+// map, taking the first-party dependency lists from the package.json next to the lock
+// file. Without that package.json there is no graph.
+func (inv *inventory) npmV1Packages(target string, tree map[string]npmV1Entry) map[string]npmLockEntry {
+	if len(tree) == 0 {
+		return nil
+	}
+	raw, err := os.ReadFile(filepath.Join(inv.root, filepath.Dir(filepath.FromSlash(target)), "package.json"))
+	// Only the dependency lists: package.json's own "bin" may be a string.
+	var manifest struct {
+		Dependencies         map[string]string `json:"dependencies"`
+		DevDependencies      map[string]string `json:"devDependencies"`
+		OptionalDependencies map[string]string `json:"optionalDependencies"`
+		PeerDependencies     map[string]string `json:"peerDependencies"`
+	}
+	if err != nil || json.Unmarshal(raw, &manifest) != nil {
+		return nil
+	}
+	packages := map[string]npmLockEntry{"": {Dependencies: manifest.Dependencies, DevDependencies: manifest.DevDependencies,
+		OptionalDependencies: manifest.OptionalDependencies, PeerDependencies: manifest.PeerDependencies}}
+	var walk func(prefix string, level map[string]npmV1Entry)
+	walk = func(prefix string, level map[string]npmV1Entry) {
+		for name, entry := range level {
+			key := prefix + "node_modules/" + name
+			packages[key] = npmLockEntry{Dependencies: entry.Requires}
+			walk(key+"/", entry.Dependencies)
+		}
+	}
+	walk("", tree)
+	return packages
 }
 
 func buildNpmGraph(packages map[string]npmLockEntry) *npmGraph {

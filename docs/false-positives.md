@@ -159,9 +159,9 @@ Every dependency finding carries a `reachability` state, with a reason:
 A transitive dependency is never imported by name, so a missing import proves
 nothing about it. It is decided from the lock file's dependency graph:
 
-- **npm**: `package-lock.json` with `lockfileVersion` 2 or 3. Older lock files,
-  `yarn.lock` and `pnpm-lock.yaml` have no graph `sdt` reads; packages that are
-  not imported are `unknown` there.
+- **npm**: `package-lock.json`, any `lockfileVersion` (version 1 also needs the
+  `package.json` next to it). `yarn.lock` and `pnpm-lock.yaml` have no graph
+  `sdt` reads; packages that are not imported are `unknown` there.
   A package also counts as used when a `package.json` script runs it (a
   framework or build tool) or when source or configuration names it as a
   string (a module, plugin or preset). Imports in `.vue`, `.svelte` and

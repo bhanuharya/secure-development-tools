@@ -1703,3 +1703,9 @@ def test_pdf_leaves_out_suppressed_findings():
     import sdt_to_pdf
     kept, gone = _suppressed_pair()
     assert [f["rule"]["id"] for f in sdt_to_pdf.reported_findings({"findings": [kept, gone]})] == ["kept"]
+
+
+def test_docx_rule_sections_carry_a_reference_that_does_not_change_between_reports():
+    assert sdt_to_docx.rule_ref("typescript:S6299") == "S6299"
+    assert sdt_to_docx.rule_ref("opengrep-dart:scp.dart.tls.bad-cert") == "bad-cert"
+    assert sdt_to_docx.rule_ref("plain") == "plain"
