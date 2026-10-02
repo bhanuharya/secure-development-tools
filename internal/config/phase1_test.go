@@ -104,3 +104,10 @@ func TestEffectiveDigestCoversCompleteConfig(t *testing.T) {
 		t.Fatal("digest must be sha256-prefixed")
 	}
 }
+
+func TestReachableUnknownIsAccepted(t *testing.T) {
+	cfg := mustParse(t, "policy:\n  defaultAction: report\n  rules:\n    - id: r\n      match:\n        reachable: [reachable, unknown]\n      action: fail\n")
+	if got := cfg.Policy.Rules[0].Match.Reachable; len(got) != 2 || got[1] != "unknown" {
+		t.Fatalf("reachable: unknown must parse, got %v", got)
+	}
+}

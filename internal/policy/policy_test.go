@@ -94,3 +94,38 @@ func TestDeterministic(t *testing.T) {
 		t.Fatal("non-deterministic policy")
 	}
 }
+
+// The opt-in recipe: block what is reachable or undecided, warn on what is
+// proven unreachable. Unknown and unanalyzed findings must stay blocking.
+func TestBlockUnlessProvenUnreachable(t *testing.T) {
+	cfg := config.Defaults()
+	match := config.PolicyMatch{Categories: []string{"dependency-vulnerability"}, Severities: []string{"critical"}, BaselineStates: []string{"new"}}
+	block, warn := match, match
+	block.Reachable = []string{"reachable", "unknown"}
+	warn.Reachable = []string{"unreachable"}
+	cfg.Policy.Rules = []config.PolicyRule{
+		{ID: "block-critical-dependencies", Match: block, Action: "fail"},
+		{ID: "warn-unreachable-critical-dependencies", Match: warn, Action: "warn"},
+	}
+	cfg.Policy.DefaultAction = "report"
+	for _, state := range []string{"reachable", "unknown", ""} {
+		if out := Evaluate(cfg, []*finding.Finding{dep("critical", state)}); out.Status != "policy_failed" {
+			t.Fatalf("state %q must block, got %s", state, out.Status)
+		}
+	}
+	out := Evaluate(cfg, []*finding.Finding{dep("critical", "unreachable")})
+	if out.Status != "passed" || len(out.Warnings) != 1 {
+		t.Fatalf("unreachable must warn, not block: %s warnings=%d", out.Status, len(out.Warnings))
+	}
+}
+
+// Built-in policy: reachability is opt-in, so a new critical dependency blocks
+// whatever its reachability state.
+func TestDefaultPolicyBlocksCriticalDependencyRegardlessOfReachability(t *testing.T) {
+	cfg := config.Defaults()
+	for _, state := range []string{"reachable", "unknown", "unreachable", ""} {
+		if out := Evaluate(cfg, []*finding.Finding{dep("critical", state)}); out.Status != "policy_failed" {
+			t.Fatalf("state %q must block by default, got %s", state, out.Status)
+		}
+	}
+}

@@ -111,7 +111,12 @@ func matchRule(r config.PolicyRule, f *finding.Finding) bool {
 		}
 	}
 	if len(m.Reachable) > 0 {
-		if f.Reachability == nil || !contains(m.Reachable, f.Reachability.State) {
+		// Unanalyzed counts as unknown: it matches only an explicit "unknown".
+		state := "unknown"
+		if f.Reachability != nil && f.Reachability.State != "" {
+			state = f.Reachability.State
+		}
+		if !contains(m.Reachable, state) {
 			return false
 		}
 	}

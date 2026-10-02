@@ -129,8 +129,10 @@ type PolicyMatch struct {
 	BaselineStates []string `yaml:"baselineStates,omitempty" json:"baselineStates,omitempty"`
 	FixAvailable   *bool    `yaml:"fixAvailable,omitempty" json:"fixAvailable,omitempty"`
 	// Reachable matches dependency reachability states ("reachable" |
-	// "unreachable"). Findings with unknown/unanalyzed reachability match
-	// neither value, so uncertainty can never silently demote a finding.
+	// "unreachable" | "unknown"). Findings with unknown/unanalyzed
+	// reachability match only an explicit "unknown", so uncertainty can never
+	// silently demote a finding. List "reachable" and "unknown" together to
+	// block everything not proven unreachable.
 	Reachable []string `yaml:"reachable,omitempty" json:"reachable,omitempty"`
 }
 
@@ -410,9 +412,9 @@ func Validate(cfg *ScanConfiguration) error {
 		}
 		for _, v := range r.Match.Reachable {
 			switch v {
-			case "reachable", "unreachable":
+			case "reachable", "unreachable", "unknown":
 			default:
-				return fmt.Errorf("policy rule %q: unknown reachable %q (want reachable|unreachable)", r.ID, v)
+				return fmt.Errorf("policy rule %q: unknown reachable %q (want reachable|unreachable|unknown)", r.ID, v)
 			}
 		}
 	}
