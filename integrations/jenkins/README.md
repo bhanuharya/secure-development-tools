@@ -179,4 +179,7 @@ the report is produced exactly as before. Check with your data policy that sendi
   rule from those reviews and says which to demote to Hotspot or disable.
 - **Token rotation:** `install/sonar/rotate-token.sh` (new token, verified, old one revoked), then update the `sdt-sonar-token` credential.
 - **Jenkins API token** for automation: `install/jenkins/create-api-token.sh` (asks for your password, never prints the token).
+- **Updating SDT itself:** keep `SDT_HOME` a separate checkout from the one you develop in, and move it forward
+  with `install/update-sdt.sh --home "$SDT_HOME"` (fetch, check out `origin/main`, rebuild the binary). Scans then
+  change only when you run it, never because of an unfinished edit.
 - **Upgrades:** bump versions in `docker/Dockerfile`, rebuild, tag the library; roll back by pinning the previous tag.

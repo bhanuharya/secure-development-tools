@@ -18,6 +18,7 @@ reports/
 # Go build output (root binary only; must not ignore cmd/sdt/ sources)
 # NOTE: bare `sdt` would ignore the cmd/sdt/ directory — use root-anchored path.
 /sdt
+/sdt.new
 dist/
 
 # Local tooling context — plans, prompts, lint results (keep private)
