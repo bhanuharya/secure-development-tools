@@ -92,6 +92,14 @@ A verdict is remembered per question (model, rule, file and the code shown) in `
 again, on any branch, so the advisory is stable between reports and costs nothing when nothing changed. Edited
 code is a new question. `--refresh` asks everything again.
 
+**Automatic Safe marking** (`tools/sdt_sonar_autoclose.py`, off unless `SDT_AI_AUTOCLOSE=1`): a security hotspot
+is marked Safe in SonarQube without a person only when the model review says false positive with high confidence
+and names the line that makes it so, a second, sceptical review of the same code agrees, SonarQube's review
+priority is Low or Medium, and exactly one undecided hotspot sits on that rule, file and line. The comment on the
+hotspot carries the model, the evidence and what to confirm; it can be reopened, and a person's decision is never
+changed. Vulnerabilities and other issues are never closed this way. The build log lists what was marked and
+counts what was left for a person, by reason.
+
 Once reviewers decide findings in SonarQube, the cover shows "Advisory accuracy so far: agreed with X of Y".
 
 ## Trend and coverage

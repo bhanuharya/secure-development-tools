@@ -1584,3 +1584,56 @@ def test_triage_context_includes_where_the_flagged_value_is_sanitised(tmp_path):
     shown = sdt_triage_codex.context(tmp_path, sdt_to_docx.Occurrence("Case.vue", len(lines), "", "To review", ""))
     assert f">{len(lines):>5}  " in shown  # the flagged line, marked
     assert "elsewhere in this file, same names" in shown and "fileUrl: sanitizeFileUrl(attachment.fileUrl)," in shown
+
+
+def test_triage_asks_a_second_opinion_only_for_high_confidence_false_positives(tmp_path):
+    root, groups = _triage_groups(tmp_path)
+    memory, prompts = {}, []
+
+    def call(codex, model, prompt, timeout):
+        prompts.append(prompt)
+        return _fp_answer(codex, model, prompt, timeout)
+
+    first = _run_triage(root, [groups[0]], call, memory=memory, max_per_rule=1, confirm=True)
+    assert len(prompts) == 2 and prompts[1].startswith(sdt_triage_codex.SECOND_OPINION)
+    assert first["results"][0]["second_opinion"] == "likely_false_positive"
+    # Remembered with its second opinion: a rescan asks nothing.
+    again = _run_triage(root, [groups[0]], call, memory=memory, max_per_rule=1, confirm=True)
+    assert len(prompts) == 2 and again["results"][0]["second_opinion"] == "likely_false_positive"
+
+
+def _review(**changes):
+    review = {"rule": "ts:S5332", "path": "src/a.ts", "line": 27, "verdict": "likely_false_positive",
+              "confidence": "high", "second_opinion": "likely_false_positive",
+              "reason": "Line 27 only parses a path; no request is made.", "check": "confirm only pathname is used"}
+    review.update(changes)
+    return review
+
+
+def _open_hotspot(key="H1", priority="LOW", line=27):
+    return {"key": key, "ruleKey": "ts:S5332", "component": "proj:src/a.ts", "line": line,
+            "vulnerabilityProbability": priority}
+
+
+def test_autoclose_marks_safe_only_the_clearest_false_positives():
+    import sdt_sonar_autoclose
+    closes, left = sdt_sonar_autoclose.closable([_review()], [_open_hotspot()])
+    assert [c["key"] for c in closes] == ["H1"] and not left
+    text = sdt_sonar_autoclose.comment(closes[0], "gpt-6-luna")
+    assert "gpt-6-luna" in text and "Line 27 only parses a path" in text and "Reopen" in text
+
+    for review, hotspot, why in [
+        (_review(confidence="medium"), _open_hotspot(), "not a high-confidence false positive"),
+        (_review(verdict="needs_context"), _open_hotspot(), "not a high-confidence false positive"),
+        (_review(second_opinion="likely_true_positive"), _open_hotspot(), "second review did not agree"),
+        (_review(second_opinion=None), _open_hotspot(), "second review did not agree"),
+        (_review(reason="looks harmless"), _open_hotspot(), "no line named as evidence"),
+        (_review(), _open_hotspot(priority="HIGH"), "high review priority"),
+        (_review(line=99), _open_hotspot(), "not reviewed"),
+    ]:
+        closes, left = sdt_sonar_autoclose.closable([review], [hotspot])
+        assert closes == [] and left == {why: 1}, why
+
+    # Two findings on one line cannot be told apart: neither is closed.
+    closes, left = sdt_sonar_autoclose.closable([_review(), _review()], [_open_hotspot("H1"), _open_hotspot("H2")])
+    assert closes == [] and left == {"more than one finding on the line": 2}

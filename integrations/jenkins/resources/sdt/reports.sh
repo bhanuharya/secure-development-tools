@@ -28,6 +28,13 @@ if [ -f "$OUT/sonar-project-key" ] && [ -n "${SONAR_TOKEN:-}" ]; then
     --src-root "$SRC" --out "$OUT/triage.json" --budget "${SDT_CODEX_BUDGET:-600}" \
     || log "AI review skipped (error or timeout); normal report"
   [ -s "$OUT/triage.json" ] && TRIAGE=(--triage "$OUT/triage.json")
+  # Opt-in: mark the clearest false positives Safe in SonarQube, with the review's evidence as the
+  # comment (two agreeing reviews, a named line, review priority below High). Hotspots only.
+  if [ "${SDT_AI_AUTOCLOSE:-0}" = 1 ] && [ -s "$OUT/triage.json" ]; then
+    python3 "$SDT_HOME/tools/sdt_sonar_autoclose.py" --sonar-url "$SONAR_HOST_URL" \
+      --project-key "$(cat "$OUT/sonar-project-key")" "${SCOPE[@]}" --triage "$OUT/triage.json" \
+      || log "automatic Safe marking skipped (error); findings stay To review"
+  fi
   TRIAGE+=(--coverage "$OUT/coverage.txt")
   # Trend against the previous scan of this repository and branch (needs a persistent SDT_HISTORY_DIR).
   HISTORY=""

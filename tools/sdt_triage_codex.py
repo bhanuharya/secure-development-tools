@@ -207,14 +207,22 @@ def save_memory(path: Path, entries: dict) -> None:
     temporary.replace(path)
 
 
-def build_prompt(group: sdt_to_docx.Group, items: list[tuple[str, sdt_to_docx.Occurrence, str]]) -> str:
+SECOND_OPINION = """You are a senior application security reviewer giving a second, independent opinion.
+Another reviewer judged every occurrence below a FALSE POSITIVE. Assume they can be wrong: look for
+any way the flagged code is reachable with attacker-influenced data or is unsafe in production.
+Answer likely_false_positive only when the code shown rules the risk out."""
+FIRST_OPINION = """You are a senior application security reviewer. Your main job is to find FALSE POSITIVES:
+static-analysis findings that are not a real, exploitable problem in this code, so the team
+does not waste time on them. Confirm a finding as real only when the code supports it."""
+
+
+def build_prompt(group: sdt_to_docx.Group, items: list[tuple[str, sdt_to_docx.Occurrence, str]],
+                 second: bool = False) -> str:
     risk = " ".join(group.risk)[:1200] or "(no rule description available)"
     fixes = "; ".join(group.fixes)[:600]
     blocks = "\n\n".join(f"### {item_id}: {o.path}:{o.line}\nScanner message: {o.message or '-'}\n```\n{code}\n```"
                          for item_id, o, code in items)
-    return f"""You are a senior application security reviewer. Your main job is to find FALSE POSITIVES:
-static-analysis findings that are not a real, exploitable problem in this code, so the team
-does not waste time on them. Confirm a finding as real only when the code supports it.
+    return f"""{SECOND_OPINION if second else FIRST_OPINION}
 
 Rule: {group.rule} ({group.kind}, severity {group.severity})
 Rule name: {group.name}
@@ -297,12 +305,16 @@ def run_codex(codex: str, model: str, prompt: str, timeout: float) -> dict:
 
 def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, model: str, *,
            per_call_timeout: float, budget: float, max_rules: int, max_per_rule: int, max_failures: int,
-           call=run_codex, clock=time.monotonic, memory: dict | None = None) -> dict:
+           call=run_codex, clock=time.monotonic, memory: dict | None = None, confirm: bool = False) -> dict:
     """Review up to max_rules code rules, stopping on budget or repeated failure.
 
     ``memory`` holds earlier verdicts by memory_key: a question already answered for the same
     code is answered from it, so a rescan of unchanged code repeats the verdict instead of
     asking again; new answers are added to it.
+
+    With ``confirm``, every high-confidence false positive is put to a second, sceptical review
+    once; its verdict is kept as ``second_opinion`` (and remembered) for anything that acts on
+    the advisory, such as sdt_sonar_autoclose.py.
     """
     started, failures = clock(), 0
     report = {"engine": "codex", "model": model, "advisory": True,
@@ -315,6 +327,7 @@ def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, m
             report["stopped"] = "time budget spent"
             break
         items, lookup, keys, considered = [], {}, {}, 0
+        shown: dict[str, tuple] = {}  # memory key -> (occurrence, code, its result in the report)
         for occurrence in group.occurrences:
             code = context(src_root, occurrence)
             if not code:
@@ -325,34 +338,61 @@ def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, m
                 report["remembered"] += 1
                 report["results"].append({"rule": group.rule, "path": occurrence.path, "line": occurrence.line,
                                           **memory[key], "remembered": True})
+                shown[key] = (occurrence, code, report["results"][-1])
             else:
+                shown[key] = (occurrence, code, None)
                 item_id = f"o{len(items) + 1}"
                 items.append((item_id, occurrence, code))
                 lookup[item_id], keys[item_id] = occurrence, key
             if considered >= max_per_rule:
                 break
-        if not items:
-            continue
-        report["calls"] += 1
-        try:
-            answer = call(codex, model, build_prompt(group, items), min(per_call_timeout, remaining))
-            results = validate(answer, set(lookup))
-        except (subprocess.TimeoutExpired, RuntimeError, ValueError, OSError) as exc:
-            failures += 1
-            report["failed_calls"] += 1
-            reason = "timed out" if isinstance(exc, subprocess.TimeoutExpired) else str(exc)
-            print(f"sdt_triage_codex: {group.rule}: {reason}", file=sys.stderr)
-            if failures >= max_failures:
-                report["stopped"] = f"{failures} consecutive failed calls (last: {reason[:200]})"
-                break
-            continue
-        failures = 0
-        for result in results:
-            item_id = result.pop("id")
-            occurrence = lookup[item_id]
-            memory[keys[item_id]] = dict(result)
-            report["results"].append({"rule": group.rule, "path": occurrence.path, "line": occurrence.line, **result})
+        if items:
+            report["calls"] += 1
+            try:
+                answer = call(codex, model, build_prompt(group, items), min(per_call_timeout, remaining))
+                results = validate(answer, set(lookup))
+            except (subprocess.TimeoutExpired, RuntimeError, ValueError, OSError) as exc:
+                failures += 1
+                report["failed_calls"] += 1
+                reason = "timed out" if isinstance(exc, subprocess.TimeoutExpired) else str(exc)
+                print(f"sdt_triage_codex: {group.rule}: {reason}", file=sys.stderr)
+                if failures >= max_failures:
+                    report["stopped"] = f"{failures} consecutive failed calls (last: {reason[:200]})"
+                    break
+                continue
+            failures = 0
+            for result in results:
+                item_id = result.pop("id")
+                occurrence = lookup[item_id]
+                memory[keys[item_id]] = dict(result)
+                report["results"].append({"rule": group.rule, "path": occurrence.path, "line": occurrence.line, **result})
+                shown[keys[item_id]] = (occurrence, shown[keys[item_id]][1], report["results"][-1])
+        if confirm:
+            second_opinions(group, shown, memory, report, codex, model, call,
+                            min(per_call_timeout, budget - (clock() - started)))
     return report
+
+
+def second_opinions(group, shown: dict, memory: dict, report: dict, codex: str, model: str, call, timeout: float) -> None:
+    """Put this rule's high-confidence false positives to a sceptical second review, once each."""
+    pending = [(key, occurrence, code, result) for key, (occurrence, code, result) in shown.items()
+               if result and result.get("verdict") == "likely_false_positive" and result.get("confidence") == "high"
+               and not result.get("second_opinion")]
+    if not pending or timeout < 10:
+        return
+    items = [(f"o{n + 1}", occurrence, code) for n, (_, occurrence, code, _) in enumerate(pending)]
+    report["calls"] += 1
+    try:
+        answers = {r["id"]: r for r in validate(call(codex, model, build_prompt(group, items, second=True), timeout),
+                                                {item_id for item_id, _, _ in items})}
+    except (subprocess.TimeoutExpired, RuntimeError, ValueError, OSError) as exc:
+        report["failed_calls"] += 1
+        print(f"sdt_triage_codex: {group.rule}: second opinion failed ({str(exc)[:120]})", file=sys.stderr)
+        return
+    for (item_id, _, _), (key, _, _, result) in zip(items, pending):
+        if item_id in answers:
+            result["second_opinion"] = answers[item_id]["verdict"]
+            memory.setdefault(key, {})["second_opinion"] = answers[item_id]["verdict"]
 
 
 def find_codex(explicit: str) -> str:
@@ -380,6 +420,8 @@ def main() -> int:
     ap.add_argument("--memory", type=Path, help="file of remembered verdicts (default: $SDT_TRIAGE_MEMORY, else "
                                                 "~/.cache/sdt/triage/<project>.json); unchanged code is not asked again")
     ap.add_argument("--refresh", action="store_true", help="ignore remembered verdicts and ask again")
+    ap.add_argument("--confirm", action="store_true", default=os.environ.get("SDT_AI_AUTOCLOSE", "0") == "1",
+                    help="second, sceptical review of high-confidence false positives (default: on with SDT_AI_AUTOCLOSE=1)")
     args = ap.parse_args()
 
     codex = find_codex(args.codex)
@@ -404,7 +446,7 @@ def main() -> int:
     memory = {} if args.refresh else load_memory(memory_path)
     report = triage(groups, args.src_root, codex, args.model, per_call_timeout=args.per_call_timeout,
                     budget=args.budget, max_rules=args.max_rules, max_per_rule=args.max_per_rule,
-                    max_failures=args.max_failures, memory=memory)
+                    max_failures=args.max_failures, memory=memory, confirm=args.confirm)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2) + "\n")
     try:
