@@ -25,6 +25,9 @@ ARG GITLEAKS_VERSION=8.30.1
 ARG TRIVY_VERSION=0.73.0
 ARG SONAR_SCANNER_VERSION=6.2.1.4610
 ARG FLUTTER_VERSION=3.47.4
+# Optional AI review (advisory verdicts, auto-close, change review): pass e.g.
+# --build-arg CODEX_VERSION=0.159.2. Empty leaves the Codex CLI out; reports then use the built-in advisory.
+ARG CODEX_VERSION=
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl git openssh-client unzip xz-utils python3 python3-pip python3-venv \
@@ -43,6 +46,12 @@ RUN set -eux; \
     unzip -q /tmp/scanner.zip -d /opt; rm /tmp/scanner.zip; \
     ln -s "/opt/sonar-scanner-${SONAR_SCANNER_VERSION}-linux-x64/bin/sonar-scanner" /usr/local/bin/sonar-scanner
 
+RUN if [ -n "${CODEX_VERSION}" ]; then \
+      curl -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-x86_64-unknown-linux-musl.tar.gz" \
+        | tar -xz -C /usr/local/bin \
+      && mv /usr/local/bin/codex-x86_64-unknown-linux-musl /usr/local/bin/codex; \
+    fi
+
 RUN if [ -n "${FLUTTER_VERSION}" ]; then \
       curl -fsSL "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
         | tar -xJ -C /opt; \
@@ -55,13 +64,18 @@ COPY --from=sdt rules /opt/sdt/rules
 COPY --from=sdt tools /opt/sdt/tools
 COPY --from=sdt src /opt/sdt/src
 COPY --from=sdt examples/fleet /opt/sdt/examples/fleet
+COPY --from=sdt integrations/jenkins/install/preflight.sh /opt/sdt/preflight.sh
 COPY --from=sdt requirements.txt /opt/sdt/requirements.txt
 RUN python3 -m venv /opt/sdt/venv && /opt/sdt/venv/bin/pip install --no-cache-dir -r /opt/sdt/requirements.txt
 ENV PATH="/opt/sdt/venv/bin:${PATH}" SDT_HOME=/opt/sdt
 
+# What must survive between scans (scan history, AI verdict memory, the Codex login): mount a
+# volume here and it is used automatically. Without a mount the scan still runs, without them.
+ENV SDT_STATE_DIR=/var/lib/sdt CODEX_HOME=/var/lib/sdt/codex
+
 # Private Bitbucket packages (git dependencies in pubspec.yaml) resolve over SSH with the
 # credential Jenkins mounts; trust bitbucket.org's published host keys up front.
-RUN useradd --create-home --uid 1000 scanner \
+RUN useradd --create-home --uid 1000 scanner && mkdir -p /var/lib/sdt && chown scanner:scanner /var/lib/sdt \
     && mkdir -p /home/scanner/.ssh && ssh-keyscan -t rsa,ecdsa,ed25519 bitbucket.org > /home/scanner/.ssh/known_hosts 2>/dev/null \
     && chown -R scanner:scanner /home/scanner /opt/flutter 2>/dev/null || true
 USER scanner

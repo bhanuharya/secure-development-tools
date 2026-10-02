@@ -93,8 +93,35 @@ and set `SDT_HOME` (and `FLUTTER_HOME`) in the agent's environment.
    - `integrations/jenkins/jobs/pull-request.Jenkinsfile`: the same PR scan, for webhook-triggered jobs
    - `integrations/jenkins/jobs/nightly-fleet.Jenkinsfile`: nightly, repositories from `config/repos.txt`
 
-### 4. Check it
+### 4. Production on Docker agents
 
+The scanner is stateless and runs in the image on your existing Docker agents. Three things live outside it:
+
+| What | Where | Setting |
+|---|---|---|
+| SonarQube | your SonarQube server, with the plugins of step 1 | `SDT_SONAR_URL` |
+| Review decisions | a PostgreSQL database the agents can reach | `SDT_FLEET_DATABASE` |
+| Scan history, AI verdict memory, Codex login | one volume, mounted at `/var/lib/sdt` | `SDT_DOCKER_ARGS=-v sdt-state:/var/lib/sdt` |
+
+Without the volume a scan still works, but reports have no "changes since previous scan" and the AI review
+asks every question again. On several agents use a shared volume (NFS or similar), not a local one.
+
+- **Every setting** is listed with its default in [`config/settings.env.example`](config/settings.env.example).
+- **AI review** needs the Codex CLI in the image (`--build-arg CODEX_VERSION=<version>`) and a login in the
+  volume: once, run `docker run -it -v sdt-state:/var/lib/sdt <image> codex login`. Decide first whether code
+  excerpts may leave your network; with `SDT_AI_TRIAGE=0` nothing is sent and every other feature still works.
+- **Pin versions:** `SDT_IMAGE` to an image tag and the pipeline library to a release tag, so a push to the
+  repository never changes a production scan.
+- **Check the install** from inside the image before the first job (it changes nothing):
+  ```bash
+  docker run --rm -v sdt-state:/var/lib/sdt -e SONAR_HOST_URL=https://sonar.example.com -e SONAR_TOKEN \
+    -e FLEET_DATABASE=... <image> /opt/sdt/preflight.sh
+  ```
+  Each line is `OK`, `WARN` (works, a feature is off) or `FAIL` (a scan would break). The Bitbucket check
+  needs the SSH key, so it fails in this bare command and passes inside a job.
+
+### 5. Check it
+ 
 Run the on-demand job (`scan_type` = `branch`) for one repository. Expect, in order: `SonarQube import confirmed`,
 `quality gate: OK|ERROR`, and in the build artifacts `SAST Report - <repo>.docx`, `security-report.pdf`,
 `fleet-findings.xlsx`, `sbom.cdx.json`, `findings.sarif`.

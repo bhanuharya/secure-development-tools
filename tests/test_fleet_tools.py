@@ -1709,3 +1709,10 @@ def test_docx_rule_sections_carry_a_reference_that_does_not_change_between_repor
     assert sdt_to_docx.rule_ref("typescript:S6299") == "S6299"
     assert sdt_to_docx.rule_ref("opengrep-dart:scp.dart.tls.bad-cert") == "bad-cert"
     assert sdt_to_docx.rule_ref("plain") == "plain"
+
+
+def test_triage_memory_lives_in_the_state_directory_when_there_is_one(tmp_path):
+    where = sdt_triage_codex.default_memory_path
+    assert where("proj:key/1", {"SDT_STATE_DIR": str(tmp_path)}) == tmp_path / "triage" / "proj_key_1.json"
+    assert where("p", {"SDT_STATE_DIR": str(tmp_path), "SDT_TRIAGE_MEMORY": "/x/m.json"}) == Path("/x/m.json")
+    assert where("p", {}) == Path.home() / ".cache" / "sdt" / "triage" / "p.json"

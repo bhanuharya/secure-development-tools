@@ -15,6 +15,8 @@
  *                             "none" = use the agent user's own SSH key (~/.ssh)
  *   SDT_WORKSPACE             Bitbucket workspace (e.g. my-workspace)
  *   SDT_IMAGE                 scanner image (docker/Dockerfile); empty = tools on the agent
+ *   SDT_DOCKER_ARGS           extra "docker run" arguments for the scanner container, e.g. the volume
+ *                             that keeps state between scans: "-v sdt-state:/var/lib/sdt"
  *   SDT_AGENT_LABEL           agent label to run on
  *   SDT_FLEET_DATABASE        optional SQLAlchemy URL of the fleet store
  *   SDT_QUALITY_GATE_ENFORCE  "1" fails the build on a failed gate (default: report only)
@@ -111,7 +113,7 @@ private void inScanner(String image, Closure body) {
   if (image) {
     // Forward the ssh-agent socket so private git dependencies resolve inside the container.
     def agentSocket = env.SSH_AUTH_SOCK ? "-v ${env.SSH_AUTH_SOCK}:${env.SSH_AUTH_SOCK} -e SSH_AUTH_SOCK" : ''
-    docker.image(image).inside("--entrypoint= ${agentSocket}") { body() }
+    docker.image(image).inside("--entrypoint= ${agentSocket} ${env.SDT_DOCKER_ARGS ?: ''}") { body() }
   } else {
     body()
   }

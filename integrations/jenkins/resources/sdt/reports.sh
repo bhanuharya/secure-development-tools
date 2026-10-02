@@ -4,12 +4,14 @@
 # ingest this run, then copy review decisions made in SonarQube back into it.
 #
 # Required: SRC, OUT, REPO_SLUG, SONAR_HOST_URL, SONAR_TOKEN (after scan.sh ran)
-# Optional: BRANCH / PR_ID, WORKSPACE_NAME, SCOPE_URL, SDT_HOME, FLEET_DATABASE
+# Optional: BRANCH / PR_ID, WORKSPACE_NAME, SCOPE_URL, SDT_HOME, FLEET_DATABASE,
+#           SDT_STATE_DIR (kept between scans: scan history and AI verdict memory live under it)
 set -euo pipefail
 set +x
 : "${SRC:?}" "${OUT:?}" "${REPO_SLUG:?}"
 SDT_HOME="${SDT_HOME:-/opt/sdt}"
 WORKSPACE_NAME="${WORKSPACE_NAME:-workspace}"
+[ -n "${SDT_STATE_DIR:-}" ] && : "${SDT_HISTORY_DIR:=$SDT_STATE_DIR/history}"
 COMMIT=$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo "")
 log() { printf '[sdt] %s\n' "$*"; }
 status=0

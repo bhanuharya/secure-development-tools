@@ -200,6 +200,15 @@ def load_memory(path: Path | None) -> dict:
     return entries if isinstance(entries, dict) else {}
 
 
+def default_memory_path(project: str, environ) -> Path:
+    """$SDT_TRIAGE_MEMORY, else one file per project under $SDT_STATE_DIR/triage (the state a
+    container keeps between scans), else under the user's cache directory."""
+    if environ.get("SDT_TRIAGE_MEMORY"):
+        return Path(environ["SDT_TRIAGE_MEMORY"])
+    base = Path(environ["SDT_STATE_DIR"]) / "triage" if environ.get("SDT_STATE_DIR") else Path.home() / ".cache" / "sdt" / "triage"
+    return base / (re.sub(r"[^\w.-]", "_", project) + ".json")
+
+
 def save_memory(path: Path, entries: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -418,7 +427,8 @@ def main() -> int:
     ap.add_argument("--max-per-rule", type=int, default=6)
     ap.add_argument("--max-failures", type=int, default=2, help="stop after this many consecutive failed calls")
     ap.add_argument("--memory", type=Path, help="file of remembered verdicts (default: $SDT_TRIAGE_MEMORY, else "
-                                                "~/.cache/sdt/triage/<project>.json); unchanged code is not asked again")
+                                                "$SDT_STATE_DIR/triage/<project>.json, else ~/.cache/sdt/triage/); "
+                                                "unchanged code is not asked again")
     ap.add_argument("--refresh", action="store_true", help="ignore remembered verdicts and ask again")
     ap.add_argument("--confirm", action="store_true", default=os.environ.get("SDT_AI_AUTOCLOSE", "0") == "1",
                     help="second, sceptical review of high-confidence false positives (default: on with SDT_AI_AUTOCLOSE=1)")
@@ -441,8 +451,7 @@ def main() -> int:
         print(f"sdt_triage_codex: cannot read findings ({exc}): no AI review", file=sys.stderr)
         return 0
     groups = sdt_to_docx.merge(found, None)["code"]
-    memory_path = args.memory or Path(os.environ.get("SDT_TRIAGE_MEMORY", "") or Path.home() / ".cache" / "sdt" / "triage" /
-                                      (re.sub(r"[^\w.-]", "_", args.project_key or "findings") + ".json"))
+    memory_path = args.memory or default_memory_path(args.project_key or "findings", os.environ)
     memory = {} if args.refresh else load_memory(memory_path)
     report = triage(groups, args.src_root, codex, args.model, per_call_timeout=args.per_call_timeout,
                     budget=args.budget, max_rules=args.max_rules, max_per_rule=args.max_per_rule,
