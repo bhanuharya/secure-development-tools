@@ -1109,8 +1109,9 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
                                 advisory_cols=(5,)))
         # Then every finding, file by file: nothing is hidden, only organised.
         for i, (where, occs) in enumerate(files.items(), 1):
+            heading = f"1.{n}.{i} {where} - {plural(len(occs), 'finding')}"
             parts.append(f'<w:p><w:pPr><w:keepNext/><w:spacing w:before="200" w:after="40"/></w:pPr>'
-                         f'{run(f"1.{n}.{i} {where}", bold=True)}{run(f" - {plural(len(occs), 'finding')}")}</w:p>')
+                         f'{run(heading, bold=True)}</w:p>')
             detail = []
             for o in occs:
                 note = o.ai or {}
