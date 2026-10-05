@@ -108,9 +108,11 @@ asks every question again. On several agents use a shared volume (NFS or similar
 
 - **Every setting** is listed with its default in [`config/settings.env.example`](config/settings.env.example).
 - **AI review** needs the Codex CLI in the image (`--build-arg CODEX_VERSION=<version>`) and a login in the
-  volume (`CODEX_HOME=/var/lib/sdt/codex`). Log in once with an organisation API key, not a personal account:
-  `printenv OPENAI_API_KEY | docker run -i -v sdt-state:/var/lib/sdt <image> codex login --with-api-key`
-  (or `codex login --device-auth` in an interactive container). Decide first whether code
+  volume (`CODEX_HOME=/var/lib/sdt/codex`). A container has no browser, so sign in where there is one and copy
+  the result in: run `codex login` on a workstation, then put that machine's `~/.codex/auth.json` into the volume
+  as `codex/auth.json`, owned by uid 1000 and mode 600 (`codex login --with-api-key` reading a key from stdin, or
+  `codex login --device-auth`, also work). The file holds that account's sign-in tokens: treat it like a password,
+  use a team or service account rather than a person's, and keep the volume writable so Codex can refresh them. Decide first whether code
   excerpts may leave your network; with `SDT_AI_TRIAGE=0` nothing is sent and every other feature still works.
 - **Pin versions:** `SDT_IMAGE` to an image tag and the pipeline library to a release tag, so a push to the
   repository never changes a production scan.
