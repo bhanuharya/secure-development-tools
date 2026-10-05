@@ -101,7 +101,7 @@ The scanner is stateless and runs in the image on your existing Docker agents. T
 |---|---|---|
 | SonarQube | your SonarQube server, with the plugins of step 1 | `SDT_SONAR_URL` |
 | Review decisions | a PostgreSQL database the agents can reach | `SDT_FLEET_DATABASE` |
-| Scan history, AI verdict memory, Codex login | one volume, mounted at `/var/lib/sdt` | `SDT_DOCKER_ARGS=-v sdt-state:/var/lib/sdt` |
+| Scan history, AI verdict memory, Codex login, Trivy database | one volume, mounted at `/var/lib/sdt` | `SDT_DOCKER_ARGS=-v sdt-state:/var/lib/sdt` |
 
 Without the volume a scan still works, but reports have no "changes since previous scan" and the AI review
 asks every question again. On several agents use a shared volume (NFS or similar), not a local one.

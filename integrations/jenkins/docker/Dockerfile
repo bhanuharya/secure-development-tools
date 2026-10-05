@@ -69,9 +69,10 @@ COPY --from=sdt requirements.txt /opt/sdt/requirements.txt
 RUN python3 -m venv /opt/sdt/venv && /opt/sdt/venv/bin/pip install --no-cache-dir -r /opt/sdt/requirements.txt
 ENV PATH="/opt/sdt/venv/bin:${PATH}" SDT_HOME=/opt/sdt
 
-# What must survive between scans (scan history, AI verdict memory, the Codex login): mount a
-# volume here and it is used automatically. Without a mount the scan still runs, without them.
-ENV SDT_STATE_DIR=/var/lib/sdt CODEX_HOME=/var/lib/sdt/codex
+# What must survive between scans (scan history, AI verdict memory, the Codex login, Trivy's
+# vulnerability database): mount a volume here and it is used automatically. Without a mount the
+# scan still runs, but without them, and Trivy downloads its database on every scan.
+ENV SDT_STATE_DIR=/var/lib/sdt CODEX_HOME=/var/lib/sdt/codex TRIVY_CACHE_DIR=/var/lib/sdt/trivy
 
 # Private Bitbucket packages (git dependencies in pubspec.yaml) resolve over SSH with the
 # credential Jenkins mounts; trust bitbucket.org's published host keys up front.
