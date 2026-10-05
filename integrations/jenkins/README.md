@@ -89,7 +89,9 @@ and set `SDT_HOME` (and `FLUTTER_HOME`) in the agent's environment.
 5. Jobs: *Pipeline script from SCM* → the secure-development-tools repository → script path:
    - `integrations/jenkins/jobs/scan.Jenkinsfile`: on-demand. Pick `scan_type`:
      `branch` scans the whole branch (gate reported); `pull-request` scans only what the PR adds over
-     `pr_base`, using the target branch as the baseline (gate enforced)
+     `pr_base`, using the target branch as the baseline (gate enforced).
+     For a pull request that is already merged, also give `merge_commit`: the scan compares that
+     commit with its first parent. It works for merge and squash commits, not for a fast-forward of several commits.
    - `integrations/jenkins/jobs/pull-request.Jenkinsfile`: the same PR scan, for webhook-triggered jobs
    - `integrations/jenkins/jobs/nightly-fleet.Jenkinsfile`: nightly, repositories from `config/repos.txt`
 

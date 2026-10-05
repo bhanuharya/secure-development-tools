@@ -4,6 +4,10 @@
  *   @Library('sdt-pipeline') _
  *   sdtScan(repo: 'mobile-app', branch: 'release/1.0')
  *   sdtScan(repo: 'web-portal', prId: '379', prBranch: 'feature/x', prBase: 'main')
+ *   sdtScan(repo: 'web-portal', prId: '379', prBranch: 'feature/x', prBase: 'main', prMergeCommit: 'a1b2c3d')
+ *
+ * prMergeCommit scans a pull request that is already merged: the merge (or squash) commit is
+ * compared with its first parent, the target branch as it was before the merge.
  *
  * Every setting has a default from the global environment (Manage Jenkins > System >
  * Global properties) so a prod Jenkins only sets what differs. Credentials are Jenkins
@@ -28,6 +32,7 @@ def call(Map args = [:]) {
     prId            : args.prId ?: '',
     prBranch        : args.prBranch ?: '',
     prBase          : args.prBase ?: '',
+    prMergeCommit   : args.prMergeCommit ?: '',
     workspace       : args.workspace ?: env.SDT_WORKSPACE ?: error('sdtScan: set workspace or SDT_WORKSPACE'),
     sonarUrl        : args.sonarUrl ?: env.SDT_SONAR_URL ?: error('sdtScan: set sonarUrl or SDT_SONAR_URL'),
     sonarCredentials: args.sonarCredentials ?: env.SDT_SONAR_CREDENTIALS ?: 'sdt-sonar-token',
@@ -38,7 +43,10 @@ def call(Map args = [:]) {
     enforceGate     : (args.enforceGate ?: env.SDT_QUALITY_GATE_ENFORCE ?: '0').toString(),
   ]
   if (!cfg.branch && !cfg.prId) { error('sdtScan: give branch, or prId + prBranch + prBase') }
-  def ref = cfg.prId ? cfg.prBranch : cfg.branch
+  if (cfg.prMergeCommit && !(cfg.prId && cfg.prBase)) { error('sdtScan: prMergeCommit needs prId and prBase') }
+  if (cfg.prMergeCommit && !(cfg.prMergeCommit ==~ /[0-9a-fA-F]{7,40}/)) { error('sdtScan: prMergeCommit must be a commit hash') }
+  // A merged pull request is checked out from its target branch: the source branch may be gone.
+  def ref = cfg.prMergeCommit ? cfg.prBase : (cfg.prId ? cfg.prBranch : cfg.branch)
   def scopeUrl = cfg.prId ? "https://bitbucket.org/${cfg.workspace}/${cfg.repo}/pull-requests/${cfg.prId}"
                           : "https://bitbucket.org/${cfg.workspace}/${cfg.repo}/src/${ref}"
 
@@ -54,7 +62,14 @@ def call(Map args = [:]) {
                     // Full history: secrets in past commits are findings too.
                     extensions: [[$class: 'CloneOption', shallow: false, noTags: false],
                                  [$class: 'CleanBeforeCheckout']]])
-          if (cfg.prBase) { sh "git fetch --no-tags origin '+refs/heads/${cfg.prBase}:refs/remotes/origin/${cfg.prBase}'" }
+          if (cfg.prMergeCommit) {
+            // The target branch now contains the pull request. Scan the merge commit and, in this
+            // workspace only, point the target branch at what it was before the merge.
+            sh "git checkout -q --detach '${cfg.prMergeCommit}^{commit}' && " +
+               "git update-ref 'refs/remotes/origin/${cfg.prBase}' '${cfg.prMergeCommit}^1'"
+          } else if (cfg.prBase) {
+            sh "git fetch --no-tags origin '+refs/heads/${cfg.prBase}:refs/remotes/origin/${cfg.prBase}'"
+          }
         }
       }
       writeFile file: '.sdt/scan.sh', text: libraryResource('sdt/scan.sh')
