@@ -24,6 +24,10 @@
  *   SDT_AGENT_LABEL           agent label to run on
  *   SDT_FLEET_DATABASE        optional SQLAlchemy URL of the fleet store
  *   SDT_QUALITY_GATE_ENFORCE  "1" fails the build on a failed gate (default: report only)
+ *   SDT_BITBUCKET_API_CREDENTIALS  "Secret text" credential with a Bitbucket token that may comment on pull
+ *                             requests (and write to the repository, to attach the report). Set: every
+ *                             pull-request scan comments its result on the pull request. Empty: no comment
+ *   SDT_BITBUCKET_API_USER    the account email, when that token is an API token; empty for an access token
  */
 def call(Map args = [:]) {
   def cfg = [
@@ -41,6 +45,7 @@ def call(Map args = [:]) {
     agentLabel      : args.agentLabel ?: env.SDT_AGENT_LABEL ?: '',
     fleetDatabase   : args.fleetDatabase ?: env.SDT_FLEET_DATABASE ?: '',
     enforceGate     : (args.enforceGate ?: env.SDT_QUALITY_GATE_ENFORCE ?: '0').toString(),
+    prCommentCredentials: args.prCommentCredentials ?: env.SDT_BITBUCKET_API_CREDENTIALS ?: '',
   ]
   if (!cfg.branch && !cfg.prId) { error('sdtScan: give branch, or prId + prBranch + prBase') }
   if (cfg.prMergeCommit && !(cfg.prId && cfg.prBase)) { error('sdtScan: prMergeCommit needs prId and prBase') }
@@ -50,6 +55,7 @@ def call(Map args = [:]) {
   def scopeUrl = cfg.prId ? "https://bitbucket.org/${cfg.workspace}/${cfg.repo}/pull-requests/${cfg.prId}"
                           : "https://bitbucket.org/${cfg.workspace}/${cfg.repo}/src/${ref}"
 
+  oneAtATime("sdt-scan/${cfg.workspace}/${cfg.repo}") {
   node(cfg.agentLabel) {
     def outcome = 'SUCCESS'
     try {
@@ -74,6 +80,7 @@ def call(Map args = [:]) {
       }
       writeFile file: '.sdt/scan.sh', text: libraryResource('sdt/scan.sh')
       writeFile file: '.sdt/reports.sh', text: libraryResource('sdt/reports.sh')
+      writeFile file: '.sdt/pr_comment.py', text: libraryResource('sdt/pr_comment.py')
       // Jenkins environment names are case-insensitive: job parameters such as "branch" or
       // "pr_id" would swallow BRANCH / PR_ID, so the scope is passed as SDT_SCAN_* and
       // renamed in the shell (see runScript).
@@ -82,7 +89,8 @@ def call(Map args = [:]) {
                          "SDT_SCAN_PR_BRANCH=${cfg.prBranch}", "SDT_SCAN_PR_BASE=${cfg.prBase}",
                          "WORKSPACE_NAME=${cfg.workspace}",
                          "SONAR_HOST_URL=${cfg.sonarUrl}", "SCOPE_URL=${scopeUrl}",
-                         "FLEET_DATABASE=${cfg.fleetDatabase}", "QUALITY_GATE_ENFORCE=${cfg.enforceGate}"]
+                         "FLEET_DATABASE=${cfg.fleetDatabase}", "QUALITY_GATE_ENFORCE=${cfg.enforceGate}",
+                         "BITBUCKET_USER=${env.SDT_BITBUCKET_API_USER ?: ''}"]
       withCredentials([string(credentialsId: cfg.sonarCredentials, variable: 'SONAR_TOKEN')]) {
         withEnv(environment) {
           withGitKey(cfg.gitCredentials) {
@@ -95,6 +103,16 @@ def call(Map args = [:]) {
             }
             stage('reports') {
               if (runScript('reports') != 0 && outcome == 'SUCCESS') { outcome = 'UNSTABLE' }
+            }
+            if (cfg.prId && cfg.prCommentCredentials) {
+              stage('pull request comment') {
+                // Pass or fail, what the pull request adds, and the report. Never fails the build.
+                withCredentials([string(credentialsId: cfg.prCommentCredentials, variable: 'BITBUCKET_TOKEN')]) {
+                  if (sh(script: 'PR_ID="$SDT_SCAN_PR_ID" python3 .sdt/pr_comment.py', returnStatus: true) != 0) {
+                    echo 'the pull request comment was not posted'
+                  }
+                }
+              }
             }
           }
           }
@@ -109,6 +127,22 @@ def call(Map args = [:]) {
       cleanWs()
     }
     currentBuild.result = outcome
+  }
+  }
+}
+
+/**
+ * Scans of one repository run one after another, since they share its SonarQube project and scan
+ * history; scans of different repositories run side by side. Waiting happens before an agent is taken.
+ */
+private void oneAtATime(String resource, Closure body) {
+  boolean started = false
+  try {
+    lock(resource) { started = true; body() }
+  } catch (NoSuchMethodError e) {
+    if (started) { throw e }
+    echo 'sdtScan: Lockable Resources plugin not installed; scans of the same repository are not kept apart'
+    body()
   }
 }
 

@@ -4,7 +4,6 @@
 @Library('sdt-pipeline') _
 
 properties([
-  disableConcurrentBuilds(),
   buildDiscarder(logRotator(numToKeepStr: '50', artifactNumToKeepStr: '20')),
   parameters([
     string(name: 'reponame', defaultValue: '', description: 'Repository slug in the Bitbucket workspace'),

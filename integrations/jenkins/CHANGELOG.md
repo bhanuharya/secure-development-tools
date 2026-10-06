@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-06
+
+- On-demand scans run side by side. Scans of the same repository wait for each other (`lock`, Lockable
+  Resources plugin); without the plugin they are not kept apart and the build log says so.
+- Pull-request scans can comment on the Bitbucket Cloud pull request (`SDT_BITBUCKET_API_CREDENTIALS`): passed or
+  failed, what the pull request adds, and the SAST report. A later scan updates the same comment.
+
 ## 2026-09-30
 
 - `sdtScan` / `sdtFleetScan` shared-library steps, scanner image, SonarQube profile and quality-gate setup,

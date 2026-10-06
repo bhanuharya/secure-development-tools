@@ -92,6 +92,8 @@ and set `SDT_HOME` (and `FLUTTER_HOME`) in the agent's environment.
      `pr_base`, using the target branch as the baseline (gate enforced).
      For a pull request that is already merged, also give `merge_commit`: the scan compares that
      commit with its first parent. It works for merge and squash commits, not for a fast-forward of several commits.
+     Builds of this job run side by side, up to the agent's executors; two scans of the same repository wait
+     for each other.
    - `integrations/jenkins/jobs/pull-request.Jenkinsfile`: the same PR scan, for webhook-triggered jobs
    - `integrations/jenkins/jobs/nightly-fleet.Jenkinsfile`: nightly, repositories from `config/repos.txt`
 
@@ -131,6 +133,24 @@ asks every question again. On several agents use a shared volume (NFS or similar
 Run the on-demand job (`scan_type` = `branch`) for one repository. Expect, in order: `SonarQube import confirmed`,
 `quality gate: OK|ERROR`, and in the build artifacts `SAST Report - <repo>.docx`, `security-report.pdf`,
 `fleet-findings.xlsx`, `sbom.cdx.json`, `findings.sarif`.
+
+## Comment on the pull request
+
+Set `SDT_BITBUCKET_API_CREDENTIALS` to a *Secret text* credential and every pull-request scan leaves one comment
+on the Bitbucket Cloud pull request: **PASSED** or **FAILED** (the SonarQube quality gate), the findings the pull
+request adds (severity, type, rule, file and line; never a secret value), and links to the SAST report, SonarQube
+and the build. A later scan of the same pull request updates that comment. A scan that did not finish says
+**NOT COMPLETED**, never passed. A comment that cannot be posted is logged and does not fail the build.
+
+| Token | Scopes | Also set |
+|---|---|---|
+| Repository, project or workspace **access token** | pull requests: write; repositories: write (for the report) | nothing |
+| **API token** of a bot account | the same | `SDT_BITBUCKET_API_USER` = that account's email |
+
+The report is uploaded to the repository's **Downloads** (`SAST Report - <repo> - PR <id>.docx`, replaced by the
+next scan) and linked from the comment, because Bitbucket Cloud has no API to attach a file to a comment. Downloads
+are readable by everyone who can read the repository, so a repository that is not private never gets the upload:
+its comment links the build artifact instead. `SDT_PR_REPORT_UPLOAD=0` turns the upload off everywhere.
 
 ## The SAST report
 

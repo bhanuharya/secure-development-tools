@@ -6,5 +6,7 @@ credentials-binding
 ssh-agent
 ws-cleanup
 docker-workflow
+# scans of the same repository wait for each other; other scans run side by side
+lockable-resources
 # optional: pull-request triggers from Bitbucket Cloud webhooks
 generic-webhook-trigger
