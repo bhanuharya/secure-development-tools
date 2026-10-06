@@ -74,7 +74,9 @@ def call(Map args = [:]) {
             sh "git checkout -q --detach '${cfg.prMergeCommit}^{commit}' && " +
                "git update-ref 'refs/remotes/origin/${cfg.prBase}' '${cfg.prMergeCommit}^1'"
           } else if (cfg.prBase) {
-            sh "git fetch --no-tags origin '+refs/heads/${cfg.prBase}:refs/remotes/origin/${cfg.prBase}'"
+            withGitKey(cfg.gitCredentials) {
+              sh "git fetch --no-tags origin '+refs/heads/${cfg.prBase}:refs/remotes/origin/${cfg.prBase}'"
+            }
           }
         }
       }
