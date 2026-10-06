@@ -100,8 +100,7 @@ def markdown(repo, scope, scope_url, commit, result, items):
     if "pull request" in scope:
         lines += ["", "Findings that already exist on the target branch are not listed."]
     lines += ["", "Review decisions (safe, false positive, accepted) are made in SonarQube. "
-              "The detailed reports are in this folder: [security-report.pdf](security-report.pdf) "
-              "and [SAST Report.docx](SAST%20Report.docx)."]
+              "The full report is [SAST Report.docx](SAST%20Report.docx) in this folder."]
     return "\n".join(lines) + "\n"
 
 
