@@ -4,8 +4,8 @@
 Each scan overwrites the report of its branch or pull request, so the repository's history is the
 history of the findings:
 
-    <repo>/branches/<branch>/report.md        + SAST Report.docx
-    <repo>/pull-requests/<id>/report.md       + SAST Report.docx
+    <repo>/branches/<branch>/report.md        + security-report.pdf, SAST Report.docx
+    <repo>/pull-requests/<id>/report.md       + security-report.pdf, SAST Report.docx
 
 report.md renders in Bitbucket and diffs line by line. Its address is written to OUT/report-url.txt,
 which the pull-request comment links.
@@ -100,7 +100,8 @@ def markdown(repo, scope, scope_url, commit, result, items):
     if "pull request" in scope:
         lines += ["", "Findings that already exist on the target branch are not listed."]
     lines += ["", "Review decisions (safe, false positive, accepted) are made in SonarQube. "
-              "The full report is `SAST Report.docx` in this folder."]
+              "The detailed reports are in this folder: [security-report.pdf](security-report.pdf) "
+              "and [SAST Report.docx](SAST%20Report.docx)."]
     return "\n".join(lines) + "\n"
 
 
@@ -148,6 +149,7 @@ def main():
     result = verdict(out)
     text = markdown(repo, scope, env.get("SCOPE_URL", ""), commit, result, findings(out, bool(pr_id)))
     docx = os.path.join(out, f"SAST Report - {repo}.docx")
+    pdf = os.path.join(out, "security-report.pdf")
 
     work = tempfile.mkdtemp(prefix="sdt-reports-")
     try:
@@ -168,8 +170,9 @@ def main():
             os.makedirs(destination, exist_ok=True)
             with open(os.path.join(destination, "report.md"), "w") as handle:
                 handle.write(text)
-            if os.path.isfile(docx):
-                shutil.copyfile(docx, os.path.join(destination, "SAST Report.docx"))
+            for source, name in ((docx, "SAST Report.docx"), (pdf, "security-report.pdf")):
+                if os.path.isfile(source):
+                    shutil.copyfile(source, os.path.join(destination, name))
             git.run("add", "--all", folder)
             if git.run("diff", "--cached", "--quiet", check=False).returncode == 0:
                 log("report unchanged since the last scan")

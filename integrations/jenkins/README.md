@@ -158,8 +158,8 @@ Set `SDT_REPORTS_REPO` to a repository in the workspace (a slug, or `workspace/s
 report there with the same token, which then needs write access to that one repository only:
 
 ```
-<repo>/branches/<branch>/report.md        + SAST Report.docx
-<repo>/pull-requests/<id>/report.md       + SAST Report.docx
+<repo>/branches/<branch>/report.md        + security-report.pdf, SAST Report.docx
+<repo>/pull-requests/<id>/report.md       + security-report.pdf, SAST Report.docx
 ```
 
 `report.md` renders in Bitbucket and diffs line by line; each scan overwrites its own folder, so the repository's

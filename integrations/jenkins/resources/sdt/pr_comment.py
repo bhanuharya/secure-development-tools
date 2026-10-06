@@ -188,7 +188,9 @@ def main():
     except OSError:
         published = ""
     if published:
-        links.append(("Full report", published))
+        links.append(("Report", published))
+        if published.endswith("/report.md") and os.path.isfile(os.path.join(out, "security-report.pdf")):
+            links.append(("Detailed report (PDF)", published[:-len("report.md")] + "security-report.pdf"))
     elif os.path.isfile(report):
         name = f"SAST Report - {repo} - PR {pr_id}.docx"
         uploaded = False
