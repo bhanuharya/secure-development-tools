@@ -211,6 +211,7 @@ if [ -n "$SONAR_TEST_PATTERNS" ]; then
 fi
 # The Java sensor refuses a checkout without compiled classes. Findings come from SDT, so one empty
 # class keeps it running; a repository that names its own classes in sonar-project.properties wins.
+# (Likewise no tests ran here: a test report path the repository configures would not be found.)
 JAVA_ARGS=()
 if ! grep -qs '^sonar\.java\.binaries' "$SRC/sonar-project.properties" \
    && [ -n "$(find "$SRC" -name .git -prune -o -name node_modules -prune -o -name '*.java' -print -quit)" ]; then
@@ -223,6 +224,7 @@ fi
 log "SonarQube analysis of $PROJECT_KEY"
 ( cd "$SRC" && "$SONAR_SCANNER" -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.projectKey="$PROJECT_KEY" \
     -Dsonar.projectName="$WORKSPACE_NAME/$REPO_SLUG" -Dsonar.sources=. "${TEST_ARGS[@]}" "${JAVA_ARGS[@]}" \
+    -Dsonar.testExecutionReportPaths= \
     -Dsonar.externalIssuesReportPaths="$OUT/sonar-external.json" \
     -Dsonar.opengrep.reportPaths="$REPORT_FINDINGS" -Dsonar.xml.file.suffixes=.xml,.plist \
     -Dsonar.dart.analyzer.mode=MANUAL -Dsonar.dart.analyzer.report.mode=MACHINE \
