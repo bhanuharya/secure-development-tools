@@ -74,6 +74,7 @@ def out(tmp_path):
     (tmp_path / "quality-gate.txt").write_text("OK\n")
     (tmp_path / "sonar-project-key").write_text("sdt_ws_shop_abc\n")
     (tmp_path / "SAST Report - shop.docx").write_bytes(b"PK-docx-bytes")
+    (tmp_path / "security-report.pdf").write_bytes(b"%PDF-bytes")
     return tmp_path
 
 
@@ -191,12 +192,15 @@ def test_pull_request_report_is_committed_and_its_address_handed_to_the_comment(
     assert "| Critical | Secret | generic-api-key | `lib/config.dart:3` |  |" in text
     assert git("--git-dir", str(reports / "ws" / "security-reports.git"), "ls-tree", "--name-only", "main",
                "shop/pull-requests/42/").count("SAST Report.docx") == 1
+    assert published(reports, "shop/pull-requests/42/security-report.pdf") == "%PDF-bytes"
     url = (out / "report-url.txt").read_text().strip()
     assert url == "https://bitbucket.org/ws/security-reports/src/main/shop/pull-requests/42/report.md"
 
     fake = FakeBitbucket()
     assert run(fake, out).returncode == 0
-    assert f"[Full report]({url})" in fake.comment_text("POST")
+    assert f"[Report]({url})" in fake.comment_text("POST")
+    assert "[Detailed report (PDF)](https://bitbucket.org/ws/security-reports/src/main/shop/pull-requests/42/security-report.pdf)" \
+        in fake.comment_text("POST")
     assert not [r for r in fake.sent("POST") if r[1].endswith("/downloads")]
 
 
