@@ -46,6 +46,7 @@ def call(Map args = [:]) {
     fleetDatabase   : args.fleetDatabase ?: env.SDT_FLEET_DATABASE ?: '',
     enforceGate     : (args.enforceGate ?: env.SDT_QUALITY_GATE_ENFORCE ?: '0').toString(),
     prCommentCredentials: args.prCommentCredentials ?: env.SDT_BITBUCKET_API_CREDENTIALS ?: '',
+    prCommentUser   : args.prCommentUser ?: env.SDT_BITBUCKET_API_USER ?: '',
   ]
   if (!cfg.branch && !cfg.prId) { error('sdtScan: give branch, or prId + prBranch + prBase') }
   if (cfg.prMergeCommit && !(cfg.prId && cfg.prBase)) { error('sdtScan: prMergeCommit needs prId and prBase') }
@@ -94,7 +95,7 @@ def call(Map args = [:]) {
                          "WORKSPACE_NAME=${cfg.workspace}",
                          "SONAR_HOST_URL=${cfg.sonarUrl}", "SCOPE_URL=${scopeUrl}",
                          "FLEET_DATABASE=${cfg.fleetDatabase}", "QUALITY_GATE_ENFORCE=${cfg.enforceGate}",
-                         "BITBUCKET_USER=${env.SDT_BITBUCKET_API_USER ?: ''}"]
+                         "BITBUCKET_USER=${cfg.prCommentUser}"]
       withCredentials([string(credentialsId: cfg.sonarCredentials, variable: 'SONAR_TOKEN')]) {
         withEnv(environment) {
           withGitKey(cfg.gitCredentials) {
