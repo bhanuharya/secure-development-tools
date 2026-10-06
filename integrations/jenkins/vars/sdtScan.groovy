@@ -6,6 +6,9 @@
  *   sdtScan(repo: 'web-portal', prId: '379', prBranch: 'feature/x', prBase: 'main')
  *   sdtScan(repo: 'web-portal', prId: '379', prBranch: 'feature/x', prBase: 'main', prMergeCommit: 'a1b2c3d')
  *
+ * prCommit is the commit a scan was started for (by a webhook or sdtPullRequestsDue). When the pull request
+ * has newer commits by the time the scan gets its turn, it stops: the newer commit has its own scan.
+ *
  * prMergeCommit scans a pull request that is already merged: the merge (or squash) commit is
  * compared with its first parent, the target branch as it was before the merge.
  *
@@ -39,6 +42,7 @@ def call(Map args = [:]) {
     prBranch        : args.prBranch ?: '',
     prBase          : args.prBase ?: '',
     prMergeCommit   : args.prMergeCommit ?: '',
+    prCommit        : args.prCommit ?: '',
     workspace       : args.workspace ?: env.SDT_WORKSPACE ?: error('sdtScan: set workspace or SDT_WORKSPACE'),
     sonarUrl        : args.sonarUrl ?: env.SDT_SONAR_URL ?: error('sdtScan: set sonarUrl or SDT_SONAR_URL'),
     sonarCredentials: args.sonarCredentials ?: env.SDT_SONAR_CREDENTIALS ?: 'sdt-sonar-token',
@@ -84,6 +88,15 @@ def call(Map args = [:]) {
                  "git fetch --no-tags origin '+refs/heads/${cfg.prBase}:refs/remotes/origin/${cfg.prBase}'"
             }
           }
+        }
+      }
+      if (cfg.prCommit && !cfg.prMergeCommit) {
+        def head = dir('source') { sh(script: 'git rev-parse HEAD', returnStdout: true).trim() }
+        if (!head.startsWith(cfg.prCommit) && !cfg.prCommit.startsWith(head)) {
+          echo "sdtScan: started for ${cfg.prCommit}, but the pull request is now at ${head}: that commit has its own scan"
+          currentBuild.description = "${currentBuild.description ?: ''} superseded".trim()
+          currentBuild.result = 'NOT_BUILT'
+          return
         }
       }
       for (name in ['scan.sh', 'reports.sh', 'sdt_common.py', 'pr_comment.py', 'publish_report.py']) {

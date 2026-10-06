@@ -11,6 +11,8 @@
 #            QUALITY_GATE_ENFORCE (0|1), SBOM (1|0),
 #            FLEET_DATABASE (fleet store: reviewed false positives are applied to this scan),
 #            SONAR_CARRY_DECISIONS (1|0: copy review decisions from the project's other branches),
+#            SDT_BASELINE_CACHE (default $SDT_STATE_DIR/baselines: a pull request's target-branch scan is kept
+#            there for the day, so other pull requests on the same target commit do not repeat it; empty: no cache),
 #            SONAR_TEST_PATTERNS (comma-separated globs of test code; empty analyses tests as application code)
 set -euo pipefail
 set +x  # never trace: SONAR_TOKEN is in the environment
@@ -51,16 +53,36 @@ fi
 if [ -n "${PR_ID:-}" ]; then
   # Baseline from the target branch: whatever already exists there is "existing", so only
   # what this pull request adds is "new" -- for the policy gate, SonarQube and the report.
-  log "baseline: full scan of origin/$PR_BASE"
-  # In a repository of its own that holds the target branch only: the secret scan reads the history of
-  # every branch it can see, and in the checkout it would see the pull request's commits too.
-  rm -rf "$OUT/base-src"; git init -q "$OUT/base-src"
-  git -C "$OUT/base-src" fetch -q "$SRC" "refs/remotes/origin/$PR_BASE"
-  git -C "$OUT/base-src" checkout -q --detach FETCH_HEAD
-  ( cd "$OUT/base-src" && "$SDT_HOME/sdt" scan --config "$SDT_CONFIG" --profile full --offline \
-      --output "$OUT/base" --cache "$OUT/cache" ) >/dev/null || true
-  test -f "$OUT/base/findings.json"  # no baseline, no PR verdict
-  rm -rf "$OUT/base-src"
+  # The target branch's scan is the same for every pull request on that commit. It is kept for the day
+  # (the vulnerability database changes daily) under a key of everything else that decides its result.
+  BASE_COMMIT=$(git -C "$SRC" rev-parse "origin/$PR_BASE^{commit}")
+  BASELINE_CACHE="${SDT_BASELINE_CACHE-${SDT_STATE_DIR:+$SDT_STATE_DIR/baselines}}"; CACHED=""
+  if [ -n "$BASELINE_CACHE" ]; then
+    KEY=$( { "$SDT_HOME/sdt" version; date -u +%F; cat "$SDT_CONFIG"; [ -f "$OUT/reviewed-exceptions.yaml" ] && cat "$OUT/reviewed-exceptions.yaml"
+             find "$RULES_DIR" -type f -print0 | sort -z | xargs -0 -r sha256sum; } 2>/dev/null | sha256sum | cut -c1-16 )
+    CACHED="$BASELINE_CACHE/$(printf '%s' "${WORKSPACE_NAME}_$REPO_SLUG" | tr -c 'A-Za-z0-9._-' '_')/$BASE_COMMIT-$KEY.json"
+  fi
+  mkdir -p "$OUT/base"
+  if [ -n "$CACHED" ] && [ -s "$CACHED" ]; then
+    log "baseline: origin/$PR_BASE at ${BASE_COMMIT:0:7} was scanned earlier today; reusing it"
+    cp "$CACHED" "$OUT/base/findings.json"
+  else
+    log "baseline: full scan of origin/$PR_BASE"
+    # In a repository of its own that holds the target branch only: the secret scan reads the history of
+    # every branch it can see, and in the checkout it would see the pull request's commits too.
+    rm -rf "$OUT/base-src"; git init -q "$OUT/base-src"
+    git -C "$OUT/base-src" fetch -q "$SRC" "refs/remotes/origin/$PR_BASE"
+    git -C "$OUT/base-src" checkout -q --detach FETCH_HEAD
+    ( cd "$OUT/base-src" && "$SDT_HOME/sdt" scan --config "$SDT_CONFIG" --profile full --offline \
+        --output "$OUT/base" --cache "$OUT/cache" ) >/dev/null || true
+    test -f "$OUT/base/findings.json"  # no baseline, no PR verdict
+    rm -rf "$OUT/base-src"
+    if [ -n "$CACHED" ]; then
+      # Best effort: a cache that cannot be written only costs the next scan its time.
+      { mkdir -p "$(dirname "$CACHED")" && cp "$OUT/base/findings.json" "$CACHED.$$" && mv "$CACHED.$$" "$CACHED" \
+          && find "$(dirname "$CACHED")" -name '*.json' -mtime +2 -delete; } || log "baseline not kept for later scans"
+    fi
+  fi
   ( cd "$SRC" && "$SDT_HOME/sdt" baseline create --config "$SDT_CONFIG" --from "$OUT/base/findings.json" )
 fi
 log "SDT scan (profile $PROFILE)"

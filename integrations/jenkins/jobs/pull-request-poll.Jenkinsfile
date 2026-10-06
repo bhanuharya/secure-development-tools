@@ -17,5 +17,6 @@ currentBuild.description = due ? due.collect { "${it.repo} #${it.id}" }.join(', 
 for (pr in due) {
   build job: scanJob, wait: false, parameters: [
     string(name: 'reponame', value: pr.repo), string(name: 'pr_id', value: pr.id),
-    string(name: 'pr_branch', value: pr.branch), string(name: 'pr_base', value: pr.base)]
+    string(name: 'pr_branch', value: pr.branch), string(name: 'pr_base', value: pr.base),
+    string(name: 'pr_commit', value: pr.commit)]
 }

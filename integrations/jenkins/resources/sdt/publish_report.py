@@ -116,7 +116,13 @@ def main():
         os.chmod(askpass, stat.S_IRWXU)
         clone = os.path.join(work, "reports")
         git = Git(work, askpass)
-        git.run("clone", "--quiet", "--depth", "1", remote, clone)
+        try:
+            # Only this scan's folder is downloaded: the repository holds every report of every repository.
+            git.run("clone", "--quiet", "--depth", "1", "--filter=blob:none", "--sparse", remote, clone)
+            Git(clone, askpass).run("sparse-checkout", "set", folder)
+        except RuntimeError:
+            shutil.rmtree(clone, ignore_errors=True)  # a git or a server that cannot: the whole repository, then
+            git.run("clone", "--quiet", "--depth", "1", remote, clone)
         git = Git(clone, askpass)
         head = git.run("symbolic-ref", "--short", "HEAD", check=False).stdout.strip() or "main"
         if git.run("rev-parse", "--verify", "--quiet", "HEAD", check=False).returncode != 0:
