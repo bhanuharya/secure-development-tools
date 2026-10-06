@@ -110,7 +110,7 @@ def test_failed_gate_says_failed_with_conditions(out):
     assert run(fake, out).returncode == 0
     text = fake.comment_text("POST")
     assert text.startswith("### SDT security scan: FAILED")
-    assert "new_vulnerabilities ERROR 1" in text
+    assert "Why it failed: 1 new vulnerability." in text
 
 
 def test_scan_that_never_reached_the_gate_is_not_a_pass(out):

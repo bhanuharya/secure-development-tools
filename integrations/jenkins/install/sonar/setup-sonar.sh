@@ -5,7 +5,7 @@
 #   2. secrets: "Secrets + SDT" with the sdt rules (secrets, history secrets, dependencies);
 #   3. the "SDT Security" quality gate, set as default.
 #
-#   SONAR_HOST_URL=https://sonar.example.com SONAR_TOKEN=<admin token> install/sonar/setup-sonar.sh
+#   SONAR_HOST_URL=https://sonar.example.com SONAR_TOKEN=<admin token> install/sonar/setup-sonar.sh [--gate-only]
 #
 # The token needs "Administer Quality Profiles" and "Administer Quality Gates". It is passed
 # to curl on stdin, never on the command line.
@@ -16,6 +16,7 @@ api() { local method="$1" path="$2"; shift 2
 json() { local code="$1"; shift; python3 -c "import json,sys; d=json.load(sys.stdin); $code" "$@"; }
 
 # ------------------------------------------------------------- 1+2. profiles
+if [ "${1:-}" != "--gate-only" ]; then
 languages=$(api GET /api/rules/repositories | json 'print(" ".join(sorted({r["language"] for r in d["repositories"] if r["key"].startswith("opengrep-") or r["key"]=="sdt"})))')
 [ -n "$languages" ] || { echo "no opengrep-* or sdt rule repositories: is sonar-opengrep-dart installed?" >&2; exit 1; }
 for lang in $languages; do
@@ -36,6 +37,7 @@ for lang in $languages; do
   api POST /api/qualityprofiles/set_default --data-urlencode "language=$lang" --data-urlencode "qualityProfile=$name" > /dev/null
   echo "$lang: '$name' (inherits '$parent', +$activated rules) is the default"
 done
+fi
 
 # ------------------------------------------------------------- 3. quality gate
 GATE="SDT Security"
@@ -49,5 +51,12 @@ add() { case " $existing " in *" $1 "*) ;; *) api POST /api/qualitygates/create_
 add new_vulnerabilities GT 0
 add new_security_hotspots_reviewed LT 100
 add new_security_rating GT 1
+# SonarQube creates a gate with its own conditions (coverage, duplication, any new issue). They are
+# not security: a pull request must not fail this gate for missing tests.
+api GET /api/qualitygates/show --get --data-urlencode "name=$GATE" \
+  | json 'keep={"new_vulnerabilities","new_security_hotspots_reviewed","new_security_rating"}; print("\n".join(str(c["id"]) for c in d.get("conditions",[]) if c["metric"] not in keep))' \
+  | while read -r condition; do
+      [ -n "$condition" ] && api POST /api/qualitygates/delete_condition --data-urlencode "id=$condition" > /dev/null
+    done
 api POST /api/qualitygates/set_as_default --data-urlencode "name=$GATE" > /dev/null
 echo "quality gate '$GATE' is the default: new vulnerabilities = 0, new hotspots 100% reviewed, new security rating A"

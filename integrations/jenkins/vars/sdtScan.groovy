@@ -122,7 +122,7 @@ def call(Map args = [:]) {
                                             returnStatus: true) != 0) {
                     echo 'the report was not published to the reports repository'
                   }
-                  if (cfg.prId && sh(script: 'PR_ID="$SDT_SCAN_PR_ID" python3 .sdt/pr_comment.py', returnStatus: true) != 0) {
+                  if (cfg.prId && sh(script: 'PR_ID="$SDT_SCAN_PR_ID" PR_BASE="$SDT_SCAN_PR_BASE" python3 .sdt/pr_comment.py', returnStatus: true) != 0) {
                     echo 'the pull request comment was not posted'
                   }
                 }
@@ -136,7 +136,7 @@ def call(Map args = [:]) {
       archiveArtifacts artifacts: 'out/*.docx, out/*.pdf, out/*.xlsx, out/fleet/*.pdf, out/fleet/*.xlsx, ' +
                                   'out/sdt/findings.json, out/sdt/findings-new.json, out/sdt/findings.sarif, out/sdt/run-manifest.json, ' +
                                   'out/sbom.cdx.json, out/triage.json, out/quality-gate.txt, out/sonar-scanner.log, ' +
-                                  'out/ai-change-review.md, out/ai-change-review.json',
+                                  'out/ai-change-review.md, out/ai-change-review.json, out/sonar-pull-request.json',
                        allowEmptyArchive: true
       cleanWs()
     }
