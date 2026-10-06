@@ -74,8 +74,10 @@ def call(Map args = [:]) {
             sh "git checkout -q --detach '${cfg.prMergeCommit}^{commit}' && " +
                "git update-ref 'refs/remotes/origin/${cfg.prBase}' '${cfg.prMergeCommit}^1'"
           } else if (cfg.prBase) {
+            // The checkout normally fetched every branch already; fetch the target only if it did not.
             withGitKey(cfg.gitCredentials) {
-              sh "git fetch --no-tags origin '+refs/heads/${cfg.prBase}:refs/remotes/origin/${cfg.prBase}'"
+              sh "git rev-parse -q --verify 'refs/remotes/origin/${cfg.prBase}^{commit}' >/dev/null || " +
+                 "git fetch --no-tags origin '+refs/heads/${cfg.prBase}:refs/remotes/origin/${cfg.prBase}'"
             }
           }
         }
