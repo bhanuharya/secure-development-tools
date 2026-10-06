@@ -233,6 +233,38 @@ def from_sonar(out, host, token, key, pr_id):
     return rows
 
 
+def removed_secrets(out, src):
+    """Secrets the pull request committed and a later commit took out again: {place: (type, commit)}.
+
+    The secret scan reads the pull request's commits, so it reports them at the line they were added on.
+    """
+    gone = {}
+    for finding in reported(out, "sdt", "findings-new.json") or []:
+        evidence = str((finding.get("evidence") or {}).get("text", ""))
+        path = (finding.get("location") or {}).get("path")
+        if kind(finding, "") != "Secret" or not (src and path and "[REDACTED]" in evidence):
+            continue
+        pattern = re.compile(r"\S+".join(re.escape(part.strip()) for part in evidence.split("[REDACTED]")))
+        try:
+            text = open(os.path.join(src, path), encoding="utf-8", errors="replace").read()
+        except OSError:
+            text = ""
+        if not pattern.search(text):
+            gone[place_of(finding)] = (rule_name((finding.get("rule") or {}).get("id", "")),
+                                       str((finding.get("metadata") or {}).get("commit", ""))[:7])
+    return gone
+
+
+def mark_removed(rows, gone):
+    """Say of a removed secret that it is in the history, not on the line the row names."""
+    for item in rows or []:
+        if item["kind"] == "Secret" and item["where"] in gone:
+            name, commit = gone[item["where"]]
+            item["what"] = (f"{name}: committed{f' in {commit}' if commit else ''} and removed since. "
+                            "It is still in the history: rotate it.")
+    return rows
+
+
 def merge_dependencies(rows):
     """One row per package: its advisories side by side, at the highest severity."""
     merged, order = {}, []
@@ -395,6 +427,7 @@ def main():
         rows = from_sonar(out, sonar_host, env.get("SONAR_TOKEN", ""), key, pr_id)
     if rows is None:
         rows = from_sdt(out)
+    mark_removed(rows, removed_secrets(out, src))
 
     links = report_links(client, quoted, out, repo, workspace, pr_id, build_url, env.get("SDT_PR_REPORT_UPLOAD", "1") == "1")
     if key and sonar_host:

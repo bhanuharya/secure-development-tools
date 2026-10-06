@@ -322,3 +322,20 @@ def test_dependency_keeps_the_advisory_severity_and_its_package_name(pc, tmp_pat
          "message": f"CVE-2017-5941 in {package} 0.1.0 (no fixed version published yet)."}]}
     text = pc.body("FAILED", [], pc.from_sonar(str(tmp_path), "http://sonar", "t", "key", "7"), [], [], "", "main")
     assert f"| Critical | Dependency | {package} 0.1.0: CVE-2017-5941 | `go.mod:4` |" in text
+
+
+def test_a_secret_removed_by_a_later_commit_is_said_to_be_in_the_history(pc, tmp_path):
+    (tmp_path / "sdt").mkdir()
+    (tmp_path / "src" / "app").mkdir(parents=True)
+    (tmp_path / "src" / "app" / "a.js").write_text('const key = process.env.KEY;\nconst other = "kept-value-1";\n')
+    def secret(line, evidence):
+        return {"category": "secret", "severity": {"canonical": "critical"}, "rule": {"id": "generic-api-key"},
+                "location": {"path": "app/a.js", "startLine": line}, "evidence": {"text": evidence},
+                "metadata": {"commit": "c5d084104c9604a6"}}
+    (tmp_path / "sdt" / "findings-new.json").write_text(json.dumps({"findings": [
+        secret(1, 'key = "[REDACTED]"'), secret(2, 'other = "[REDACTED]"')]}))
+    gone = pc.removed_secrets(str(tmp_path), str(tmp_path / "src"))
+    assert gone == {"app/a.js:1": ("generic-api-key", "c5d0841")}
+    rows = pc.mark_removed([pc.row("critical", "Secret", "Committed secret (generic-api-key).", "app/a.js:1", "secret"),
+                            pc.row("critical", "Secret", "Committed secret (generic-api-key).", "app/a.js:2", "secret")], gone)
+    assert "committed in c5d0841 and removed since" in rows[0]["what"] and rows[1]["what"] == "Committed secret (generic-api-key)."
