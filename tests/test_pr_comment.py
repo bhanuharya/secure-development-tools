@@ -199,8 +199,9 @@ def test_pull_request_report_is_committed_and_its_address_handed_to_the_comment(
     fake = FakeBitbucket()
     assert run(fake, out).returncode == 0
     assert f"[Report]({url})" in fake.comment_text("POST")
-    assert "[Detailed report (PDF)](https://bitbucket.org/ws/security-reports/src/main/shop/pull-requests/42/security-report.pdf)" \
-        in fake.comment_text("POST")
+    folder = "https://bitbucket.org/ws/security-reports/src/main/shop/pull-requests/42/"
+    assert f"[PDF]({folder}security-report.pdf)" in fake.comment_text("POST")
+    assert f"[Word (.docx)]({folder}SAST%20Report.docx)" in fake.comment_text("POST")
     assert not [r for r in fake.sent("POST") if r[1].endswith("/downloads")]
 
 

@@ -189,8 +189,11 @@ def main():
         published = ""
     if published:
         links.append(("Report", published))
-        if published.endswith("/report.md") and os.path.isfile(os.path.join(out, "security-report.pdf")):
-            links.append(("Detailed report (PDF)", published[:-len("report.md")] + "security-report.pdf"))
+        folder = published[:-len("report.md")] if published.endswith("/report.md") else ""
+        if folder and os.path.isfile(os.path.join(out, "security-report.pdf")):
+            links.append(("PDF", folder + "security-report.pdf"))
+        if folder and os.path.isfile(report):
+            links.append(("Word (.docx)", folder + "SAST%20Report.docx"))
     elif os.path.isfile(report):
         name = f"SAST Report - {repo} - PR {pr_id}.docx"
         uploaded = False
