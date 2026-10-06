@@ -152,6 +152,21 @@ next scan) and linked from the comment, because Bitbucket Cloud has no API to at
 are readable by everyone who can read the repository, so a repository that is not private never gets the upload:
 its comment links the build artifact instead. `SDT_PR_REPORT_UPLOAD=0` turns the upload off everywhere.
 
+### Reports repository
+
+Set `SDT_REPORTS_REPO` to a repository in the workspace (a slug, or `workspace/slug`) and every scan commits its
+report there with the same token, which then needs write access to that one repository only:
+
+```
+<repo>/branches/<branch>/report.md        + SAST Report.docx
+<repo>/pull-requests/<id>/report.md       + SAST Report.docx
+```
+
+`report.md` renders in Bitbucket and diffs line by line; each scan overwrites its own folder, so the repository's
+history is the history of the findings. The pull-request comment links `report.md` and nothing is uploaded to
+Downloads. Everyone who can read the reports repository can read every report in it: use one per team or project
+if developers must not see each other's findings.
+
 ## The SAST report
 
 Every scan attaches `SAST Report - <repo>.docx` to the build (full description in SDT's `docs/sast-report.md`):

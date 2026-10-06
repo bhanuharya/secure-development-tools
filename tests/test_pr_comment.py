@@ -151,3 +151,75 @@ def test_refused_comment_fails_without_printing_the_token(out):
     done = run(fake, out)
     assert done.returncode == 1
     assert "403" in done.stdout and "no pull request write scope" in done.stdout
+
+
+# ------------------------------------------------------------------ reports repository
+PUBLISH = SCRIPT.with_name("publish_report.py")
+
+
+def git(*args, cwd=None):
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True).stdout
+
+
+@pytest.fixture
+def reports(tmp_path_factory):
+    root = tmp_path_factory.mktemp("bitbucket")
+    (root / "ws").mkdir()
+    git("init", "--quiet", "--bare", "--initial-branch=main", str(root / "ws" / "security-reports.git"))
+    return root
+
+
+def publish(out, reports, **extra):
+    env = {"PATH": os.environ["PATH"], "HOME": str(out), "OUT": str(out), "REPO_SLUG": "shop", "WORKSPACE_NAME": "ws",
+           "BITBUCKET_TOKEN": TOKEN, "SDT_REPORTS_REPO": "security-reports", "BITBUCKET_GIT": f"file://{reports}",
+           "SCOPE_URL": "https://bitbucket.org/ws/shop/pull-requests/42", **extra}
+    done = subprocess.run([sys.executable, str(PUBLISH)], env=env, capture_output=True, text=True, timeout=120)
+    assert TOKEN not in done.stdout + done.stderr
+    return done
+
+
+def published(reports, path):
+    return git("--git-dir", str(reports / "ws" / "security-reports.git"), "show", f"main:{path}")
+
+
+def test_pull_request_report_is_committed_and_its_address_handed_to_the_comment(out, reports):
+    (out / "quality-gate.txt").write_text("ERROR\n")
+    done = publish(out, reports, PR_ID="42")
+    assert done.returncode == 0, done.stdout + done.stderr
+    text = published(reports, "shop/pull-requests/42/report.md")
+    assert "**FAILED**" in text and "[pull request #42](https://bitbucket.org/ws/shop/pull-requests/42)" in text
+    assert "| Critical | Secret | generic-api-key | `lib/config.dart:3` |  |" in text
+    assert git("--git-dir", str(reports / "ws" / "security-reports.git"), "ls-tree", "--name-only", "main",
+               "shop/pull-requests/42/").count("SAST Report.docx") == 1
+    url = (out / "report-url.txt").read_text().strip()
+    assert url == "https://bitbucket.org/ws/security-reports/src/main/shop/pull-requests/42/report.md"
+
+    fake = FakeBitbucket()
+    assert run(fake, out).returncode == 0
+    assert f"[Full report]({url})" in fake.comment_text("POST")
+    assert not [r for r in fake.sent("POST") if r[1].endswith("/downloads")]
+
+
+def test_branch_report_goes_under_branches_and_a_rescan_without_changes_adds_no_commit(out, reports):
+    (out / "sdt" / "findings-report.json").write_text(json.dumps({"findings": [
+        finding("sast", "high", "x.eval", "src/a.js", 8),
+        dict(finding("sast", "low", "x.covered", "src/b.js", 1), suppression={"reason": "reviewed"}),
+    ]}))
+    assert publish(out, reports, BRANCH="release/1.0").returncode == 0
+    text = published(reports, "shop/branches/release_1.0/report.md")
+    assert "**PASSED**" in text and "`src/a.js:8`" in text and "covered" not in text
+    assert publish(out, reports, BRANCH="release/1.0").returncode == 0
+    assert git("--git-dir", str(reports / "ws" / "security-reports.git"), "rev-list", "--count", "main").strip() == "1"
+
+
+def test_two_scans_publish_to_the_same_repository(out, reports):
+    assert publish(out, reports, PR_ID="42").returncode == 0
+    assert publish(out, reports, PR_ID="43").returncode == 0
+    assert "pull request #43" in published(reports, "shop/pull-requests/43/report.md")
+    assert "pull request #42" in published(reports, "shop/pull-requests/42/report.md")
+
+
+def test_unreachable_reports_repository_fails_quietly(out, reports):
+    done = publish(out, reports, PR_ID="42", SDT_REPORTS_REPO="missing")
+    assert done.returncode == 1 and "report not published" in done.stdout
+    assert not (out / "report-url.txt").exists()

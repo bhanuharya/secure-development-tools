@@ -6,6 +6,8 @@
   Resources plugin); without the plugin they are not kept apart and the build log says so.
 - Pull-request scans can comment on the Bitbucket Cloud pull request (`SDT_BITBUCKET_API_CREDENTIALS`): passed or
   failed, what the pull request adds, and the SAST report. A later scan updates the same comment.
+- Reports repository (`SDT_REPORTS_REPO`): every scan commits `report.md` and the .docx to one repository that
+  developers can read; the pull-request comment links it.
 
 ## 2026-09-30
 

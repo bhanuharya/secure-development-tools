@@ -9,6 +9,7 @@ Required: OUT, REPO_SLUG, WORKSPACE_NAME, PR_ID, BITBUCKET_TOKEN
 Optional: BITBUCKET_USER (set: Basic auth with an API token; empty: the token is an access token),
           BITBUCKET_API (https://api.bitbucket.org/2.0), SDT_PR_REPORT_UPLOAD (1|0: put the .docx in
           the repository's Downloads; never done for a public repository), BUILD_URL, SONAR_HOST_URL, SRC
+          OUT/report-url.txt (written by publish_report.py): linked as the report, and nothing is uploaded
 
 The token is never printed. Standard library only.
 """
@@ -181,7 +182,14 @@ def main():
     links = []
     report = os.path.join(out, f"SAST Report - {repo}.docx")
     build_url = env.get("BUILD_URL", "")
-    if os.path.isfile(report):
+    try:
+        # publish_report.py committed the report to the reports repository.
+        published = open(os.path.join(out, "report-url.txt")).read().strip()
+    except OSError:
+        published = ""
+    if published:
+        links.append(("Full report", published))
+    elif os.path.isfile(report):
         name = f"SAST Report - {repo} - PR {pr_id}.docx"
         uploaded = False
         if env.get("SDT_PR_REPORT_UPLOAD", "1") == "1":
