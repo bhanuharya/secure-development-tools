@@ -19,6 +19,7 @@ class FakeBitbucket:
     def __init__(self, private=True, comments=(), fail_comment=False):
         self.private, self.comments, self.fail_comment = private, list(comments), fail_comment
         self.requests = []
+        self.pulls = []
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -40,6 +41,8 @@ class FakeBitbucket:
                     return self.answer(200, {"is_private": fake.private})
                 if self.command == "POST" and path == f"{REPO}/downloads":
                     return self.answer(201, {})
+                if self.command == "GET" and path == f"{REPO}/pullrequests":
+                    return self.answer(200, {"values": fake.pulls})
                 if self.command == "GET" and path.endswith("/comments"):
                     return self.answer(200, {"values": fake.comments})
                 if fake.fail_comment:
@@ -339,3 +342,23 @@ def test_a_secret_removed_by_a_later_commit_is_said_to_be_in_the_history(pc, tmp
     rows = pc.mark_removed([pc.row("critical", "Secret", "Committed secret (generic-api-key).", "app/a.js:1", "secret"),
                             pc.row("critical", "Secret", "Committed secret (generic-api-key).", "app/a.js:2", "secret")], gone)
     assert "committed in c5d0841 and removed since" in rows[0]["what"] and rows[1]["what"] == "Committed secret (generic-api-key)."
+
+
+# ------------------------------------------------------------------ pull requests that need a scan
+def test_poll_lists_a_pull_request_once_per_commit_no_scan_has_seen(out):
+    def pull(number, commit):
+        return {"id": number, "source": {"branch": {"name": f"feature/{number}"}, "commit": {"hash": commit}},
+                "destination": {"branch": {"name": "main"}}}
+    # every pull request of the fake carries the comment of a scan of commit abc1234
+    fake = FakeBitbucket(comments=[{"id": 5, "content": {"raw": "### SDT security scan: PASSED\n\nScanned commit `abc1234`."}}])
+    fake.pulls = [pull(1, "abc1234def56"), pull(2, "fff0000aaa11")]
+    env = {"PATH": os.environ["PATH"], "WORKSPACE_NAME": "ws", "BITBUCKET_TOKEN": TOKEN, "BITBUCKET_API": fake.api,
+           "SDT_POLL_REPOS": "shop", "SDT_POLL_STATE": str(out / "poll.json")}
+    def poll():
+        done = subprocess.run([sys.executable, str(SCRIPT.with_name("pr_poll.py"))], env=env, capture_output=True, text=True, timeout=60)
+        assert done.returncode == 0 and TOKEN not in done.stdout + done.stderr, done.stderr
+        return done.stdout.splitlines()
+    assert poll() == ["shop\t2\tfeature/2\tmain\tfff0000aaa11"]  # 1 is scanned at its newest commit
+    assert poll() == []                                              # listed once, even though no comment came yet
+    fake.pulls = [pull(1, "abc1234def56"), pull(2, "999888777666")]
+    assert poll() == ["shop\t2\tfeature/2\tmain\t999888777666"]  # a new push
