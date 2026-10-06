@@ -40,6 +40,8 @@ RATINGS = {"1": "A", "2": "B", "3": "C", "4": "D", "5": "E"}
 SECRET_RULE = re.compile(r"^secrets:|(^|[:._-])(secret|gitleaks|api-key|access-key|private-key|password|token|credential)", re.I)
 DEPENDENCY_RULE = re.compile(r"vulnerable-dependency|(^|:)(CVE-\d|GHSA-|NSWG-|trivy)", re.I)
 ADVISORY = re.compile(r"\b(CVE-\d{4}-\d+|GHSA(?:-[0-9a-z]{4}){3}|NSWG-ECO-\d+)\b", re.I)
+# "CVE-2017-5941 in node-serialize 0.0.4 (...)" or "node-serialize@0.0.4": the package and its version.
+PACKAGE = re.compile(r"(?:\bin\s+|^\s*)([@A-Za-z0-9._/-]+)[ @](\d[^\s:,()]*)")
 # A long unbroken run of key-like characters is never needed to explain a finding.
 KEY_LIKE = re.compile(r"(?<![A-Za-z0-9/+_=-])(?=[A-Za-z0-9/+_=-]*\d)(?=[A-Za-z0-9/+_=-]*[A-Za-z])[A-Za-z0-9/+_=-]{24,}")
 
@@ -143,7 +145,7 @@ def verdict(out):
 
 
 # ------------------------------------------------------------- what it adds
-def safe(text, limit=140):
+def safe(text, limit=110):
     text = KEY_LIKE.sub("[redacted]", " ".join(str(text).split()))
     return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
 
@@ -240,8 +242,8 @@ def merge_dependencies(rows):
         if item["kind"] != "Dependency":
             order.append(item)
             continue
-        package = re.match(r"\s*([@A-Za-z0-9._/-]+@[^\s:,]+)", item["what"])
-        name = package.group(1) if package else item["what"]
+        package = PACKAGE.search(item["what"])
+        name = f"{package.group(1)} {package.group(2)}" if package else item["what"]
         if name not in merged:
             merged[name] = dict(item, what=name, advisories=[])
             order.append(merged[name])
@@ -255,8 +257,41 @@ def merge_dependencies(rows):
     return order
 
 
-def fixed(out):
-    """Findings on the target branch that this pull request no longer has."""
+def one_per_place(rows):
+    """Two rules that flag the same line are one thing to fix: the most severe row of a line and type stays,
+    and a line that has a finding does not also ask for a review."""
+    rows = sorted(rows, key=lambda r: rank(r["level"]))
+    decided = {r["where"] for r in rows if r["where"] and r["kind"] != "To review"}
+    kept, seen = [], set()
+    for item in rows:
+        key = (item["where"], item["kind"])
+        if item["where"] and (key in seen or (item["kind"] == "To review" and item["where"] in decided)):
+            continue
+        seen.add(key)
+        kept.append(item)
+    return kept
+
+
+def changed_files(src, base):
+    """Files the pull request touches; None when git cannot say."""
+    if not (src and base):
+        return None
+    try:
+        done = subprocess.run(["git", "-C", src, "diff", "--name-only", f"origin/{base}...HEAD"], capture_output=True,
+                              text=True, timeout=60, check=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return {line.strip() for line in done.stdout.splitlines() if line.strip()}
+
+
+def fixed(out, touched):
+    """Findings on the target branch that this pull request no longer has.
+
+    Only in files the pull request touches, and never secrets: those are found in the history of
+    every branch, so their coming and going says nothing about this pull request.
+    """
+    if touched is None:
+        return []
     def load(*path):
         try:
             return [f for f in json.load(open(os.path.join(out, *path)))["findings"] if not f.get("suppression")]
@@ -269,6 +304,10 @@ def fixed(out):
     described = []
     for finding in before:
         if (finding.get("fingerprint") or {}).get("value") in still:
+            continue
+        if str(finding.get("category", "")).lower() in ("secret", "secrets"):
+            continue
+        if (finding.get("location") or {}).get("path") not in touched:
             continue
         place = place_of(finding)
         described.append(rule_name((finding.get("rule") or {}).get("id", "")) + (f" at `{cell(place)}`" if place else ""))
@@ -286,7 +325,7 @@ def body(result, conditions, rows, gone, links, commit, base):
     elif not rows:
         lines.append("This pull request adds no new security findings.")
     else:
-        rows = sorted(merge_dependencies(rows), key=lambda r: (rank(r["level"]), r["kind"], r["where"]))
+        rows = sorted(one_per_place(merge_dependencies(rows)), key=lambda r: (rank(r["level"]), r["kind"], r["where"]))
         counts = {}
         for item in rows:
             counts[item["kind"]] = counts.get(item["kind"], 0) + 1
@@ -381,7 +420,7 @@ def main():
     if build_url:
         links.append(("Build", build_url))
 
-    text = body(result, conditions, rows, fixed(out), links, scanned_commit(env.get("SRC", "")), env.get("PR_BASE", ""))
+    text = body(result, conditions, rows, fixed(out, changed_files(env.get("SRC", ""), env.get("PR_BASE", ""))), links, scanned_commit(env.get("SRC", "")), env.get("PR_BASE", ""))
     comments = f"{quoted}/pullrequests/{urllib.parse.quote(pr_id, safe='')}/comments"
     try:
         previous = client.own_comment(comments)

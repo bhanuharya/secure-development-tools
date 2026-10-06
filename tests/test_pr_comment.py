@@ -228,3 +228,51 @@ def test_unreachable_reports_repository_fails_quietly(out, reports):
     done = publish(out, reports, PR_ID="42", SDT_REPORTS_REPO="missing")
     assert done.returncode == 1 and "report not published" in done.stdout
     assert not (out / "report-url.txt").exists()
+
+
+# ------------------------------------------------------------------ what the comment lists
+def load_comment_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("pr_comment", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_one_row_per_package_and_per_flagged_line():
+    pc = load_comment_module()
+    rows = [
+        pc.row("critical", "Dependency", "CVE-2017-5941 in node-serialize 0.0.4 (no fixed version published yet).", "package-lock.json:28", "dep"),
+        pc.row("high", "Dependency", "NSWG-ECO-311 in node-serialize 0.0.4: upgrade.", "package-lock.json:28", "dep"),
+        pc.row("high", "Code", "Command built from a request", "app/export.js:29", "exec"),
+        pc.row("high", "To review", "Make sure that executing this OS command is safe here.", "app/export.js:29", "S4721"),
+        pc.row("critical", "Secret", "Make sure this key gets revoked", "app/a.js:4", "S6290"),
+        pc.row("high", "Secret", "Possible access key", "app/a.js:4", "aws"),
+        pc.row("low", "To review", "Weak hash", "app/export.js:39", "S4790"),
+    ]
+    text = pc.body("FAILED", ["2 new vulnerabilities"], rows, [], [], "", "main")
+    assert "adds **4** new security findings (1 code, 1 dependency, 1 secret, 1 to review)" in text
+    assert "| Critical | Dependency | node-serialize 0.0.4: CVE-2017-5941, NSWG-ECO-311 | `package-lock.json:28` |" in text
+    assert "executing this OS command" not in text and "Possible access key" not in text
+    assert "Why it failed: 2 new vulnerabilities." in text
+
+
+def test_fixed_counts_only_code_in_files_the_pull_request_touches(tmp_path):
+    pc = load_comment_module()
+    def item(category, rule, path, value):
+        return {"category": category, "rule": {"id": rule}, "location": {"path": path, "startLine": 3},
+                "fingerprint": {"value": value}}
+    (tmp_path / "base").mkdir()
+    (tmp_path / "sdt").mkdir()
+    (tmp_path / "base" / "findings.json").write_text(json.dumps({"findings": [
+        item("sast", "x.eval", "app/form.js", "a"), item("sast", "x.exec", "app/other.js", "b"),
+        item("secret", "aws-key", "app/form.js", "c"), item("sast", "x.kept", "app/form.js", "d")]}))
+    (tmp_path / "sdt" / "findings.json").write_text(json.dumps({"findings": [item("sast", "x.kept", "app/form.js", "d")]}))
+    assert pc.fixed(str(tmp_path), {"app/form.js"}) == ["eval at `app/form.js:3`"]
+    assert pc.fixed(str(tmp_path), None) == []
+
+
+def test_messages_never_carry_a_key_like_value():
+    pc = load_comment_module()
+    assert "wJalrXUtnFEMIK7MDENGbPxRfiCYzzzzKEY12345" not in pc.safe("leaked wJalrXUtnFEMIK7MDENGbPxRfiCYzzzzKEY12345 here")
+    assert pc.condition("new_security_rating ERROR 5") == "security rating of the new code is E (must be A)"
