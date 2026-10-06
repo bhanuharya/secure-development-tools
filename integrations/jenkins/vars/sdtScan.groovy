@@ -86,10 +86,9 @@ def call(Map args = [:]) {
           }
         }
       }
-      writeFile file: '.sdt/scan.sh', text: libraryResource('sdt/scan.sh')
-      writeFile file: '.sdt/reports.sh', text: libraryResource('sdt/reports.sh')
-      writeFile file: '.sdt/pr_comment.py', text: libraryResource('sdt/pr_comment.py')
-      writeFile file: '.sdt/publish_report.py', text: libraryResource('sdt/publish_report.py')
+      for (name in ['scan.sh', 'reports.sh', 'sdt_common.py', 'pr_comment.py', 'publish_report.py']) {
+        writeFile file: ".sdt/${name}", text: libraryResource("sdt/${name}")
+      }
       // Jenkins environment names are case-insensitive: job parameters such as "branch" or
       // "pr_id" would swallow BRANCH / PR_ID, so the scope is passed as SDT_SCAN_* and
       // renamed in the shell (see runScript).
@@ -106,23 +105,22 @@ def call(Map args = [:]) {
           inScanner(cfg.image) {
             stage('scan') {
               // A failed scan still produces reports from the SDT findings.
-              def rc = runScript('scan')
+              def rc = runScript('bash .sdt/scan.sh')
               if (rc == 2) { outcome = 'FAILURE'; echo 'quality gate failed' }
               else if (rc != 0) { outcome = 'FAILURE'; sh 'rm -f out/sonar-project-key' }
             }
             stage('reports') {
-              if (runScript('reports') != 0 && outcome == 'SUCCESS') { outcome = 'UNSTABLE' }
+              if (runScript('bash .sdt/reports.sh') != 0 && outcome == 'SUCCESS') { outcome = 'UNSTABLE' }
             }
             if (cfg.prCommentCredentials && (cfg.reportsRepo || cfg.prId)) {
               stage('publish') {
                 // The report in the reports repository, then pass or fail on the pull request.
                 // Neither fails the build.
                 withCredentials([string(credentialsId: cfg.prCommentCredentials, variable: 'BITBUCKET_TOKEN')]) {
-                  if (cfg.reportsRepo && sh(script: 'BRANCH="$SDT_SCAN_BRANCH" PR_ID="$SDT_SCAN_PR_ID" python3 .sdt/publish_report.py',
-                                            returnStatus: true) != 0) {
+                  if (cfg.reportsRepo && runScript('python3 .sdt/publish_report.py') != 0) {
                     echo 'the report was not published to the reports repository'
                   }
-                  if (cfg.prId && sh(script: 'PR_ID="$SDT_SCAN_PR_ID" PR_BASE="$SDT_SCAN_PR_BASE" python3 .sdt/pr_comment.py', returnStatus: true) != 0) {
+                  if (cfg.prId && runScript('python3 .sdt/pr_comment.py') != 0) {
                     echo 'the pull request comment was not posted'
                   }
                 }
@@ -160,10 +158,10 @@ private void oneAtATime(String resource, Closure body) {
   }
 }
 
-/** Run .sdt/<name>.sh with BRANCH / PR_* restored from SDT_SCAN_*; returns the exit code. */
-private int runScript(String name) {
+/** Run a .sdt script with BRANCH / PR_* restored from SDT_SCAN_*; returns the exit code. */
+private int runScript(String command) {
   return sh(script: 'BRANCH="$SDT_SCAN_BRANCH" PR_ID="$SDT_SCAN_PR_ID" PR_BRANCH="$SDT_SCAN_PR_BRANCH" ' +
-                    "PR_BASE=\"\$SDT_SCAN_PR_BASE\" bash .sdt/${name}.sh", returnStatus: true)
+                    "PR_BASE=\"\$SDT_SCAN_PR_BASE\" ${command}", returnStatus: true)
 }
 
 /** Load the Bitbucket key into an ssh-agent, unless the agent user's own key is used ("none"). */

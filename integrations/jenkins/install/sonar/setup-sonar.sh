@@ -41,22 +41,21 @@ fi
 
 # ------------------------------------------------------------- 3. quality gate
 GATE="SDT Security"
-if ! api GET /api/qualitygates/show --get --data-urlencode "name=$GATE" > /dev/null 2>&1; then
-  api POST /api/qualitygates/create --data-urlencode "name=$GATE" > /dev/null
-fi
-existing=$(api GET /api/qualitygates/show --get --data-urlencode "name=$GATE" | json 'print(" ".join(c["metric"] for c in d.get("conditions",[])))')
-add() { case " $existing " in *" $1 "*) ;; *) api POST /api/qualitygates/create_condition --data-urlencode "gateName=$GATE" \
-          --data-urlencode "metric=$1" --data-urlencode "op=$2" --data-urlencode "error=$3" > /dev/null ;; esac; }
+show() { api GET /api/qualitygates/show --get --data-urlencode "name=$GATE"; }
+show > /dev/null 2>&1 || api POST /api/qualitygates/create --data-urlencode "name=$GATE" > /dev/null
 # New code only: legacy findings are tracked, not blocking; nothing new may add risk.
-add new_vulnerabilities GT 0
-add new_security_hotspots_reviewed LT 100
-add new_security_rating GT 1
+wanted="new_vulnerabilities:GT:0 new_security_hotspots_reviewed:LT:100 new_security_rating:GT:1"
+conditions=$(show | json 'print("\n".join(c["metric"] + " " + str(c["id"]) for c in d.get("conditions",[])))')
+for want in $wanted; do
+  IFS=: read -r metric op error <<< "$want"
+  grep -q "^$metric " <<< "$conditions" || api POST /api/qualitygates/create_condition --data-urlencode "gateName=$GATE" \
+    --data-urlencode "metric=$metric" --data-urlencode "op=$op" --data-urlencode "error=$error" > /dev/null
+done
 # SonarQube creates a gate with its own conditions (coverage, duplication, any new issue). They are
 # not security: a pull request must not fail this gate for missing tests.
-api GET /api/qualitygates/show --get --data-urlencode "name=$GATE" \
-  | json 'keep={"new_vulnerabilities","new_security_hotspots_reviewed","new_security_rating"}; print("\n".join(str(c["id"]) for c in d.get("conditions",[]) if c["metric"] not in keep))' \
-  | while read -r condition; do
-      [ -n "$condition" ] && api POST /api/qualitygates/delete_condition --data-urlencode "id=$condition" > /dev/null
-    done
+while read -r metric id; do
+  case " $wanted " in *" $metric:"*) continue ;; esac
+  [ -z "$id" ] || api POST /api/qualitygates/delete_condition --data-urlencode "id=$id" > /dev/null
+done <<< "$conditions"
 api POST /api/qualitygates/set_as_default --data-urlencode "name=$GATE" > /dev/null
 echo "quality gate '$GATE' is the default: new vulnerabilities = 0, new hotspots 100% reviewed, new security rating A"

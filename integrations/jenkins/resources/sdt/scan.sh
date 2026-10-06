@@ -52,11 +52,15 @@ if [ -n "${PR_ID:-}" ]; then
   # Baseline from the target branch: whatever already exists there is "existing", so only
   # what this pull request adds is "new" -- for the policy gate, SonarQube and the report.
   log "baseline: full scan of origin/$PR_BASE"
-  rm -rf "$OUT/base-src"; git -C "$SRC" worktree add -q --detach "$OUT/base-src" "origin/$PR_BASE"
+  # In a repository of its own that holds the target branch only: the secret scan reads the history of
+  # every branch it can see, and in the checkout it would see the pull request's commits too.
+  rm -rf "$OUT/base-src"; git init -q "$OUT/base-src"
+  git -C "$OUT/base-src" fetch -q "$SRC" "refs/remotes/origin/$PR_BASE"
+  git -C "$OUT/base-src" checkout -q --detach FETCH_HEAD
   ( cd "$OUT/base-src" && "$SDT_HOME/sdt" scan --config "$SDT_CONFIG" --profile full --offline \
       --output "$OUT/base" --cache "$OUT/cache" ) >/dev/null || true
   test -f "$OUT/base/findings.json"  # no baseline, no PR verdict
-  git -C "$SRC" worktree remove --force "$OUT/base-src"
+  rm -rf "$OUT/base-src"
   ( cd "$SRC" && "$SDT_HOME/sdt" baseline create --config "$SDT_CONFIG" --from "$OUT/base/findings.json" )
 fi
 log "SDT scan (profile $PROFILE)"

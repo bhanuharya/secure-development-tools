@@ -29,25 +29,22 @@ import urllib.parse
 import urllib.request
 import uuid
 
+from sdt_common import cell, gate, kind, log, place_of, rank, reported, required, scanned_commit, severity
+
 MARKER = "### SDT security scan"
 MAX_ROWS = 15
 MAX_FIXED = 5
-LEVELS = ["critical", "high", "medium", "low", "info"]
 SONAR_SEVERITY = {"BLOCKER": "critical", "CRITICAL": "high", "MAJOR": "medium", "MINOR": "low", "INFO": "info"}
-CATEGORIES = {"sast": "Code", "secret": "Secret", "secrets": "Secret", "sca": "Dependency", "dependency": "Dependency",
-              "dependency-vulnerability": "Dependency", "misconfiguration": "Configuration", "iac": "Configuration"}
 RATINGS = {"1": "A", "2": "B", "3": "C", "4": "D", "5": "E"}
-SECRET_RULE = re.compile(r"^secrets:|(^|[:._-])(secret|gitleaks|api-key|access-key|private-key|password|token|credential)", re.I)
+# A rule that finds a secret, not every rule about one: "jwt-token-not-verified" is a code finding.
+SECRET_RULE = re.compile(r"^secrets:|^sdt:secret|gitleaks|(^|[:._-])secrets?[:.]|(api|access|private|secret)[-_]key"
+                         r"|hard-?coded[-_](password|secret|token|credential)", re.I)
 DEPENDENCY_RULE = re.compile(r"vulnerable-dependency|(^|:)(CVE-\d|GHSA-|NSWG-|trivy)", re.I)
 ADVISORY = re.compile(r"\b(CVE-\d{4}-\d+|GHSA(?:-[0-9a-z]{4}){3}|NSWG-ECO-\d+)\b", re.I)
 # "CVE-2017-5941 in node-serialize 0.0.4 (...)" or "node-serialize@0.0.4": the package and its version.
 PACKAGE = re.compile(r"(?:\bin\s+|^\s*)([@A-Za-z0-9._/-]+)[ @](\d[^\s:,()]*)")
 # A long unbroken run of key-like characters is never needed to explain a finding.
 KEY_LIKE = re.compile(r"(?<![A-Za-z0-9/+_=-])(?=[A-Za-z0-9/+_=-]*\d)(?=[A-Za-z0-9/+_=-]*[A-Za-z])[A-Za-z0-9/+_=-]{24,}")
-
-
-def log(message):
-    print(f"[sdt] {message}", flush=True)
 
 
 def get_json(url, authorization):
@@ -115,6 +112,8 @@ def condition(line):
     """'new_vulnerabilities ERROR 2' as a person would say it."""
     parts = line.split()
     metric, value = parts[0], (parts[2] if len(parts) > 2 else "")
+    if not value and metric != "new_security_hotspots_reviewed":
+        return metric.replace("_", " ")
     if metric == "new_vulnerabilities":
         return f"{value} new vulnerabilit{'y' if value == '1' else 'ies'}"
     if metric == "new_security_hotspots_reviewed":
@@ -130,23 +129,11 @@ def condition(line):
     return line
 
 
-def verdict(out):
-    """PASSED / FAILED from the SonarQube quality gate; NOT COMPLETED when the scan never got there."""
-    try:
-        lines = open(os.path.join(out, "quality-gate.txt")).read().splitlines()
-    except OSError:
-        return "NOT COMPLETED", []
-    status = lines[0].strip() if lines else ""
-    if status == "OK":
-        return "PASSED", []
-    if status == "ERROR":
-        return "FAILED", [condition(line.strip()) for line in lines[1:] if line.strip()]
-    return "NOT COMPLETED", []
-
-
 # ------------------------------------------------------------- what it adds
-def safe(text, limit=110):
-    text = KEY_LIKE.sub("[redacted]", " ".join(str(text).split()))
+def safe(text, limit=110, redact=True):
+    text = " ".join(str(text).split())
+    if redact:
+        text = KEY_LIKE.sub("[redacted]", text)
     return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
 
 
@@ -162,39 +149,47 @@ def kind_of_rule(rule, default="Code"):
     return default
 
 
-def place_of(finding):
-    where = finding.get("location") or {}
-    return f"{where.get('path', '')}:{where['startLine']}" if where.get("startLine") else str(where.get("path", ""))
-
-
 def row(level, kind, what, where, rule):
     return {"level": level, "kind": kind, "what": what, "where": where, "rule": rule}
 
 
+def message(text, label):
+    # A package name is long and has digits, as a key does; an advisory never quotes a secret.
+    return safe(text, redact=label != "Dependency")
+
+
 def from_sdt(out):
     """The scanners' own list of what the pull request adds; None when there is none."""
-    try:
-        findings = json.load(open(os.path.join(out, "sdt", "findings-new.json")))["findings"]
-    except (OSError, ValueError, KeyError):
+    findings = reported(out, "sdt", "findings-new.json")
+    if findings is None:
         return None
     rows = []
     for finding in findings:
-        category = str(finding.get("category", "")).lower()
         rule = str((finding.get("rule") or {}).get("id", ""))
-        kind = CATEGORIES.get(category) or category.capitalize() or "Code"
-        if kind == "Code":
-            kind = kind_of_rule(rule)
-        rows.append(row(str((finding.get("severity") or {}).get("canonical", "")).lower(), kind,
-                        safe(finding.get("message", "")), place_of(finding), rule_name(rule)))
+        label = kind(finding, "Code")
+        if label == "Code":
+            label = kind_of_rule(rule)
+        what, where = finding.get("message", ""), place_of(finding)
+        artifact = finding.get("artifact") or {}
+        if label == "Dependency" and artifact.get("package"):
+            # The scanners describe a dependency by its fields: the advisory's own text names no version to merge on.
+            what = f"{rule} in {artifact['package']} {artifact.get('installedVersion', '')}".strip()
+            where = where or str(artifact.get("target", ""))
+        rows.append(row(severity(finding), label, message(what, label), where, rule_name(rule)))
     return rows
 
 
-def from_sonar(out, host, token, pr_id):
+def advisory_levels(out):
+    """The severity the scanners gave each advisory the pull request adds."""
+    levels = {}
+    for finding in reported(out, "sdt", "findings-new.json") or []:
+        if kind(finding, "") == "Dependency":
+            levels[str((finding.get("rule") or {}).get("id", "")).upper()] = severity(finding)
+    return levels
+
+
+def from_sonar(out, host, token, key, pr_id):
     """Open security issues and unreviewed hotspots SonarQube holds for the pull request; None when it cannot be asked."""
-    try:
-        key = open(os.path.join(out, "sonar-project-key")).read().strip()
-    except OSError:
-        return None
     if not (host and token and key):
         return None
     authorization = "Basic " + base64.b64encode(f"{token}:".encode()).decode()
@@ -215,6 +210,15 @@ def from_sonar(out, host, token, pr_id):
         path = "" if path == key else path
         return f"{path}:{item['line']}" if item.get("line") and path else path
 
+    advisories = advisory_levels(out)
+
+    def add(level, label, item, rule):
+        if label == "Dependency":
+            # SonarQube files a dependency the code does not reach as a low hotspot: the advisory's severity stands.
+            known = [advisories.get(name.upper(), level) for name in ADVISORY.findall(str(item.get("message", "")))]
+            level = min(known + [level], key=rank)
+        rows.append(row(level, label, message(item.get("message", ""), label), place(item), rule_name(rule)))
+
     rows = []
     for issue in issues:
         security = issue.get("type") == "VULNERABILITY" or any(
@@ -222,17 +226,11 @@ def from_sonar(out, host, token, pr_id):
         if not security:
             continue  # code smells and bugs are not this scan's business
         rule = str(issue.get("rule", ""))
-        rows.append(row(SONAR_SEVERITY.get(issue.get("severity"), "medium"), kind_of_rule(rule),
-                        safe(issue.get("message", "")), place(issue), rule_name(rule)))
+        add(SONAR_SEVERITY.get(issue.get("severity"), "medium"), kind_of_rule(rule), issue, rule)
     for hotspot in hotspots:
         rule = str(hotspot.get("ruleKey", ""))
-        rows.append(row(str(hotspot.get("vulnerabilityProbability", "medium")).lower(), kind_of_rule(rule, "To review"),
-                        safe(hotspot.get("message", "")), place(hotspot), rule_name(rule)))
+        add(str(hotspot.get("vulnerabilityProbability", "medium")).lower(), kind_of_rule(rule, "To review"), hotspot, rule)
     return rows
-
-
-def rank(level):
-    return LEVELS.index(level) if level in LEVELS else len(LEVELS)
 
 
 def merge_dependencies(rows):
@@ -248,7 +246,9 @@ def merge_dependencies(rows):
             merged[name] = dict(item, what=name, advisories=[])
             order.append(merged[name])
         entry = merged[name]
-        entry["advisories"] += [a for a in ADVISORY.findall(item["what"] + " " + item["rule"]) if a not in entry["advisories"]]
+        for advisory in ADVISORY.findall(item["what"] + " " + item["rule"]):
+            if advisory not in entry["advisories"]:
+                entry["advisories"].append(advisory)
         if rank(item["level"]) < rank(entry["level"]):
             entry["level"] = item["level"]
     for entry in merged.values():
@@ -259,13 +259,15 @@ def merge_dependencies(rows):
 
 def one_per_place(rows):
     """Two rules that flag the same line are one thing to fix: the most severe row of a line and type stays,
-    and a line that has a finding does not also ask for a review."""
+    and a line that has a finding does not also ask for a review. Findings on a whole file (no line) and
+    packages are each their own row."""
     rows = sorted(rows, key=lambda r: rank(r["level"]))
-    decided = {r["where"] for r in rows if r["where"] and r["kind"] != "To review"}
+    decided = {r["where"] for r in rows if r["kind"] != "To review"}
     kept, seen = [], set()
     for item in rows:
         key = (item["where"], item["kind"])
-        if item["where"] and (key in seen or (item["kind"] == "To review" and item["where"] in decided)):
+        on_a_line = item["kind"] != "Dependency" and re.search(r":\d+$", item["where"])
+        if on_a_line and (key in seen or (item["kind"] == "To review" and item["where"] in decided)):
             continue
         seen.add(key)
         kept.append(item)
@@ -292,12 +294,7 @@ def fixed(out, touched):
     """
     if touched is None:
         return []
-    def load(*path):
-        try:
-            return [f for f in json.load(open(os.path.join(out, *path)))["findings"] if not f.get("suppression")]
-        except (OSError, ValueError, KeyError):
-            return None
-    before, after = load("base", "findings.json"), load("sdt", "findings.json")
+    before, after = reported(out, "base", "findings.json"), reported(out, "sdt", "findings.json")
     if before is None or after is None:
         return []
     still = {(f.get("fingerprint") or {}).get("value") for f in after}
@@ -312,10 +309,6 @@ def fixed(out, touched):
         place = place_of(finding)
         described.append(rule_name((finding.get("rule") or {}).get("id", "")) + (f" at `{cell(place)}`" if place else ""))
     return described
-
-
-def cell(text):
-    return str(text).replace("|", "\\|").replace("`", "'").replace("\n", " ")
 
 
 def body(result, conditions, rows, gone, links, commit, base):
@@ -352,73 +345,65 @@ def body(result, conditions, rows, gone, links, commit, base):
     return "\n".join(lines)
 
 
-def scanned_commit(src):
-    if not src:
-        return ""
-    try:
-        return subprocess.run(["git", "-C", src, "rev-parse", "--short", "HEAD"], capture_output=True, text=True,
-                              timeout=20, check=True).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        return ""
-
-
-def main():
-    env = os.environ
-    try:
-        out, repo, workspace, pr_id, token = (env[name] for name in ("OUT", "REPO_SLUG", "WORKSPACE_NAME", "PR_ID", "BITBUCKET_TOKEN"))
-    except KeyError as missing:
-        log(f"pull request comment: {missing.args[0]} is not set")
-        return 1
-    client = Bitbucket(env.get("BITBUCKET_API") or "https://api.bitbucket.org/2.0", token, env.get("BITBUCKET_USER", ""))
-    quoted = f"/repositories/{urllib.parse.quote(workspace, safe='')}/{urllib.parse.quote(repo, safe='')}"
-    result, conditions = verdict(out)
-    sonar_host = env.get("SONAR_HOST_URL", "").rstrip("/")
-    rows = None
-    if result != "NOT COMPLETED":
-        rows = from_sonar(out, sonar_host, env.get("SONAR_TOKEN", ""), pr_id)
-    if rows is None:
-        rows = from_sdt(out)
-
-    links = []
+def report_links(client, quoted, out, repo, workspace, pr_id, build_url, upload):
+    """Where the report can be read, as (label, address) pairs."""
     report = os.path.join(out, f"SAST Report - {repo}.docx")
-    build_url = env.get("BUILD_URL", "")
     try:
         # publish_report.py committed the report to the reports repository.
         published = open(os.path.join(out, "report-url.txt")).read().strip()
     except OSError:
         published = ""
     if published:
-        links.append(("Report", published))
-        folder = published[:-len("report.md")] if published.endswith("/report.md") else ""
-        if folder and os.path.isfile(report):
-            links.append(("Word (.docx)", folder + "SAST%20Report.docx"))
-    elif os.path.isfile(report):
+        links = [("Report", published)]
+        if published.endswith("/report.md") and os.path.isfile(report):
+            links.append(("Word (.docx)", published[:-len("report.md")] + "SAST%20Report.docx"))
+        return links
+    if not os.path.isfile(report):
+        return []
+    if upload:
         name = f"SAST Report - {repo} - PR {pr_id}.docx"
-        uploaded = False
-        if env.get("SDT_PR_REPORT_UPLOAD", "1") == "1":
-            try:
-                # Downloads are readable by everyone who can read the repository.
-                if client.json("GET", quoted).get("is_private") is True:
-                    client.upload(f"{quoted}/downloads", name, open(report, "rb").read())
-                    uploaded = True
-                else:
-                    log("repository is not private: the report is not put in its Downloads")
-            except RuntimeError as err:
-                log(f"report not uploaded: {err}")
-        if uploaded:
-            links.append(("Full report (.docx)", f"https://bitbucket.org/{workspace}/{repo}/downloads/{urllib.parse.quote(name)}"))
-        elif build_url:
-            links.append(("Full report (.docx)", f"{build_url}artifact/out/{urllib.parse.quote(os.path.basename(report))}"))
+        try:
+            # Downloads are readable by everyone who can read the repository.
+            if client.json("GET", quoted).get("is_private") is True:
+                client.upload(f"{quoted}/downloads", name, open(report, "rb").read())
+                return [("Full report (.docx)", f"https://bitbucket.org/{workspace}/{repo}/downloads/{urllib.parse.quote(name)}")]
+            log("repository is not private: the report is not put in its Downloads")
+        except RuntimeError as err:
+            log(f"report not uploaded: {err}")
+    if build_url:
+        return [("Full report (.docx)", f"{build_url}artifact/out/{urllib.parse.quote(os.path.basename(report))}")]
+    return []
+
+
+def main():
+    env = os.environ
+    values = required("pull request comment", "OUT", "REPO_SLUG", "WORKSPACE_NAME", "PR_ID", "BITBUCKET_TOKEN")
+    if values is None:
+        return 1
+    out, repo, workspace, pr_id, token = values
+    client = Bitbucket(env.get("BITBUCKET_API") or "https://api.bitbucket.org/2.0", token, env.get("BITBUCKET_USER", ""))
+    quoted = f"/repositories/{urllib.parse.quote(workspace, safe='')}/{urllib.parse.quote(repo, safe='')}"
+    src, base, build_url = env.get("SRC", ""), env.get("PR_BASE", ""), env.get("BUILD_URL", "")
+    sonar_host = env.get("SONAR_HOST_URL", "").rstrip("/")
     try:
         key = open(os.path.join(out, "sonar-project-key")).read().strip()
     except OSError:
         key = ""
+    result, failed = gate(out)
+    rows = None
+    if result != "NOT COMPLETED":
+        rows = from_sonar(out, sonar_host, env.get("SONAR_TOKEN", ""), key, pr_id)
+    if rows is None:
+        rows = from_sdt(out)
+
+    links = report_links(client, quoted, out, repo, workspace, pr_id, build_url, env.get("SDT_PR_REPORT_UPLOAD", "1") == "1")
     if key and sonar_host:
         links.append(("SonarQube", f"{sonar_host}/dashboard?id={urllib.parse.quote(key)}&pullRequest={urllib.parse.quote(pr_id)}"))
     if build_url:
         links.append(("Build", build_url))
 
-    text = body(result, conditions, rows, fixed(out, changed_files(env.get("SRC", ""), env.get("PR_BASE", ""))), links, scanned_commit(env.get("SRC", "")), env.get("PR_BASE", ""))
+    text = body(result, [condition(line) for line in failed], rows, fixed(out, changed_files(src, base)), links,
+                scanned_commit(src), base)
     comments = f"{quoted}/pullrequests/{urllib.parse.quote(pr_id, safe='')}/comments"
     try:
         previous = client.own_comment(comments)

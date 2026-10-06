@@ -18,7 +18,6 @@ Optional: BITBUCKET_USER (set: the token is an API token of that account; empty:
 The token reaches git through GIT_ASKPASS: never on a command line, in a URL or in the output.
 Standard library only.
 """
-import json
 import os
 import re
 import shutil
@@ -28,76 +27,39 @@ import sys
 import tempfile
 import urllib.parse
 
-SEVERITIES = ["critical", "high", "medium", "low", "info"]
-CATEGORIES = {"sast": "Code", "secret": "Secret", "secrets": "Secret", "sca": "Dependency", "dependency": "Dependency"}
+from sdt_common import cell, gate, kind, log, place_of, rank, reported, required, scanned_commit, severity
+
 IDENTITY = ["-c", "user.name=SDT security scan", "-c", "user.email=sdt-security-scan@localhost"]
 ATTEMPTS = 5
 
 
-def log(message):
-    print(f"[sdt] {message}", flush=True)
-
-
-def severity(finding):
-    return str((finding.get("severity") or {}).get("canonical", "")).lower()
-
-
-def kind(finding):
-    category = str(finding.get("category", "")).lower()
-    return CATEGORIES.get(category, category.capitalize() or "Other")
-
-
-def location(finding):
-    where = finding.get("location") or {}
-    line = where.get("startLine")
-    return f"{where.get('path', '')}:{line}" if line else str(where.get("path", ""))
-
-
-def cell(text):
-    return str(text).replace("|", "\\|").replace("`", "'").replace("\n", " ").strip()
-
-
-def verdict(out):
-    try:
-        status = open(os.path.join(out, "quality-gate.txt")).readline().strip()
-    except OSError:
-        return "NOT COMPLETED"
-    return {"OK": "PASSED", "ERROR": "FAILED"}.get(status, "NOT COMPLETED")
-
-
 def findings(out, pull_request):
     """What the scan reports: for a pull request only what it adds; never what an exception covers."""
-    name = "findings-new.json" if pull_request else "findings-report.json"
-    for candidate in (name, "findings.json"):
-        try:
-            items = json.load(open(os.path.join(out, "sdt", candidate)))["findings"]
-        except (OSError, ValueError, KeyError):
-            continue
-        items = [f for f in items if not f.get("suppression")]
-        rank = {level: index for index, level in enumerate(SEVERITIES)}
-        return sorted(items, key=lambda f: (rank.get(severity(f), len(rank)), location(f)))
+    for name in ("findings-new.json" if pull_request else "findings-report.json", "findings.json"):
+        items = reported(out, "sdt", name)
+        if items is not None:
+            return sorted(items, key=lambda f: (rank(severity(f)), place_of(f)))
     return None
 
 
-def markdown(repo, scope, scope_url, commit, result, items):
+def markdown(repo, scope, scope_url, commit, result, items, pull_request):
     lines = [f"# Security scan: {repo}", "",
              f"**{result}** · {f'[{scope}]({scope_url})' if scope_url else scope}" + (f" · commit `{commit}`" if commit else ""), ""]
     if items is None:
         lines.append("The scan did not produce a list of findings.")
     elif not items:
-        lines.append("No security findings." if "pull request" not in scope else "This pull request adds no new security findings.")
+        lines.append("This pull request adds no new security findings." if pull_request else "No security findings.")
     else:
-        counts = {}
-        for item in items:
-            counts[kind(item)] = counts.get(kind(item), 0) + 1
+        kinds = [kind(item, "Other") for item in items]
+        counts = {name: kinds.count(name) for name in kinds}
         lines += [", ".join(f"{count} {name.lower()}" for name, count in sorted(counts.items())) + ".", "",
                   "| Severity | Type | Rule | Location | What |", "| --- | --- | --- | --- | --- |"]
-        for item in items:
+        for item, label in zip(items, kinds):
             rule = str((item.get("rule") or {}).get("id", "")).split(".")[-1]
             # A secret's message can describe the value; its type and place are enough.
-            what = "" if kind(item) == "Secret" else cell(item.get("message", ""))[:160]
-            lines.append(f"| {cell(severity(item).capitalize())} | {cell(kind(item))} | {cell(rule)} | `{cell(location(item))}` | {what} |")
-    if "pull request" in scope:
+            what = "" if label == "Secret" else cell(item.get("message", ""))[:160]
+            lines.append(f"| {cell(severity(item).capitalize())} | {cell(label)} | {cell(rule)} | `{cell(place_of(item))}` | {what} |")
+    if pull_request:
         lines += ["", "Findings that already exist on the target branch are not listed."]
     lines += ["", "Review decisions (safe, false positive, accepted) are made in SonarQube. "
               "The full report is [SAST Report.docx](SAST%20Report.docx) in this folder."]
@@ -122,12 +84,10 @@ class Git:
 
 def main():
     env = os.environ
-    try:
-        out, repo, workspace, token, target = (env[name] for name in
-                                               ("OUT", "REPO_SLUG", "WORKSPACE_NAME", "BITBUCKET_TOKEN", "SDT_REPORTS_REPO"))
-    except KeyError as missing:
-        log(f"report not published: {missing.args[0]} is not set")
+    values = required("report not published", "OUT", "REPO_SLUG", "WORKSPACE_NAME", "BITBUCKET_TOKEN", "SDT_REPORTS_REPO")
+    if values is None:
         return 1
+    out, repo, workspace, _, target = values
     pr_id, branch = env.get("PR_ID", ""), env.get("BRANCH", "")
     if pr_id:
         folder, scope = f"{repo}/pull-requests/{pr_id}", f"pull request #{pr_id}"
@@ -141,12 +101,9 @@ def main():
     base = (env.get("BITBUCKET_GIT") or "https://bitbucket.org").rstrip("/")
     remote = f"{base}/{reports_workspace}/{reports_repo}.git"
 
-    commit = ""
-    if env.get("SRC"):
-        done = subprocess.run(["git", "-C", env["SRC"], "rev-parse", "--short", "HEAD"], capture_output=True, text=True)
-        commit = done.stdout.strip() if done.returncode == 0 else ""
-    result = verdict(out)
-    text = markdown(repo, scope, env.get("SCOPE_URL", ""), commit, result, findings(out, bool(pr_id)))
+    commit = scanned_commit(env.get("SRC", ""))
+    result = gate(out)[0]
+    text = markdown(repo, scope, env.get("SCOPE_URL", ""), commit, result, findings(out, bool(pr_id)), bool(pr_id))
     docx = os.path.join(out, f"SAST Report - {repo}.docx")
     pdf = os.path.join(out, "security-report.pdf")
 

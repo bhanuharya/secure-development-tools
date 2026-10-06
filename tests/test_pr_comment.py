@@ -55,13 +55,16 @@ class FakeBitbucket:
     def sent(self, method):
         return [r for r in self.requests if r[0] == method]
 
+    def uploads(self):
+        return [r for r in self.sent("POST") if r[1].endswith("/downloads")]
+
     def comment_text(self, method):
         return json.loads(self.sent(method)[-1][3])["content"]["raw"]
 
 
-def finding(category, level, rule, path, line, state="new"):
+def finding(category, level, rule, path, line):
     return {"category": category, "severity": {"canonical": level}, "rule": {"id": rule},
-            "location": {"path": path, "startLine": line}, "baselineState": state}
+            "location": {"path": path, "startLine": line}}
 
 
 @pytest.fixture
@@ -99,7 +102,7 @@ def test_pass_posts_comment_with_findings_and_uploaded_report(out):
     assert "`lib/config.dart:3`" in text and "pack.dart" not in text
     assert "https://bitbucket.org/ws/shop/downloads/SAST%20Report%20-%20shop%20-%20PR%2042.docx" in text
     assert "https://sonar.example/dashboard?id=sdt_ws_shop_abc&pullRequest=42" in text
-    upload = [r for r in fake.sent("POST") if r[1].endswith("/downloads")][0]
+    upload = fake.uploads()[0]
     assert b"PK-docx-bytes" in upload[3] and b'filename="SAST Report - shop - PR 42.docx"' in upload[3]
     assert all(r[2] == f"Bearer {TOKEN}" for r in fake.requests)
 
@@ -134,7 +137,7 @@ def test_second_scan_updates_the_earlier_comment(out):
 def test_public_repository_gets_no_upload_and_links_the_build_artifact(out):
     fake = FakeBitbucket(private=False)
     assert run(fake, out).returncode == 0
-    assert not [r for r in fake.sent("POST") if r[1].endswith("/downloads")]
+    assert not fake.uploads()
     assert "https://ci.example/job/x/9/artifact/out/SAST%20Report%20-%20shop.docx" in fake.comment_text("POST")
 
 
@@ -144,7 +147,7 @@ def test_no_new_findings_and_basic_auth_with_a_user(out):
     assert run(fake, out, BITBUCKET_USER="bot@example.com", SDT_PR_REPORT_UPLOAD="0").returncode == 0
     assert "adds no new security findings" in fake.comment_text("POST")
     assert all(r[2].startswith("Basic ") for r in fake.requests)
-    assert not [r for r in fake.sent("POST") if r[1].endswith("/downloads")]
+    assert not fake.uploads()
 
 
 def test_refused_comment_fails_without_printing_the_token(out):
@@ -158,6 +161,10 @@ def test_refused_comment_fails_without_printing_the_token(out):
 PUBLISH = SCRIPT.with_name("publish_report.py")
 
 
+def bare(reports):
+    return reports / "ws" / "security-reports.git"
+
+
 def git(*args, cwd=None):
     return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True).stdout
 
@@ -166,7 +173,7 @@ def git(*args, cwd=None):
 def reports(tmp_path_factory):
     root = tmp_path_factory.mktemp("bitbucket")
     (root / "ws").mkdir()
-    git("init", "--quiet", "--bare", "--initial-branch=main", str(root / "ws" / "security-reports.git"))
+    git("init", "--quiet", "--bare", "--initial-branch=main", str(bare(root)))
     return root
 
 
@@ -180,7 +187,7 @@ def publish(out, reports, **extra):
 
 
 def published(reports, path):
-    return git("--git-dir", str(reports / "ws" / "security-reports.git"), "show", f"main:{path}")
+    return git("--git-dir", str(bare(reports)), "show", f"main:{path}")
 
 
 def test_pull_request_report_is_committed_and_its_address_handed_to_the_comment(out, reports):
@@ -190,7 +197,7 @@ def test_pull_request_report_is_committed_and_its_address_handed_to_the_comment(
     text = published(reports, "shop/pull-requests/42/report.md")
     assert "**FAILED**" in text and "[pull request #42](https://bitbucket.org/ws/shop/pull-requests/42)" in text
     assert "| Critical | Secret | generic-api-key | `lib/config.dart:3` |  |" in text
-    assert git("--git-dir", str(reports / "ws" / "security-reports.git"), "ls-tree", "--name-only", "main",
+    assert git("--git-dir", str(bare(reports)), "ls-tree", "--name-only", "main",
                "shop/pull-requests/42/").count("SAST Report.docx") == 1
     assert published(reports, "shop/pull-requests/42/security-report.pdf") == "%PDF-bytes"
     url = (out / "report-url.txt").read_text().strip()
@@ -198,23 +205,24 @@ def test_pull_request_report_is_committed_and_its_address_handed_to_the_comment(
 
     fake = FakeBitbucket()
     assert run(fake, out).returncode == 0
-    assert f"[Report]({url})" in fake.comment_text("POST")
-    folder = "https://bitbucket.org/ws/security-reports/src/main/shop/pull-requests/42/"
-    assert "security-report.pdf" not in fake.comment_text("POST")
-    assert f"[Word (.docx)]({folder}SAST%20Report.docx)" in fake.comment_text("POST")
-    assert not [r for r in fake.sent("POST") if r[1].endswith("/downloads")]
+    text = fake.comment_text("POST")
+    assert f"[Report]({url})" in text and "security-report.pdf" not in text
+    assert f"[Word (.docx)]({url[:-len('report.md')]}SAST%20Report.docx)" in text
+    assert not fake.uploads()
 
 
 def test_branch_report_goes_under_branches_and_a_rescan_without_changes_adds_no_commit(out, reports):
     (out / "sdt" / "findings-report.json").write_text(json.dumps({"findings": [
         finding("sast", "high", "x.eval", "src/a.js", 8),
+        finding("dependency-vulnerability", "low", "CVE-2020-1", "package-lock.json", 4),
         dict(finding("sast", "low", "x.covered", "src/b.js", 1), suppression={"reason": "reviewed"}),
     ]}))
     assert publish(out, reports, BRANCH="release/1.0").returncode == 0
     text = published(reports, "shop/branches/release_1.0/report.md")
     assert "**PASSED**" in text and "`src/a.js:8`" in text and "covered" not in text
+    assert "| Low | Dependency | CVE-2020-1 |" in text  # the same type names as the pull-request comment
     assert publish(out, reports, BRANCH="release/1.0").returncode == 0
-    assert git("--git-dir", str(reports / "ws" / "security-reports.git"), "rev-list", "--count", "main").strip() == "1"
+    assert git("--git-dir", str(bare(reports)), "rev-list", "--count", "main").strip() == "1"
 
 
 def test_two_scans_publish_to_the_same_repository(out, reports):
@@ -231,16 +239,20 @@ def test_unreachable_reports_repository_fails_quietly(out, reports):
 
 
 # ------------------------------------------------------------------ what the comment lists
-def load_comment_module():
+@pytest.fixture(scope="module")
+def pc():
     import importlib.util
-    spec = importlib.util.spec_from_file_location("pr_comment", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    sys.path.insert(0, str(SCRIPT.parent))  # as when the script is run: its own folder holds sdt_common.py
+    try:
+        spec = importlib.util.spec_from_file_location("pr_comment", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.remove(str(SCRIPT.parent))
     return module
 
 
-def test_one_row_per_package_and_per_flagged_line():
-    pc = load_comment_module()
+def test_one_row_per_package_and_per_flagged_line(pc):
     rows = [
         pc.row("critical", "Dependency", "CVE-2017-5941 in node-serialize 0.0.4 (no fixed version published yet).", "package-lock.json:28", "dep"),
         pc.row("high", "Dependency", "NSWG-ECO-311 in node-serialize 0.0.4: upgrade.", "package-lock.json:28", "dep"),
@@ -257,8 +269,7 @@ def test_one_row_per_package_and_per_flagged_line():
     assert "Why it failed: 2 new vulnerabilities." in text
 
 
-def test_fixed_counts_only_code_in_files_the_pull_request_touches(tmp_path):
-    pc = load_comment_module()
+def test_fixed_counts_only_code_in_files_the_pull_request_touches(pc, tmp_path):
     def item(category, rule, path, value):
         return {"category": category, "rule": {"id": rule}, "location": {"path": path, "startLine": 3},
                 "fingerprint": {"value": value}}
@@ -272,7 +283,42 @@ def test_fixed_counts_only_code_in_files_the_pull_request_touches(tmp_path):
     assert pc.fixed(str(tmp_path), None) == []
 
 
-def test_messages_never_carry_a_key_like_value():
-    pc = load_comment_module()
+def test_messages_never_carry_a_key_like_value(pc):
     assert "wJalrXUtnFEMIK7MDENGbPxRfiCYzzzzKEY12345" not in pc.safe("leaked wJalrXUtnFEMIK7MDENGbPxRfiCYzzzzKEY12345 here")
     assert pc.condition("new_security_rating ERROR 5") == "security rating of the new code is E (must be A)"
+
+
+def test_findings_without_a_line_and_packages_in_one_manifest_each_keep_their_row(pc):
+    rows = [
+        pc.row("high", "Dependency", "CVE-2023-1 in requests 2.0.0", "requirements.txt", "dep"),
+        pc.row("critical", "Dependency", "CVE-2022-2 in flask 0.5", "requirements.txt", "dep"),
+        pc.row("high", "Code", "Debug mode on", "settings.py", "debug"),
+        pc.row("medium", "Code", "CSRF check off", "settings.py", "csrf"),
+    ]
+    text = pc.body("FAILED", [], rows, [], [], "", "main")
+    assert "adds **4** new security findings (2 code, 2 dependency)" in text
+    assert "requests 2.0.0: CVE-2023-1" in text and "flask 0.5: CVE-2022-2" in text and "CSRF check off" in text
+
+
+def test_a_rule_about_tokens_is_code_and_a_rule_that_finds_one_is_a_secret(pc):
+    assert pc.kind_of_rule("pack.js.jwt-token-not-verified") == "Code"
+    assert pc.kind_of_rule("pack.go.weak-password-hash") == "Code"
+    assert pc.kind_of_rule("external_opengrep:scp.common.secrets.aws-access-key-id") == "Secret"
+    assert pc.kind_of_rule("secrets:S6290") == "Secret" and pc.kind_of_rule("sdt:vulnerable-dependency") == "Dependency"
+
+
+def test_dependency_keeps_the_advisory_severity_and_its_package_name(pc, tmp_path):
+    (tmp_path / "sdt").mkdir()
+    package = "golang.org/x/crypto/ssh_agent_forwarding_v2"
+    (tmp_path / "sdt" / "findings-new.json").write_text(json.dumps({"findings": [
+        {"category": "dependency-vulnerability", "severity": {"canonical": "critical"}, "rule": {"id": "CVE-2017-5941"},
+         "message": "An issue was discovered.", "artifact": {"package": package, "installedVersion": "0.1.0", "target": "go.mod"}}]}))
+    # the scanners' own list: one row from the finding's fields, the long package name not taken for a key
+    text = pc.body("FAILED", [], pc.from_sdt(str(tmp_path)), [], [], "", "main")
+    assert f"| Critical | Dependency | {package} 0.1.0: CVE-2017-5941 | `go.mod` |" in text
+    # SonarQube files a dependency the code does not reach as a low hotspot
+    pc.get_json = lambda url, authorization: {"issues": [], "hotspots": [
+        {"ruleKey": "sdt:vulnerable-dependency-unreachable", "vulnerabilityProbability": "LOW", "component": "key:go.mod", "line": 4,
+         "message": f"CVE-2017-5941 in {package} 0.1.0 (no fixed version published yet)."}]}
+    text = pc.body("FAILED", [], pc.from_sonar(str(tmp_path), "http://sonar", "t", "key", "7"), [], [], "", "main")
+    assert f"| Critical | Dependency | {package} 0.1.0: CVE-2017-5941 | `go.mod:4` |" in text
