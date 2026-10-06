@@ -86,8 +86,22 @@ if [ -n "${PR_ID:-}" ]; then
   ( cd "$SRC" && "$SDT_HOME/sdt" baseline create --config "$SDT_CONFIG" --from "$OUT/base/findings.json" )
 fi
 log "SDT scan (profile $PROFILE)"
-( cd "$SRC" && "$SDT_HOME/sdt" scan --config "$SDT_CONFIG" --profile "$PROFILE" --offline "${BASE_ARGS[@]}" \
-    --output "$OUT/sdt" --cache "$OUT/cache" ) || log "sdt exit $? (policy findings exit 1; the report is still complete)"
+sdt_scan() {
+  ( cd "$SRC" && "$SDT_HOME/sdt" scan --config "$SDT_CONFIG" --profile "$PROFILE" --offline "${BASE_ARGS[@]}" \
+      --output "$OUT/sdt" --cache "$OUT/cache" ) 2>&1 | tee "$OUT/sdt-scan.log"
+  return "${PIPESTATUS[0]}"
+}
+sdt_scan || log "sdt exit $? (policy findings exit 1; the report is still complete)"
+# Trivy resolves Maven parent POMs from Maven Central, which answers 429 and blocks the address for
+# a while when many Java repositories are scanned in a row. A scan without dependency results is
+# worse than one resolved from the repository's own files, so try once more without the network.
+if grep -qE 'scanner trivy-fs +failed' "$OUT/sdt-scan.log" && [ -z "${TRIVY_OFFLINE_SCAN:-}" ]; then
+  log "dependency scan failed; trying again from the repository's own files only"
+  export TRIVY_OFFLINE_SCAN=true
+  rm -rf "$OUT/sdt"; mkdir -p "$OUT/sdt"
+  sdt_scan || log "sdt exit $? (policy findings exit 1; the report is still complete)"
+  grep -qE 'scanner trivy-fs +failed' "$OUT/sdt-scan.log" || DEPENDENCIES_OFFLINE=1
+fi
 test -f "$OUT/sdt/findings.json"
 # What goes to SonarQube: not the findings an exception covers (they stay in findings.json, marked),
 # and for a pull request only what it adds.
@@ -119,6 +133,8 @@ export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.git@bitbucket.org:${WORKSPACE_NA
        GIT_CONFIG_VALUE_0="https://bitbucket.org/${WORKSPACE_NAME}/"
 DART_REPORT="$OUT/dart-analyze.txt"; : > "$DART_REPORT"
 : > "$OUT/coverage.txt"  # what this scan could not cover; shown in the report
+[ -z "${DEPENDENCIES_OFFLINE:-}" ] \
+  || echo "Dependencies were read from the repository's own files only (the package registry refused requests): versions set by a parent POM may be missing." >> "$OUT/coverage.txt"
 DART_BIN="${FLUTTER_HOME:+$FLUTTER_HOME/bin/}dart"; FLUTTER_BIN="${FLUTTER_HOME:+$FLUTTER_HOME/bin/}flutter"
 if [ -f "$SRC/pubspec.yaml" ] && command -v "$DART_BIN" >/dev/null; then
   command -v "$FLUTTER_BIN" >/dev/null || FLUTTER_BIN="$DART_BIN"
@@ -193,9 +209,20 @@ if [ -n "$SONAR_TEST_PATTERNS" ]; then
     done
   fi
 fi
+# The Java sensor refuses a checkout without compiled classes. Findings come from SDT, so one empty
+# class keeps it running; a repository that names its own classes in sonar-project.properties wins.
+JAVA_ARGS=()
+if ! grep -qs '^sonar\.java\.binaries' "$SRC/sonar-project.properties" \
+   && [ -n "$(find "$SRC" -name .git -prune -o -name node_modules -prune -o -name '*.java' -print -quit)" ]; then
+  mkdir -p "$OUT/java-classes"
+  base64 -d > "$OUT/java-classes/SdtDummy.class" <<'CLASS'
+yv66vgAAAD0ADQoAAgADBwAEDAAFAAYBABBqYXZhL2xhbmcvT2JqZWN0AQAGPGluaXQ+AQADKClWBwAIAQAIU2R0RHVtbXkBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQAKU291cmNlRmlsZQEADVNkdER1bW15LmphdmEAIQAHAAIAAAAAAAEAAQAFAAYAAQAJAAAAHQABAAEAAAAFKrcAAbEAAAABAAoAAAAGAAEAAAABAAEACwAAAAIADA==
+CLASS
+  JAVA_ARGS=(-Dsonar.java.binaries="$OUT/java-classes")
+fi
 log "SonarQube analysis of $PROJECT_KEY"
 ( cd "$SRC" && "$SONAR_SCANNER" -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.projectKey="$PROJECT_KEY" \
-    -Dsonar.projectName="$WORKSPACE_NAME/$REPO_SLUG" -Dsonar.sources=. "${TEST_ARGS[@]}" \
+    -Dsonar.projectName="$WORKSPACE_NAME/$REPO_SLUG" -Dsonar.sources=. "${TEST_ARGS[@]}" "${JAVA_ARGS[@]}" \
     -Dsonar.externalIssuesReportPaths="$OUT/sonar-external.json" \
     -Dsonar.opengrep.reportPaths="$REPORT_FINDINGS" -Dsonar.xml.file.suffixes=.xml,.plist \
     -Dsonar.dart.analyzer.mode=MANUAL -Dsonar.dart.analyzer.report.mode=MACHINE \
