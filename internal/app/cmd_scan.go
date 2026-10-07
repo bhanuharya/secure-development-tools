@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -198,7 +200,10 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 			TimeoutSeconds: t.TimeoutSeconds, Dir: root, ReportPath: pendingReportPaths[t.Adapter],
 		})
 	}
-	ectx, cancel := context.WithCancel(context.Background())
+	// A request to stop sdt (Ctrl-C, or SIGTERM from the CI server) stops the
+	// scanners with it: they run in process groups of their own, so nothing
+	// else would reach them.
+	ectx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	if d, ok := profileTimeout(prof.Timeout); ok {
 		var pcancel context.CancelFunc
 		ectx, pcancel = context.WithTimeout(ectx, d)

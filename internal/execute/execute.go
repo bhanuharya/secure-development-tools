@@ -16,6 +16,9 @@ import (
 
 func readFile(p string) ([]byte, error) { return os.ReadFile(p) }
 
+// outputGrace is how long a finished or stopped scanner's output pipes may stay open.
+const outputGrace = 5 * time.Second
+
 // Task is a bounded unit of work.
 type Task struct {
 	Adapter        string
@@ -90,6 +93,10 @@ func RunOne(ctx context.Context, t Task, redact func(string) string) Result {
 	if t.Dir != "" {
 		cmd.Dir = t.Dir
 	}
+	ownProcessGroup(cmd)
+	// A process that outlives the scanner and still holds its output must not
+	// keep the run waiting: give the pipes a moment, then close them.
+	cmd.WaitDelay = outputGrace
 	var stdout, stderr bytes.Buffer
 	// Bound output: 32 MiB cap.
 	cmd.Stdout = &limitedWriter{W: &stdout, N: 32 << 20}
