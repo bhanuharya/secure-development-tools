@@ -13,7 +13,9 @@
 #            SONAR_CARRY_DECISIONS (1|0: copy review decisions from the project's other branches),
 #            SDT_BASELINE_CACHE (default $SDT_STATE_DIR/baselines: a pull request's target-branch scan is kept
 #            there for the day, so other pull requests on the same target commit do not repeat it; empty: no cache),
-#            SONAR_TEST_PATTERNS (comma-separated globs of test code; empty analyses tests as application code)
+#            SONAR_TEST_PATTERNS (comma-separated globs of test code; empty analyses tests as application code),
+#            SDT_REGISTRY_BLOCK_MINUTES (30: after Maven Central blocks this machine, how long Java scans
+#            read dependencies from the repository's own files without asking it again)
 set -euo pipefail
 set +x  # never trace: SONAR_TOKEN is in the environment
 
@@ -35,6 +37,17 @@ export SDT_RULES_PACK_DIR="$RULES_DIR" SDT_DEFAULT_RULES_DIR="$RULES_DIR"
 PROFILE=full; BASE_ARGS=()
 if [ -n "${PR_ID:-}" ]; then
   PROFILE=pr; BASE_ARGS=(--base "origin/${PR_BASE:?PR_BASE is required for a pull request}")
+fi
+# Trivy resolves Maven parent POMs from Maven Central, which answers 429 and blocks the address for a
+# while when many Java repositories are scanned in a row. A scan that meets the block notes the time
+# (below); for the next half hour Java scans read dependencies from the repository's own files straight
+# away, instead of failing first and scanning twice. Asking again during the block would only fail.
+REGISTRY_BLOCK="${SDT_STATE_DIR:-$HOME/.cache/sdt}/maven-central-blocked"
+if [ -z "${TRIVY_OFFLINE_SCAN:-}" ] \
+   && [ -n "$(find "$REGISTRY_BLOCK" -mmin "-${SDT_REGISTRY_BLOCK_MINUTES:-30}" 2>/dev/null)" ] \
+   && [ -n "$(find "$SRC" -name .git -prune -o \( -name pom.xml -o -name '*.gradle' -o -name '*.gradle.kts' \) -print -quit)" ]; then
+  log "Maven Central blocked this machine less than ${SDT_REGISTRY_BLOCK_MINUTES:-30} minutes ago: dependencies are read from the repository's own files"
+  export TRIVY_OFFLINE_SCAN=true; DEPENDENCIES_OFFLINE=1
 fi
 REPORT_FINDINGS="$OUT/sdt/findings.json"
 # Findings a reviewer already judged false positive (on any branch of this repository) become
@@ -92,10 +105,12 @@ sdt_scan() {
   return "${PIPESTATUS[0]}"
 }
 sdt_scan || log "sdt exit $? (policy findings exit 1; the report is still complete)"
-# Trivy resolves Maven parent POMs from Maven Central, which answers 429 and blocks the address for
-# a while when many Java repositories are scanned in a row. A scan without dependency results is
-# worse than one resolved from the repository's own files, so try once more without the network.
+# A scan without dependency results is worse than one resolved from the repository's own files, so
+# when the dependency scan fails, try once more without the network.
 if grep -qE 'scanner trivy-fs +failed' "$OUT/sdt-scan.log" && [ -z "${TRIVY_OFFLINE_SCAN:-}" ]; then
+  if grep -q '429 Too Many Requests' "$OUT/sdt/run-manifest.json" 2>/dev/null; then
+    { mkdir -p "$(dirname "$REGISTRY_BLOCK")" && touch "$REGISTRY_BLOCK"; } 2>/dev/null || true
+  fi
   log "dependency scan failed; trying again from the repository's own files only"
   export TRIVY_OFFLINE_SCAN=true
   rm -rf "$OUT/sdt"; mkdir -p "$OUT/sdt"

@@ -4,6 +4,12 @@
 
 - No PDF report: a scan produces the SAST report as .docx only. `security-report.pdf` is no longer built, archived
   or committed to the reports repository, and one left there by an earlier scan is removed at the next scan.
+- Java repositories scan once, not twice, while Maven Central is blocking the machine: the first scan that meets
+  the block (429) notes it, and for `SDT_REGISTRY_BLOCK_MINUTES` (30) later Java scans read dependencies from the
+  repository's own files straight away. The report's coverage section says so.
+- Each scanner's time limit can be set in the scan configuration (`scanners.<name>.timeout`). The fleet
+  configuration gives the secret scan 30 minutes, because the full history of a large repository took longer than
+  the fixed 10 and its findings were lost. Needs the SDT checkout updated (`install/update-sdt.sh`).
 
 ## 2026-10-06
 
