@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/bhanuharya/secure-development-tools/internal/config"
@@ -77,10 +78,16 @@ func (a *OpengrepAdapter) Plan(ctx *sdtctx.ScanContext, cfg *config.ScanConfigur
 	for _, x := range opengrepExcludes() {
 		args = append(args, "--exclude", x)
 	}
+	generated, skipped, note := skipGenerated(root)
+	args = append(args, generated...)
+	if threads := scanThreads(); threads > 0 {
+		args = append(args, "-j", strconv.Itoa(threads))
+	}
 	target := root
 	args = append(args, target)
 	timeout := taskTimeout(cfg.Scanners.Opengrep.Timeout, 600)
-	return Task{Adapter: "opengrep", Tool: "opengrep", Executable: bin, Args: args, Targets: []string{target}, TimeoutSeconds: timeout, RuleBundle: "secure-default", RuleChecksums: checksumFiles(rules)}, nil
+	return Task{Adapter: "opengrep", Tool: "opengrep", Executable: bin, Args: args, Targets: []string{target}, TimeoutSeconds: timeout, RuleBundle: "secure-default", RuleChecksums: checksumFiles(rules),
+		SkippedFiles: skipped, Note: note}, nil
 }
 
 func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, stderrRedacted string, nativeExit int) ParseResult {

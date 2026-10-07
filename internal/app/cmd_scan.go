@@ -79,7 +79,7 @@ func planTasksFull(cfg *config.ScanConfiguration, profile string, ctx *sdtctx.Sc
 		tasks = append(tasks, plan.Task{
 			Adapter: t.Adapter, Tool: t.Tool, Executable: t.Executable, Args: t.Args,
 			Targets: t.Targets, TimeoutSeconds: t.TimeoutSeconds, Mode: t.Mode, RuleBundle: t.RuleBundle,
-			RuleChecksums: t.RuleChecksums,
+			RuleChecksums: t.RuleChecksums, Excludes: t.SkippedFiles, Note: t.Note,
 		})
 		// stash report path via parallel slice hack: re-lookup after build.
 		pendingReportPaths[t.Adapter] = t.ReportPath
@@ -191,10 +191,15 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 	execTasks := make([]execute.Task, 0, len(tasks))
 	toolVersions := map[string]string{}
 	adapters := map[string]scanner.Adapter{}
+	planned := map[string]plan.Task{}
 	for _, t := range tasks {
 		a, _ := scanner.Lookup(t.Adapter)
 		adapters[t.Adapter] = a
 		toolVersions[t.Adapter] = scanner.ToolVersion(t.Executable)
+		if t.Note != "" {
+			fmt.Fprintln(cmd.ErrOrStderr(), "sdt: "+t.Adapter+": "+t.Note)
+		}
+		planned[t.Adapter] = t
 		execTasks = append(execTasks, execute.Task{
 			Adapter: t.Adapter, Executable: t.Executable, Args: t.Args,
 			TimeoutSeconds: t.TimeoutSeconds, Dir: root, ReportPath: pendingReportPaths[t.Adapter],
@@ -224,7 +229,8 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 		a := adapters[r.Adapter]
 		execHealth := string(r.Classify())
 		health[r.Adapter] = execHealth
-		rec := report.TaskRecord{Adapter: r.Adapter, State: execHealth, NativeExit: r.NativeExit, DurationMS: r.Duration.Milliseconds()}
+		rec := report.TaskRecord{Adapter: r.Adapter, State: execHealth, NativeExit: r.NativeExit, DurationMS: r.Duration.Milliseconds(),
+			Note: planned[r.Adapter].Note, SkippedFiles: planned[r.Adapter].Excludes}
 		if r.Err != nil {
 			diagnostics = append(diagnostics, fmt.Sprintf("%s execution error: %v", r.Adapter, r.Err))
 			rec.Diagnostic = truncateJoin([]string{r.Err.Error()}, 300)

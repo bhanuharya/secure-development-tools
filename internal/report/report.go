@@ -51,6 +51,9 @@ type TaskRecord struct {
 	NativeExit int    `json:"nativeExit,omitempty"`
 	DurationMS int64  `json:"durationMs,omitempty"`
 	Diagnostic string `json:"diagnostic,omitempty"`
+	// Note and SkippedFiles record what a scanner that ran normally left out on purpose.
+	Note         string   `json:"note,omitempty"`
+	SkippedFiles []string `json:"skippedFiles,omitempty"`
 }
 
 type FindingCounts struct {

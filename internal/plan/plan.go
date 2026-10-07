@@ -15,7 +15,9 @@ import (
 
 const SchemaVersion = "secure-dev/plan/v1alpha1"
 
-// Task is one immutable scanner invocation.
+// Task is one immutable scanner invocation. Excludes lists the files the
+// scanner was told to leave out (paths relative to the scan root); Note says
+// why, in a sentence.
 type Task struct {
 	Adapter           string   `json:"adapter"`
 	Tool              string   `json:"tool"`
@@ -30,6 +32,7 @@ type Task struct {
 	RuleChecksums     []string `json:"ruleChecksums,omitempty"`
 	Database          string   `json:"database,omitempty"`
 	UpdateMode        string   `json:"updateMode,omitempty"`
+	Note              string   `json:"note,omitempty"`
 }
 
 // Skip records a capability-based skip with reason.

@@ -43,6 +43,10 @@ type Task struct {
 	ReportPath     string
 	// Mode records adapter-specific scan mode (e.g. gitleaks tree|changed|full).
 	Mode string
+	// SkippedFiles are files the scanner is told to leave out (paths relative
+	// to the scan root); Note says why, in a sentence, for the run manifest.
+	SkippedFiles []string
+	Note         string
 }
 
 // ParseResult is adapter parse output.
