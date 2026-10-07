@@ -1448,7 +1448,7 @@ def test_the_line_a_credential_rule_flags_shows_no_value_at_all():
 def test_a_hard_coded_password_reaches_neither_the_review_nor_the_report(tmp_path):
     value = "kq7" + "Zp2"  # short and unquoted: what the earlier redaction let through
     root = _src(tmp_path, "src/main/resources/config/application-prod.yml",
-                f"spring:\n  datasource:\n    username: app\n    password: {value}\n")
+                f"spring:\n  datasource:\n    username: {value}\n    password: {value}\n")  # the user name is the password too
     path = "src/main/resources/config/application-prod.yml"
     group = sdt_to_docx.Group("java:S6437", "Credentials should not be hard-coded", "Vulnerability", "High")
     occurrence = sdt_to_docx.Occurrence(path, 4, "Revoke and change this password, as it is compromised.", "Open", "")

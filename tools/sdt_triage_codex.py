@@ -72,7 +72,7 @@ RESPONSE_SCHEMA = {
     },
 }
 
-from sdt_advisory import CREDENTIAL_RULE, redact, redact_credential_line  # noqa: E402  (one redaction for prompts and reports)
+from sdt_advisory import CREDENTIAL_RULE, redact, redact_lines  # noqa: E402  (one redaction for prompts and reports)
 
 
 MAX_BLOCK_LINES = 150
@@ -176,16 +176,15 @@ def context(src_root: Path | None, occurrence: sdt_to_docx.Occurrence, credentia
         start, end = block
     else:
         start, end = max(0, index - CONTEXT_LINES), min(len(lines) - 1, index + CONTEXT_LINES)
-    def shown(n: int) -> str:
-        line = lines[n].rstrip()
-        return (redact_credential_line(line, occurrence.path) if credential and n == index
-                else redact(line, occurrence.path))[:200]
+    related = related_lines(lines, index, start, end)
+    wanted = [n for low, high in [(start, end)] + related for n in range(low, high + 1)]
+    shown = redact_lines({n: lines[n].rstrip() for n in wanted}, occurrence.path, {index} if credential else set())
 
     def numbered(low: int, high: int) -> list[str]:
-        return [f"{'>' if n == index else ' '}{n + 1:>5}  {shown(n)}" for n in range(low, high + 1)]
+        return [f"{'>' if n == index else ' '}{n + 1:>5}  {shown[n][:200]}" for n in range(low, high + 1)]
 
     body = numbered(start, end)
-    for low, high in related_lines(lines, index, start, end):
+    for low, high in related:
         body += ["   ...  (elsewhere in this file, same names)"] + numbered(low, high)
     return redact("\n".join(body))
 

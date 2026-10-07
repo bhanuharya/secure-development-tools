@@ -60,35 +60,65 @@ def _kept(value: str) -> bool:
     return bool(PLACEHOLDER.match(value.strip()))
 
 
-def redact(text: str, path: str = "") -> str:
+def redact(text: str, path: str = "", withheld: set | None = None) -> str:
     """The code with likely secret values replaced by [REDACTED]; placeholders are left as they are.
-    Give the file's path when there is one: in settings files unquoted values are covered too."""
+    Give the file's path when there is one: in settings files unquoted values are covered too.
+    The values taken out are added to `withheld` when a set is given."""
+    def hide(value: str, shown: str, hidden: str) -> str:
+        if _kept(value):
+            return shown
+        if withheld is not None:
+            withheld.add(value.strip())
+        return hidden
+
     for pattern in SECRET_PATTERNS:
         text = pattern.sub("[REDACTED]", text)
     text = SECRET_ASSIGNMENT.sub(
-        lambda m: m.group(0) if _kept(m.group(3)) else f"{m.group(1)}{m.group(2)}[REDACTED]{m.group(2)}", text)
-    text = PROSE_VALUE.sub(lambda m: m.group(0) if _kept(m.group(2)) else f"{m.group(1)}`[REDACTED]`", text)
-    text = URL_PASSWORD.sub(lambda m: m.group(0) if _kept(m.group(2)) else f"{m.group(1)}[REDACTED]{m.group(3)}", text)
+        lambda m: hide(m.group(3), m.group(0), f"{m.group(1)}{m.group(2)}[REDACTED]{m.group(2)}"), text)
+    text = PROSE_VALUE.sub(lambda m: hide(m.group(2), m.group(0), f"{m.group(1)}`[REDACTED]`"), text)
+    text = URL_PASSWORD.sub(lambda m: hide(m.group(2), m.group(0), f"{m.group(1)}[REDACTED]{m.group(3)}"), text)
     if path and CONFIG_FILE.search(path):
         lines = []
         for line in text.split("\n"):
-            line = XML_VALUE.sub(lambda m: m.group(0) if _kept(m.group("value")) else f"{m.group(1)}[REDACTED]{m.group(4)}", line)
+            line = XML_VALUE.sub(lambda m: hide(m.group("value"), m.group(0), f"{m.group(1)}[REDACTED]{m.group(4)}"), line)
             found = CONFIG_VALUE.match(line)
-            if found and not _kept(found.group("value")):
-                line = f"{found.group('head')}{found.group('quote')}[REDACTED]{found.group('quote')}{found.group('tail')}"
+            if found:
+                line = hide(found.group("value"), line,
+                            f"{found.group('head')}{found.group('quote')}[REDACTED]{found.group('quote')}{found.group('tail')}")
             lines.append(line)
         text = "\n".join(lines)
     return text
 
 
-def redact_credential_line(line: str, path: str = "") -> str:
+def redact_credential_line(line: str, path: str = "", withheld: set | None = None) -> str:
     """The line a credential rule flagged: every quoted value on it is withheld as well, because the rule
     says one of them is the credential (new Login("app", "s3cret") names no password)."""
-    line = redact(line, path)
+    def hide(value: str, shown: str, hidden: str) -> str:
+        if _kept(value):
+            return shown
+        if withheld is not None:
+            withheld.add(value.strip())
+        return hidden
+
+    line = redact(line, path, withheld)
     found = ANY_CONFIG_VALUE.match(line) if path and CONFIG_FILE.search(path) else None
-    if found and not _kept(found.group("value")):  # a settings line: whatever its name, the value is the credential
-        return f"{found.group('head')}{found.group('quote')}[REDACTED]{found.group('quote')}{found.group('tail')}"
-    return QUOTED.sub(lambda m: m.group(0) if _kept(m.group(2)) else f"{m.group(1)}[REDACTED]{m.group(1)}", line)
+    if found:  # a settings line: whatever its name, the value is the credential
+        return hide(found.group("value"), line,
+                    f"{found.group('head')}{found.group('quote')}[REDACTED]{found.group('quote')}{found.group('tail')}")
+    return QUOTED.sub(lambda m: hide(m.group(2), m.group(0), f"{m.group(1)}[REDACTED]{m.group(1)}"), line)
+
+
+def redact_lines(lines: dict[int, str], path: str = "", flagged: frozenset | set = frozenset()) -> dict[int, str]:
+    """An excerpt (line number -> text) as a report or a prompt may show it. A value withheld on one line is
+    withheld on the others too: a user name equal to the password would otherwise give it away. On the lines
+    in `flagged` (those a credential rule reported) every value is withheld."""
+    withheld: set = set()
+    shown = {number: redact_credential_line(text, path, withheld) if number in flagged else redact(text, path, withheld)
+             for number, text in lines.items()}
+    for value in sorted((v for v in withheld if len(v) >= 3), key=len, reverse=True):
+        again = re.compile(r"(?<![\w-])" + re.escape(value) + r"(?![\w-])")
+        shown = {number: again.sub("[REDACTED]", text) for number, text in shown.items()}
+    return shown
 
 
 # rule key pattern -> (what to check to decide, fix if it is real, what to record if it is safe)

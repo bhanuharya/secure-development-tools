@@ -434,12 +434,10 @@ def merge(sonar: dict, sdt: dict | None) -> dict:
 
 
 # ------------------------------------------------------------------------ helpers
-def _shown(line: str, path: str, flagged: bool, credential: bool) -> str:
-    """One source line as the report shows it: no credential value, whatever kind of file it is in."""
-    line = line.rstrip()
-    if flagged and credential:
-        return sdt_advisory.redact_credential_line(line, path)[:160]
-    return sdt_advisory.redact(line, path)[:160]
+def _shown(lines: list[str], numbers: range, path: str, flagged: set, credential: bool) -> dict[int, str]:
+    """The source lines of one excerpt as the report shows them: no credential value, whatever kind of file."""
+    shown = sdt_advisory.redact_lines({n: lines[n - 1].rstrip() for n in numbers}, path, flagged if credential else set())
+    return {n: text[:160] for n, text in shown.items()}
 
 
 def snippet(src_root: Path | None, occurrence: Occurrence, credential: bool = False) -> list[str]:
@@ -456,9 +454,10 @@ def snippet(src_root: Path | None, occurrence: Occurrence, credential: bool = Fa
         return []
     start, end = max(1, occurrence.line - SNIPPET_CONTEXT), min(len(lines), occurrence.line + SNIPPET_CONTEXT)
     out = [f"// {occurrence.path}:{occurrence.line}"]
+    shown = _shown(lines, range(start, end + 1), occurrence.path, {occurrence.line}, credential)
     for number in range(start, end + 1):
         marker = ">" if number == occurrence.line else " "
-        out.append(f"{marker}{number:>5}  {_shown(lines[number - 1], occurrence.path, number == occurrence.line, credential)}")
+        out.append(f"{marker}{number:>5}  {shown[number]}")
     return out
 
 
@@ -511,9 +510,10 @@ def snippet_blocks(src_root: Path | None, path: str, flagged: list[int], max_blo
         also = [n for n in sorted(cited_all) if start <= n <= end]
         header = f"// {path}:{', '.join(map(str, hits))}" + (f"  (* cited: {', '.join(map(str, also))})" if also else "")
         block = [header]
+        shown = _shown(lines, range(start, end + 1), path, hits_all, credential)
         for k in range(start, end + 1):
             marker = ">" if k in hits_all else "*" if k in cited_all else " "
-            block.append(f"{marker}{k:>5}  {_shown(lines[k - 1], path, k in hits_all, credential)}")
+            block.append(f"{marker}{k:>5}  {shown[k]}")
         blocks.append(block)
     return blocks
 
