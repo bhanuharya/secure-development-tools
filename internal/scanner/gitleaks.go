@@ -113,7 +113,7 @@ func (a *GitleaksAdapter) PlanForProfile(ctx *sdtctx.ScanContext, cfg *config.Sc
 		args = append(args, "--no-git")
 		mode = "tree"
 	}
-	task := Task{Adapter: "gitleaks", Tool: "gitleaks", Executable: bin, Targets: targets, TimeoutSeconds: 600, ReportPath: reportPath, Mode: mode}
+	task := Task{Adapter: "gitleaks", Tool: "gitleaks", Executable: bin, Targets: targets, TimeoutSeconds: taskTimeout(cfg.Scanners.Gitleaks.Timeout, 600), ReportPath: reportPath, Mode: mode}
 	switch custom := cfg.Scanners.Gitleaks.Config; {
 	case custom != "":
 		args = append(args, "--config", custom)

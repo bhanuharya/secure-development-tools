@@ -41,7 +41,7 @@ func (a *TrivyImageAdapter) Plan(ctx *sdtctx.ScanContext, cfg *config.ScanConfig
 		"--scanners", "vuln,misconfig",
 		"--no-progress", "--exit-code", "0",
 		"--output", reportPath, ctx.ImageReference}
-	return Task{Adapter: "trivy-image", Tool: "trivy", Executable: bin, Args: args, Targets: []string{ctx.ImageReference}, TimeoutSeconds: 1800, ReportPath: reportPath}, nil
+	return Task{Adapter: "trivy-image", Tool: "trivy", Executable: bin, Args: args, Targets: []string{ctx.ImageReference}, TimeoutSeconds: taskTimeout(cfg.Scanners.TrivyImage.Timeout, 1800), ReportPath: reportPath}, nil
 }
 
 func (a *TrivyImageAdapter) Parse(toolVersion string, root string, stdout []byte, stderrRedacted string, nativeExit int) ParseResult {

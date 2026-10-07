@@ -12,6 +12,10 @@ profiles:
     timeout: 45m
     parallelism: 3
     missingHistory: fail
+scanners:
+  gitleaks:
+    # The whole history of a large repository takes longer than the default 10 minutes.
+    timeout: 30m
 policy:
   behaviorOnRequiredScannerError: inconclusive
   defaultAction: report

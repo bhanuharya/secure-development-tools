@@ -79,7 +79,7 @@ func (a *OpengrepAdapter) Plan(ctx *sdtctx.ScanContext, cfg *config.ScanConfigur
 	}
 	target := root
 	args = append(args, target)
-	timeout := 600
+	timeout := taskTimeout(cfg.Scanners.Opengrep.Timeout, 600)
 	return Task{Adapter: "opengrep", Tool: "opengrep", Executable: bin, Args: args, Targets: []string{target}, TimeoutSeconds: timeout, RuleBundle: "secure-default", RuleChecksums: checksumFiles(rules)}, nil
 }
 

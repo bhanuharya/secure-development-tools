@@ -308,7 +308,15 @@ func Validate(cfg *ScanConfiguration) error {
 		return fmt.Errorf("project.exclude %q unsupported (exclusions are not implemented; refusing narrowed scope)", cfg.Project.Exclude)
 	}
 	if scannerConfigPresent(cfg.Scanners) {
-		return fmt.Errorf("scanner-level configuration is not supported; refusing silently ignored assurance controls")
+		return fmt.Errorf("scanner-level configuration other than timeout is not supported; refusing silently ignored assurance controls")
+	}
+	for _, limit := range scannerTimeouts(&cfg.Scanners) {
+		if *limit.value == "" {
+			continue
+		}
+		if d, err := time.ParseDuration(*limit.value); err != nil || d < time.Second {
+			return fmt.Errorf("scanners.%s: invalid timeout %q (want a positive Go duration like \"30m\")", limit.scanner, *limit.value)
+		}
 	}
 	for name, p := range cfg.Profiles {
 		if p.Mode != "" && p.Mode != "changed" && p.Mode != "repository" {
@@ -473,6 +481,11 @@ func Merge(base, over *ScanConfiguration) *ScanConfiguration {
 	if !scannersEmpty(over.Scanners) {
 		out.Scanners = over.Scanners
 	}
+	for i, limit := range scannerTimeouts(&over.Scanners) {
+		if *limit.value != "" {
+			*scannerTimeouts(&out.Scanners)[i].value = *limit.value
+		}
+	}
 	if over.Policy.DefaultAction != "" {
 		out.Policy.DefaultAction = over.Policy.DefaultAction
 	}
@@ -528,11 +541,26 @@ func scannersEmpty(s Scanners) bool {
 		s.Gitleaks.Type == "" && s.TrivyFS.Type == "" && s.TrivyImage.Type == ""
 }
 
+// scannerConfigPresent reports scanner settings the engine does not act on. Each scanner's
+// timeout is acted on (see scannerTimeouts), so it is not one of them.
 func scannerConfigPresent(s Scanners) bool {
-	return s.Opengrep.Type != "" || len(s.Opengrep.Rules.Bundles) > 0 || len(s.Opengrep.Rules.Paths) > 0 || len(s.Opengrep.Exclude) > 0 || s.Opengrep.Timeout != "" ||
-		s.Gitleaks.Type != "" || len(s.Gitleaks.History) > 0 || s.Gitleaks.Redact != "" || s.Gitleaks.Config != "" || s.Gitleaks.Timeout != "" ||
-		s.TrivyFS.Type != "" || len(s.TrivyFS.Scanners) > 0 || len(s.TrivyFS.Severities) > 0 || s.TrivyFS.IgnoreUnfixed || s.TrivyFS.Timeout != "" ||
-		s.TrivyImage.Type != "" || len(s.TrivyImage.Scanners) > 0 || len(s.TrivyImage.Severities) > 0 || s.TrivyImage.IgnoreUnfixed || s.TrivyImage.Timeout != ""
+	return s.Opengrep.Type != "" || len(s.Opengrep.Rules.Bundles) > 0 || len(s.Opengrep.Rules.Paths) > 0 || len(s.Opengrep.Exclude) > 0 ||
+		s.Gitleaks.Type != "" || len(s.Gitleaks.History) > 0 || s.Gitleaks.Redact != "" || s.Gitleaks.Config != "" ||
+		s.TrivyFS.Type != "" || len(s.TrivyFS.Scanners) > 0 || len(s.TrivyFS.Severities) > 0 || s.TrivyFS.IgnoreUnfixed ||
+		s.TrivyImage.Type != "" || len(s.TrivyImage.Scanners) > 0 || len(s.TrivyImage.Severities) > 0 || s.TrivyImage.IgnoreUnfixed
+}
+
+type scannerTimeout struct {
+	scanner string
+	value   *string
+}
+
+// scannerTimeouts lists each scanner's time limit setting, in a fixed order.
+func scannerTimeouts(s *Scanners) []scannerTimeout {
+	return []scannerTimeout{
+		{"opengrep", &s.Opengrep.Timeout}, {"gitleaks", &s.Gitleaks.Timeout},
+		{"trivy-fs", &s.TrivyFS.Timeout}, {"trivy-image", &s.TrivyImage.Timeout},
+	}
 }
 
 // ApplyEnvOverlay applies allowed SDT_* neutral overrides (PRD layer 5).

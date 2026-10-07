@@ -56,7 +56,7 @@ func (a *TrivyFSAdapter) Plan(ctx *sdtctx.ScanContext, cfg *config.ScanConfigura
 			"--ignorefile", ignorefile,
 			args[len(args)-1])
 	}
-	timeout := 1200
+	timeout := taskTimeout(cfg.Scanners.TrivyFS.Timeout, 1200)
 	return Task{Adapter: "trivy-fs", Tool: "trivy", Executable: bin, Args: args, Targets: []string{root}, TimeoutSeconds: timeout, ReportPath: reportPath}, nil
 }
 
