@@ -131,7 +131,7 @@ asks every question again. On several agents use a shared volume (NFS or similar
 ### 5. Check it
  
 Run the on-demand job (`scan_type` = `branch`) for one repository. Expect, in order: `SonarQube import confirmed`,
-`quality gate: OK|ERROR`, and in the build artifacts `SAST Report - <repo>.docx`, `security-report.pdf`,
+`quality gate: OK|ERROR`, and in the build artifacts `SAST Report - <repo>.docx`,
 `fleet-findings.xlsx`, `sbom.cdx.json`, `findings.sarif`.
 
 ## Comment on the pull request
@@ -158,8 +158,8 @@ Set `SDT_REPORTS_REPO` to a repository in the workspace (a slug, or `workspace/s
 report there with the same token, which then needs write access to that one repository only:
 
 ```
-<repo>/branches/<branch>/report.md        + security-report.pdf, SAST Report.docx
-<repo>/pull-requests/<id>/report.md       + security-report.pdf, SAST Report.docx
+<repo>/branches/<branch>/report.md        + SAST Report.docx
+<repo>/pull-requests/<id>/report.md       + SAST Report.docx
 ```
 
 `report.md` renders in Bitbucket and diffs line by line; each scan overwrites its own folder, so the repository's

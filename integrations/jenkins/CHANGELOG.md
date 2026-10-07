@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-07
+
+- No PDF report: a scan produces the SAST report as .docx only. `security-report.pdf` is no longer built, archived
+  or committed to the reports repository, and one left there by an earlier scan is removed at the next scan.
+
 ## 2026-10-06
 
 - On-demand scans run side by side. Scans of the same repository wait for each other (`lock`, Lockable

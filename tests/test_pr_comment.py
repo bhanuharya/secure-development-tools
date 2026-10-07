@@ -80,7 +80,6 @@ def out(tmp_path):
     (tmp_path / "quality-gate.txt").write_text("OK\n")
     (tmp_path / "sonar-project-key").write_text("sdt_ws_shop_abc\n")
     (tmp_path / "SAST Report - shop.docx").write_bytes(b"PK-docx-bytes")
-    (tmp_path / "security-report.pdf").write_bytes(b"%PDF-bytes")
     return tmp_path
 
 
@@ -202,7 +201,6 @@ def test_pull_request_report_is_committed_and_its_address_handed_to_the_comment(
     assert "| Critical | Secret | generic-api-key | `lib/config.dart:3` |  |" in text
     assert git("--git-dir", str(bare(reports)), "ls-tree", "--name-only", "main",
                "shop/pull-requests/42/").count("SAST Report.docx") == 1
-    assert published(reports, "shop/pull-requests/42/security-report.pdf") == "%PDF-bytes"
     url = (out / "report-url.txt").read_text().strip()
     assert url == "https://bitbucket.org/ws/security-reports/src/main/shop/pull-requests/42/report.md"
 
@@ -212,6 +210,20 @@ def test_pull_request_report_is_committed_and_its_address_handed_to_the_comment(
     assert f"[Report]({url})" in text and "security-report.pdf" not in text
     assert f"[Word (.docx)]({url[:-len('report.md')]}SAST%20Report.docx)" in text
     assert not fake.uploads()
+
+
+def test_pdf_of_an_earlier_scan_is_removed_from_the_report_folder(out, reports, tmp_path_factory):
+    seed = tmp_path_factory.mktemp("seed")
+    git("clone", "--quiet", str(bare(reports)), str(seed))
+    (seed / "shop" / "pull-requests" / "42").mkdir(parents=True)
+    (seed / "shop" / "pull-requests" / "42" / "security-report.pdf").write_bytes(b"%PDF-old")
+    git("add", "--all", cwd=seed)
+    git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "--quiet", "-m", "earlier scan", cwd=seed)
+    git("push", "--quiet", "origin", "HEAD:main", cwd=seed)
+
+    assert publish(out, reports, PR_ID="42").returncode == 0
+    folder = git("--git-dir", str(bare(reports)), "ls-tree", "--name-only", "main", "shop/pull-requests/42/")
+    assert "report.md" in folder and "SAST Report.docx" in folder and "security-report.pdf" not in folder
 
 
 def test_branch_report_goes_under_branches_and_a_rescan_without_changes_adds_no_commit(out, reports):

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Reports for one scan: the SAST report (.docx, from SonarQube), the technical PDF, the
-# Excel register and fleet summary, and (with FLEET_DATABASE) the fleet store update:
+# Reports for one scan: the SAST report (.docx, from SonarQube), the Excel register and
+# fleet summary, and (with FLEET_DATABASE) the fleet store update:
 # ingest this run, then copy review decisions made in SonarQube back into it.
 #
 # Required: SRC, OUT, REPO_SLUG, SONAR_HOST_URL, SONAR_TOKEN (after scan.sh ran)
@@ -80,8 +80,6 @@ python3 "$SDT_HOME/tools/sdt_repo_manifest.py" --findings "$OUT/fleet/repositori
   --run-manifest "$OUT/fleet/repositories/$REPO_SLUG/run-manifest.json" --slug "$REPO_SLUG" \
   --branch "${BRANCH:-pr-${PR_ID:-}}" --workspace "$WORKSPACE_NAME" --commit "$COMMIT" --out "$OUT/fleet/fleet-manifest.json"
 ( cd "$OUT/fleet" && python3 "$SDT_HOME/tools/sdt_fleet_report.py" --from fleet-manifest.json ) || { log "fleet report failed"; status=1; }
-python3 "$SDT_HOME/tools/sdt_to_pdf.py" --from "$OUT/sdt/findings.json" --manifest "$OUT/sdt/run-manifest.json" \
-  --out "$OUT/security-report.pdf" --project "$WORKSPACE_NAME/$REPO_SLUG" --src-root "$SRC" || { log "PDF failed"; status=1; }
 
 if [ -n "${FLEET_DATABASE:-}" ] && [ -z "${PR_ID:-}" ]; then
   python3 "$SDT_HOME/tools/sdt_fleet_ingest.py" --run-dir "$OUT/fleet" --database "$FLEET_DATABASE" || status=1
