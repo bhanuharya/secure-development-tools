@@ -8,7 +8,9 @@
   the old behaviour.
 - A scanner that reaches its time limit is stopped with all its child processes. Before, only the launcher was
   stopped: the engine kept running and the build waited for it until someone aborted it.
-- `SDT_SCAN_THREADS` and `SDT_SCAN_NICE`: cap the cores and the priority of one scan, for two scans on a small agent.
+- The code scanner uses at most four cores: on a 14-thread machine it was as fast or faster with 4 than with all
+  of them, on half the CPU. `SDT_SCAN_THREADS` and `SDT_SCAN_NICE` cap the cores and the priority of one whole
+  scan, for two scans on a small agent (4 cores: two executors and `SDT_SCAN_THREADS=2`).
 - `out/timings.tsv`: seconds per step of every scan (wait, clone, scanners, SonarQube, AI review, report).
 - The clone may take 30 minutes (`SDT_CLONE_MINUTES`) instead of the git plugin's 10: a repository with a large
   binary in its history could not be scanned at all.

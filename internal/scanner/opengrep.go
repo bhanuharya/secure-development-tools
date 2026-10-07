@@ -80,9 +80,7 @@ func (a *OpengrepAdapter) Plan(ctx *sdtctx.ScanContext, cfg *config.ScanConfigur
 	}
 	generated, skipped, note := skipGenerated(root)
 	args = append(args, generated...)
-	if threads := scanThreads(); threads > 0 {
-		args = append(args, "-j", strconv.Itoa(threads))
-	}
+	args = append(args, "-j", strconv.Itoa(scanThreads()))
 	target := root
 	args = append(args, target)
 	timeout := taskTimeout(cfg.Scanners.Opengrep.Timeout, 600)

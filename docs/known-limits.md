@@ -46,8 +46,9 @@ neither.
   that is machine-written by its content (20 KB or more, with one line of 5,000
   characters or 250 characters per line on average) is left out. The run manifest
   lists these files per task (`skippedFiles`); Gitleaks and Trivy still read them.
-  `SDT_SCAN_GENERATED_FILES=1` scans them after all. `SDT_SCAN_THREADS` caps the
-  cores OpenGrep uses.
+  `SDT_SCAN_GENERATED_FILES=1` scans them after all.
+- **OpenGrep runs on at most four cores.** With more it took as long or longer
+  and used up to twice the CPU. `SDT_SCAN_THREADS` sets another number.
 
 ## Legacy tree
 

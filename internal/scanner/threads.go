@@ -2,16 +2,21 @@ package scanner
 
 import (
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 )
 
-// scanThreads is the number of cores the code scanner may use in one scan
-// (SDT_SCAN_THREADS), or 0 for the scanner's own default: every core.
+// defaultScanThreads is where more cores stop helping the code scanner. On a
+// 14-thread machine it took as long or longer with all of them than with 4
+// (five repositories, 30 s to 160 s scans) and used up to twice the CPU.
+const defaultScanThreads = 4
+
+// scanThreads is the number of cores the code scanner uses in one scan:
+// SDT_SCAN_THREADS when set, else every core up to defaultScanThreads.
 func scanThreads() int {
-	n, err := strconv.Atoi(strings.TrimSpace(os.Getenv("SDT_SCAN_THREADS")))
-	if err != nil || n < 1 {
-		return 0
+	if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv("SDT_SCAN_THREADS"))); err == nil && n >= 1 {
+		return n
 	}
-	return n
+	return min(runtime.NumCPU(), defaultScanThreads)
 }

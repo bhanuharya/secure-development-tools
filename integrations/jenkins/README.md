@@ -249,10 +249,11 @@ the report is produced exactly as before. Check with your data policy that sendi
 - **A scanner's time limit stops everything the scanner started.** A scanner that runs out of time is stopped
   together with its child processes, the scan reports it as `timeout`, and the build goes on. Limits are set in
   the scan configuration (`scanners.<name>.timeout`).
-- **Two scans on a small agent.** By default every scanner uses all cores. `SDT_SCAN_THREADS` caps one scan
-  (code scanner, secret scanner, dependency scanner and sonar-scanner's JVM), and `SDT_SCAN_NICE` (0 to 19) lowers
-  the priority of everything a scan starts, so other work on the machine goes first. On 4 cores with two
-  executors, `SDT_SCAN_THREADS=2` keeps two scans from competing.
+- **Two scans on a small agent.** The code scanner uses up to four cores (more made it slower, not faster); the
+  other scanners use all of them. `SDT_SCAN_THREADS` caps one scan (code scanner, secret scanner, dependency
+  scanner and sonar-scanner's JVM), and `SDT_SCAN_NICE` (0 to 19) lowers the priority of everything a scan
+  starts, so other work on the machine goes first. On 4 cores use two executors and `SDT_SCAN_THREADS=2`: two
+  large repositories were scanned in 161 s side by side that way, against 239 s one after the other.
 - **Where a scan spent its time:** `out/timings.tsv`, archived with the build, has the seconds per step (waiting
   for an agent, clone, each scanner, SonarQube analysis and import, AI review, report, fleet store). The last line
   of the reports stage prints the same.

@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -139,23 +141,20 @@ func TestOpengrepPlanLeavesGeneratedFilesOutAndSaysSo(t *testing.T) {
 	}
 }
 
-// SDT_SCAN_THREADS caps the cores of the code scanner, so two scans fit on a
-// small machine; unset or invalid, the scanner keeps its own default.
+// The code scanner does not get faster beyond a few cores, so it is held to
+// four unless SDT_SCAN_THREADS says otherwise (two scans on a small machine).
 func TestOpengrepPlanUsesTheThreadLimit(t *testing.T) {
 	withRulePack(t)
 	fakeOpengrep(t)
-	for value, want := range map[string]string{"": "", "2": "-j 2", " 3 ": "-j 3", "0": "", "-1": "", "many": ""} {
+	fallback := strconv.Itoa(min(runtime.NumCPU(), 4))
+	for value, want := range map[string]string{"": fallback, "2": "2", " 3 ": "3", "16": "16", "0": fallback, "-1": fallback, "many": fallback} {
 		t.Setenv("SDT_SCAN_THREADS", value)
 		task, err := (&OpengrepAdapter{}).Plan(testCtx(), config.Defaults(), t.TempDir())
 		if err != nil {
 			t.Fatal(err)
 		}
-		joined := " " + strings.Join(task.Args, " ") + " "
-		if want == "" && strings.Contains(joined, " -j ") {
-			t.Errorf("SDT_SCAN_THREADS=%q must not limit threads, got: %s", value, joined)
-		}
-		if want != "" && !strings.Contains(joined, " "+want+" ") {
-			t.Errorf("SDT_SCAN_THREADS=%q must pass %q, got: %s", value, want, joined)
+		if joined := " " + strings.Join(task.Args, " ") + " "; !strings.Contains(joined, " -j "+want+" ") {
+			t.Errorf("SDT_SCAN_THREADS=%q must run the scanner with -j %s, got: %s", value, want, joined)
 		}
 	}
 }

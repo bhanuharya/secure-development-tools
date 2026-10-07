@@ -16,7 +16,7 @@
 #            SONAR_TEST_PATTERNS (comma-separated globs of test code; empty analyses tests as application code),
 #            SDT_REGISTRY_BLOCK_MINUTES (30: after Maven Central blocks this machine, how long Java scans
 #            read dependencies from the repository's own files without asking it again),
-#            SDT_SCAN_THREADS (cores one scan may use; empty: every scanner takes all of them),
+#            SDT_SCAN_THREADS (cores one scan may use; empty: the code scanner takes up to 4, the others all),
 #            SDT_SCAN_NICE (priority of everything the scan starts, 0-19; 19 gives way to all other work),
 #            SDT_SCAN_GENERATED_FILES (1: the code scan also analyses minified and generated files)
 # Writes:    $OUT/timings.tsv (seconds per step; reports.sh adds its own steps)
