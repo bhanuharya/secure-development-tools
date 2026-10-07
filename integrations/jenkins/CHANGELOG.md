@@ -2,6 +2,14 @@
 
 ## 2026-10-07
 
+- A scan no longer hangs on a committed JavaScript bundle. Minified and generated files are left out of the code
+  scan by their content (not only `*.min.js`), the coverage notes say how many, and `run-manifest.json` lists them.
+  Findings that were reported inside such files disappear with the next scan. `SDT_SCAN_GENERATED_FILES=1` keeps
+  the old behaviour.
+- A scanner that reaches its time limit is stopped with all its child processes. Before, only the launcher was
+  stopped: the engine kept running and the build waited for it until someone aborted it.
+- `SDT_SCAN_THREADS` and `SDT_SCAN_NICE`: cap the cores and the priority of one scan, for two scans on a small agent.
+- `out/timings.tsv`: seconds per step of every scan (wait, clone, scanners, SonarQube, AI review, report).
 - No PDF report: a scan produces the SAST report as .docx only. `security-report.pdf` is no longer built, archived
   or committed to the reports repository, and one left there by an earlier scan is removed at the next scan.
 - Java repositories scan once, not twice, while Maven Central is blocking the machine: the first scan that meets

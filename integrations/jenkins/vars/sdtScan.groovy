@@ -63,9 +63,12 @@ def call(Map args = [:]) {
   def scopeUrl = cfg.prId ? "https://bitbucket.org/${cfg.workspace}/${cfg.repo}/pull-requests/${cfg.prId}"
                           : "https://bitbucket.org/${cfg.workspace}/${cfg.repo}/src/${ref}"
 
+  // For out/timings.tsv: how long the scan waited for its turn and an agent, and how long the clone took.
+  long asked = System.currentTimeMillis()
   oneAtATime("sdt-scan/${cfg.workspace}/${cfg.repo}") {
   node(cfg.agentLabel) {
     def outcome = 'SUCCESS'
+    long began = System.currentTimeMillis()
     try {
       stage('checkout') {
         dir('source') {
@@ -99,6 +102,7 @@ def call(Map args = [:]) {
           return
         }
       }
+      long cloned = System.currentTimeMillis()
       for (name in ['scan.sh', 'reports.sh', 'sdt_common.py', 'pr_comment.py', 'publish_report.py']) {
         writeFile file: ".sdt/${name}", text: libraryResource("sdt/${name}")
       }
@@ -111,7 +115,8 @@ def call(Map args = [:]) {
                          "WORKSPACE_NAME=${cfg.workspace}",
                          "SONAR_HOST_URL=${cfg.sonarUrl}", "SCOPE_URL=${scopeUrl}",
                          "FLEET_DATABASE=${cfg.fleetDatabase}", "QUALITY_GATE_ENFORCE=${cfg.enforceGate}",
-                         "BITBUCKET_USER=${cfg.prCommentUser}", "SDT_REPORTS_REPO=${cfg.reportsRepo}"]
+                         "BITBUCKET_USER=${cfg.prCommentUser}", "SDT_REPORTS_REPO=${cfg.reportsRepo}",
+                         "SDT_QUEUE_MS=${began - asked}", "SDT_CHECKOUT_MS=${cloned - began}"]
       withCredentials([string(credentialsId: cfg.sonarCredentials, variable: 'SONAR_TOKEN')]) {
         withEnv(environment) {
           withGitKey(cfg.gitCredentials) {
@@ -146,7 +151,7 @@ def call(Map args = [:]) {
     } finally {
       archiveArtifacts artifacts: 'out/*.docx, out/*.xlsx, out/fleet/*.pdf, out/fleet/*.xlsx, ' +
                                   'out/sdt/findings.json, out/sdt/findings-new.json, out/sdt/findings.sarif, out/sdt/run-manifest.json, ' +
-                                  'out/sbom.cdx.json, out/triage.json, out/quality-gate.txt, out/sonar-scanner.log, ' +
+                                  'out/sbom.cdx.json, out/triage.json, out/quality-gate.txt, out/sonar-scanner.log, out/timings.tsv, ' +
                                   'out/ai-change-review.md, out/ai-change-review.json, out/sonar-pull-request.json',
                        allowEmptyArchive: true
       cleanWs()

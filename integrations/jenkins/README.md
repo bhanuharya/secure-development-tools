@@ -241,6 +241,21 @@ the report is produced exactly as before. Check with your data policy that sendi
   rules for application code do not report fixtures. SDT's own scanners still cover them. If a repository has a
   Dockerfile and its `.dockerignore` does not exclude a test directory, the report's coverage notes say so. Set
   `SONAR_TEST_PATTERNS` to empty to analyse everything as application code.
+- **Minified and generated files are left out of the code scan.** A committed bundle is recognised by its
+  content (20 KB or more, with a line of 5,000 characters or 250 characters per line on average), not by its name.
+  The scanner's cross-function analysis does not finish on such a file, and a finding in it could not be fixed
+  there. Secret and dependency scanning still read these files. The report's coverage notes give the number, and
+  `run-manifest.json` lists the files (`tasks[].skippedFiles`). `SDT_SCAN_GENERATED_FILES=1` scans them after all.
+- **A scanner's time limit stops everything the scanner started.** A scanner that runs out of time is stopped
+  together with its child processes, the scan reports it as `timeout`, and the build goes on. Limits are set in
+  the scan configuration (`scanners.<name>.timeout`).
+- **Two scans on a small agent.** By default every scanner uses all cores. `SDT_SCAN_THREADS` caps one scan
+  (code scanner, secret scanner, dependency scanner and sonar-scanner's JVM), and `SDT_SCAN_NICE` (0 to 19) lowers
+  the priority of everything a scan starts, so other work on the machine goes first. On 4 cores with two
+  executors, `SDT_SCAN_THREADS=2` keeps two scans from competing.
+- **Where a scan spent its time:** `out/timings.tsv`, archived with the build, has the seconds per step (waiting
+  for an agent, clone, each scanner, SonarQube analysis and import, AI review, report, fleet store). The last line
+  of the reports stage prints the same.
 - **Secrets in git history** show as project-level Vulnerabilities (`sdt:secret-in-history`). Rotate the credential,
   then mark the issue *Accepted* with the rotation reference as comment.
 - **Noisy rules:** `python3 tools/sdt_rule_precision.py --database $SDT_FLEET_DATABASE` in SDT lists precision per

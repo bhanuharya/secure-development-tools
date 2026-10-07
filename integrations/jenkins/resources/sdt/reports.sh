@@ -15,6 +15,9 @@ WORKSPACE_NAME="${WORKSPACE_NAME:-workspace}"
 COMMIT=$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo "")
 log() { printf '[sdt] %s\n' "$*"; }
 status=0
+# Seconds per step, continuing the file scan.sh started.
+TIMINGS="$OUT/timings.tsv"; STEP_START=$SECONDS
+timing() { printf '%s\t%s\n' "$1" "$((SECONDS - STEP_START))" >> "$TIMINGS"; STEP_START=$SECONDS; }
 
 # The SAST report reads SonarQube, so it shows each hotspot's review state and assignee.
 TRIAGE=()
@@ -29,6 +32,7 @@ if [ -f "$OUT/sonar-project-key" ] && [ -n "${SONAR_TOKEN:-}" ]; then
     --sonar-url "$SONAR_HOST_URL" --project-key "$(cat "$OUT/sonar-project-key")" "${SCOPE[@]}" \
     --src-root "$SRC" --out "$OUT/triage.json" --budget "${SDT_CODEX_BUDGET:-600}" \
     || log "AI review skipped (error or timeout); normal report"
+  timing ai-review
   [ -s "$OUT/triage.json" ] && TRIAGE=(--triage "$OUT/triage.json")
   # Opt-in: mark the clearest false positives Safe in SonarQube, with the review's evidence as the
   # comment (two agreeing reviews, a named line, review priority below High). Hotspots only.
@@ -62,6 +66,7 @@ else
     --repository "$WORKSPACE_NAME/$REPO_SLUG" --project-name "$REPO_SLUG" --scope-url "${SCOPE_URL:-}" \
     --commit "$COMMIT" --out "$OUT/SAST Report - $REPO_SLUG.docx" || { log "DOCX report failed"; status=1; }
 fi
+timing report
 
 # Opt-in, pull requests only: an AI read of the changed lines for what rules miss (missing permission
 # checks, unvalidated input, weakened settings). Advice for the reviewer; never blocks, never enters SonarQube.
@@ -69,6 +74,7 @@ if [ "${SDT_AI_DIFF_REVIEW:-0}" = 1 ] && [ -n "${PR_ID:-}" ] && [ -n "${PR_BASE:
   timeout "$(( ${SDT_CODEX_BUDGET:-600} + 120 ))" python3 "$SDT_HOME/tools/sdt_review_diff.py" --src-root "$SRC" \
     --base "origin/$PR_BASE" --out "$OUT/ai-change-review.json" --markdown "$OUT/ai-change-review.md" \
     --budget "${SDT_CODEX_BUDGET:-600}" || log "AI change review skipped (error or timeout)"
+  timing ai-change-review
 fi
 
 [ -n "${HISTORY:-}" ] && mkdir -p "$HISTORY" && cp "$OUT/sdt/findings.json" "$HISTORY/findings.json"
@@ -80,6 +86,7 @@ python3 "$SDT_HOME/tools/sdt_repo_manifest.py" --findings "$OUT/fleet/repositori
   --run-manifest "$OUT/fleet/repositories/$REPO_SLUG/run-manifest.json" --slug "$REPO_SLUG" \
   --branch "${BRANCH:-pr-${PR_ID:-}}" --workspace "$WORKSPACE_NAME" --commit "$COMMIT" --out "$OUT/fleet/fleet-manifest.json"
 ( cd "$OUT/fleet" && python3 "$SDT_HOME/tools/sdt_fleet_report.py" --from fleet-manifest.json ) || { log "fleet report failed"; status=1; }
+timing fleet-register
 
 if [ -n "${FLEET_DATABASE:-}" ] && [ -z "${PR_ID:-}" ]; then
   python3 "$SDT_HOME/tools/sdt_fleet_ingest.py" --run-dir "$OUT/fleet" --database "$FLEET_DATABASE" || status=1
@@ -89,5 +96,7 @@ if [ -n "${FLEET_DATABASE:-}" ] && [ -z "${PR_ID:-}" ]; then
     python3 "$SDT_HOME/tools/sdt_sonar_sync.py" --sonar-url "$SONAR_HOST_URL" --project-key "$(cat "$OUT/sonar-project-key")" \
       --branch "$BRANCH" "${SONAR_BRANCH_ARG[@]}" --repository "$REPO_SLUG" --database "$FLEET_DATABASE" || status=1
   fi
+  timing fleet-store
 fi
+log "seconds per step: $(awk -F'\t' '{ printf "%s%s %s", (NR > 1 ? ", " : ""), $1, $2 }' "$TIMINGS")"
 exit $status

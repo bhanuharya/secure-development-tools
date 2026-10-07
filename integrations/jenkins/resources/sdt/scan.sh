@@ -15,7 +15,11 @@
 #            there for the day, so other pull requests on the same target commit do not repeat it; empty: no cache),
 #            SONAR_TEST_PATTERNS (comma-separated globs of test code; empty analyses tests as application code),
 #            SDT_REGISTRY_BLOCK_MINUTES (30: after Maven Central blocks this machine, how long Java scans
-#            read dependencies from the repository's own files without asking it again)
+#            read dependencies from the repository's own files without asking it again),
+#            SDT_SCAN_THREADS (cores one scan may use; empty: every scanner takes all of them),
+#            SDT_SCAN_NICE (priority of everything the scan starts, 0-19; 19 gives way to all other work),
+#            SDT_SCAN_GENERATED_FILES (1: the code scan also analyses minified and generated files)
+# Writes:    $OUT/timings.tsv (seconds per step; reports.sh adds its own steps)
 set -euo pipefail
 set +x  # never trace: SONAR_TOKEN is in the environment
 
@@ -31,6 +35,23 @@ SBOM="${SBOM:-1}"
 SONAR_TEST_PATTERNS="${SONAR_TEST_PATTERNS-**/test/**,**/tests/**,**/__tests__/**,**/*.test.*,**/*.spec.*,**/*_test.go,**/*_test.dart}"
 mkdir -p "$OUT/sdt" "$OUT/cache"
 log() { printf '[sdt] %s\n' "$*"; }
+
+# How much of the machine one scan takes, so two scans (and whatever else runs here) fit on a small
+# agent. The code scanner gets the number from sdt; GOMAXPROCS holds sdt, the secret scanner and the
+# dependency scanner to it; the JVM option does the same for sonar-scanner.
+if [ -n "${SDT_SCAN_THREADS:-}" ]; then
+  export SDT_SCAN_THREADS GOMAXPROCS="$SDT_SCAN_THREADS"
+  export SONAR_SCANNER_OPTS="${SONAR_SCANNER_OPTS:-} -XX:ActiveProcessorCount=$SDT_SCAN_THREADS"
+  export SONAR_SCANNER_JAVA_OPTS="${SONAR_SCANNER_JAVA_OPTS:-} -XX:ActiveProcessorCount=$SDT_SCAN_THREADS"
+fi
+[ -z "${SDT_SCAN_NICE:-}" ] || renice -n "$SDT_SCAN_NICE" $$ >/dev/null 2>&1 || log "priority not changed (SDT_SCAN_NICE=$SDT_SCAN_NICE)"
+
+# Seconds per step, archived with the build: where a slow scan spent its time.
+TIMINGS="$OUT/timings.tsv"; : > "$TIMINGS"; STEP_START=$SECONDS
+timing() { printf '%s\t%s\n' "$1" "$((SECONDS - STEP_START))" >> "$TIMINGS"; STEP_START=$SECONDS; }
+# The Jenkins step measured these two: waiting for its turn and an agent, then the clone.
+[ -z "${SDT_QUEUE_MS:-}" ] || printf 'queue\t%s\n' "$((SDT_QUEUE_MS / 1000))" >> "$TIMINGS"
+[ -z "${SDT_CHECKOUT_MS:-}" ] || printf 'checkout\t%s\n' "$((SDT_CHECKOUT_MS / 1000))" >> "$TIMINGS"
 
 # ---------------------------------------------------------------- 1. SDT scan
 export SDT_RULES_PACK_DIR="$RULES_DIR" SDT_DEFAULT_RULES_DIR="$RULES_DIR"
@@ -97,6 +118,7 @@ if [ -n "${PR_ID:-}" ]; then
     fi
   fi
   ( cd "$SRC" && "$SDT_HOME/sdt" baseline create --config "$SDT_CONFIG" --from "$OUT/base/findings.json" )
+  timing baseline-scan
 fi
 log "SDT scan (profile $PROFILE)"
 sdt_scan() {
@@ -135,11 +157,19 @@ if sys.argv[3]:
     print(f"[sdt] pull request adds {len(report['findings'])} of {kept} findings (the rest already exist on the target branch)")
 json.dump(report, open(sys.argv[2], "w"), indent=2)
 PY
+timing scan
+# The scanners ran side by side inside that step; their own times, from the run manifest.
+python3 - "$OUT/sdt/run-manifest.json" >> "$TIMINGS" <<'PY' || true
+import json, sys
+for task in json.load(open(sys.argv[1])).get("tasks") or []:
+    print(f"scan:{task['adapter']}\t{task.get('durationMs', 0) // 1000}")
+PY
 
 # ------------------------------------------------------------------- 2. SBOM
 if [ "$SBOM" = 1 ] && command -v trivy >/dev/null; then
   trivy fs --quiet --format cyclonedx --output "$OUT/sbom.cdx.json" "$SRC" || log "SBOM generation failed (continuing)"
 fi
+timing sbom
 
 # ------------------------------------------------------- 3. Dart / Flutter lint
 # Private git dependencies (pubspec.yaml) are declared as https URLs but resolve over the
@@ -150,6 +180,13 @@ DART_REPORT="$OUT/dart-analyze.txt"; : > "$DART_REPORT"
 : > "$OUT/coverage.txt"  # what this scan could not cover; shown in the report
 [ -z "${DEPENDENCIES_OFFLINE:-}" ] \
   || echo "Dependencies were read from the repository's own files only (the package registry refused requests): versions set by a parent POM may be missing." >> "$OUT/coverage.txt"
+# What a scanner left out on purpose (minified and generated files in the code scan).
+python3 - "$OUT/sdt/run-manifest.json" >> "$OUT/coverage.txt" <<'PY' || true
+import json, sys
+for task in json.load(open(sys.argv[1])).get("tasks") or []:
+    if task.get("note"):
+        print(task["note"] + ": secret and dependency scanning still read them. The files are listed in run-manifest.json.")
+PY
 DART_BIN="${FLUTTER_HOME:+$FLUTTER_HOME/bin/}dart"; FLUTTER_BIN="${FLUTTER_HOME:+$FLUTTER_HOME/bin/}flutter"
 if [ -f "$SRC/pubspec.yaml" ] && command -v "$DART_BIN" >/dev/null; then
   command -v "$FLUTTER_BIN" >/dev/null || FLUTTER_BIN="$DART_BIN"
@@ -187,6 +224,7 @@ PY
     tail -5 "$OUT/pub-get.log"; log "pub get failed: skipping dart analyze (no phantom import)"
     echo "Dart lint skipped: dependencies did not resolve with the scanner's Flutter SDK; security rules still ran." >> "$OUT/coverage.txt"
   fi
+  timing dart-lint
 fi
 
 # ------------------------------------------------------ 4. SonarQube analysis
@@ -247,6 +285,7 @@ log "SonarQube analysis of $PROJECT_KEY"
     -Dsonar.working.directory="$OUT/scannerwork" "${SCOPE_ARGS[@]}" ) > "$OUT/sonar-scanner.log" 2>&1 \
   || { tail -30 "$OUT/sonar-scanner.log"; log "sonar-scanner failed"; exit 1; }
 grep -E "OpenGrep:" "$OUT/sonar-scanner.log" || true
+timing sonar-analysis
 
 TASK=$(grep -oE 'api/ce/task[?]id=[A-Za-z0-9_-]+' "$OUT/sonar-scanner.log" | head -1 | cut -d= -f2)
 [ -n "$TASK" ] || { log "no Compute Engine task id (upload failed?)"; exit 1; }
@@ -256,6 +295,7 @@ for _ in $(seq 1 120); do
   sleep 5
 done
 [ "$STATUS" = SUCCESS ] || { log "import unconfirmed after 10 minutes"; exit 1; }
+timing sonar-import
 
 # A review decision made on another branch of this project (Safe, False positive, Accepted) holds
 # here too, for the same rule on the same line of code. Best effort; SONAR_CARRY_DECISIONS=0 turns it off.
@@ -272,6 +312,7 @@ GATE=$(sonar_api "/api/qualitygates/project_status?projectKey=$PROJECT_KEY$SCOPE
   | python3 -c 'import json,sys; s=json.load(sys.stdin)["projectStatus"]; print(s["status"]); [print("  ", c["metricKey"], c["status"], c.get("actualValue","")) for c in s.get("conditions",[]) if c["status"]!="OK"]')
 printf '%s\n' "$GATE" > "$OUT/quality-gate.txt"
 log "quality gate: $(head -1 "$OUT/quality-gate.txt")"
+timing review-decisions-and-gate
 if [ "$QUALITY_GATE_ENFORCE" = 1 ] && [ "$(head -1 "$OUT/quality-gate.txt")" = ERROR ]; then
   sed 1d "$OUT/quality-gate.txt"; exit 2
 fi
