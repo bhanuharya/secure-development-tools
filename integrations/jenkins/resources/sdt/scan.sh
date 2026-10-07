@@ -94,7 +94,7 @@ if [ -n "${PR_ID:-}" ]; then
   BASE_COMMIT=$(git -C "$SRC" rev-parse "origin/$PR_BASE^{commit}")
   BASELINE_CACHE="${SDT_BASELINE_CACHE-${SDT_STATE_DIR:+$SDT_STATE_DIR/baselines}}"; CACHED=""
   if [ -n "$BASELINE_CACHE" ]; then
-    KEY=$( { "$SDT_HOME/sdt" version; date -u +%F; cat "$SDT_CONFIG"; [ -f "$OUT/reviewed-exceptions.yaml" ] && cat "$OUT/reviewed-exceptions.yaml"
+    KEY=$( { sha256sum < "$SDT_HOME/sdt"; echo "${SDT_SCAN_GENERATED_FILES:-}"; date -u +%F; cat "$SDT_CONFIG"; [ -f "$OUT/reviewed-exceptions.yaml" ] && cat "$OUT/reviewed-exceptions.yaml"
              find "$RULES_DIR" -type f -print0 | sort -z | xargs -0 -r sha256sum; } 2>/dev/null | sha256sum | cut -c1-16 )
     CACHED="$BASELINE_CACHE/$(printf '%s' "${WORKSPACE_NAME}_$REPO_SLUG" | tr -c 'A-Za-z0-9._-' '_')/$BASE_COMMIT-$KEY.json"
   fi
