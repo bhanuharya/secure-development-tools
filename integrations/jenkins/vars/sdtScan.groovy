@@ -25,6 +25,7 @@
  *   SDT_DOCKER_ARGS           extra "docker run" arguments for the scanner container, e.g. the volume
  *                             that keeps state between scans: "-v sdt-state:/var/lib/sdt"
  *   SDT_AGENT_LABEL           agent label to run on
+ *   SDT_CLONE_MINUTES         time limit of the clone, in minutes (default 30; the git plugin's own is 10)
  *   SDT_FLEET_DATABASE        optional SQLAlchemy URL of the fleet store
  *   SDT_QUALITY_GATE_ENFORCE  "1" fails the build on a failed gate (default: report only)
  *   SDT_BITBUCKET_API_CREDENTIALS  "Secret text" credential with a Bitbucket token that may comment on pull
@@ -49,6 +50,7 @@ def call(Map args = [:]) {
     gitCredentials  : args.gitCredentials ?: env.SDT_GIT_CREDENTIALS ?: 'sdt-bitbucket-ssh',
     image           : args.containsKey('image') ? args.image : (env.SDT_IMAGE ?: ''),
     agentLabel      : args.agentLabel ?: env.SDT_AGENT_LABEL ?: '',
+    cloneMinutes    : (args.cloneMinutes ?: env.SDT_CLONE_MINUTES ?: '30') as int,
     fleetDatabase   : args.fleetDatabase ?: env.SDT_FLEET_DATABASE ?: '',
     enforceGate     : (args.enforceGate ?: env.SDT_QUALITY_GATE_ENFORCE ?: '0').toString(),
     prCommentCredentials: args.prCommentCredentials ?: env.SDT_BITBUCKET_API_CREDENTIALS ?: '',
@@ -76,8 +78,9 @@ def call(Map args = [:]) {
           if (cfg.gitCredentials != 'none') { remote.credentialsId = cfg.gitCredentials }
           checkout([$class: 'GitSCM', branches: [[name: ref]],
                     userRemoteConfigs: [remote],
-                    // Full history: secrets in past commits are findings too.
-                    extensions: [[$class: 'CloneOption', shallow: false, noTags: false],
+                    // Full history: secrets in past commits are findings too. That takes a repository
+                    // with large files in its history longer than the git plugin's 10 minutes.
+                    extensions: [[$class: 'CloneOption', shallow: false, noTags: false, timeout: cfg.cloneMinutes],
                                  [$class: 'CleanBeforeCheckout']]])
           if (cfg.prMergeCommit) {
             // The target branch now contains the pull request. Scan the merge commit and, in this

@@ -10,6 +10,8 @@
   stopped: the engine kept running and the build waited for it until someone aborted it.
 - `SDT_SCAN_THREADS` and `SDT_SCAN_NICE`: cap the cores and the priority of one scan, for two scans on a small agent.
 - `out/timings.tsv`: seconds per step of every scan (wait, clone, scanners, SonarQube, AI review, report).
+- The clone may take 30 minutes (`SDT_CLONE_MINUTES`) instead of the git plugin's 10: a repository with a large
+  binary in its history could not be scanned at all.
 - No PDF report: a scan produces the SAST report as .docx only. `security-report.pdf` is no longer built, archived
   or committed to the reports repository, and one left there by an earlier scan is removed at the next scan.
 - Java repositories scan once, not twice, while Maven Central is blocking the machine: the first scan that meets
