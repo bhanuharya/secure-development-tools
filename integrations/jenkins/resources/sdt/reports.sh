@@ -5,7 +5,8 @@
 #
 # Required: SRC, OUT, REPO_SLUG, SONAR_HOST_URL, SONAR_TOKEN (after scan.sh ran)
 # Optional: BRANCH / PR_ID, WORKSPACE_NAME, SCOPE_URL, SDT_HOME, FLEET_DATABASE,
-#           SDT_STATE_DIR (kept between scans: scan history and AI verdict memory live under it)
+#           SDT_STATE_DIR (kept between scans: scan history and AI verdict memory live under it),
+#           SDT_SCAN_NICE (priority of everything this script starts, as in scan.sh)
 set -euo pipefail
 set +x
 : "${SRC:?}" "${OUT:?}" "${REPO_SLUG:?}"
@@ -15,6 +16,8 @@ WORKSPACE_NAME="${WORKSPACE_NAME:-workspace}"
 COMMIT=$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo "")
 log() { printf '[sdt] %s\n' "$*"; }
 status=0
+# The same priority as the scan itself (see scan.sh), for the AI review and the report tools.
+[ -z "${SDT_SCAN_NICE:-}" ] || renice -n "$SDT_SCAN_NICE" $$ >/dev/null 2>&1 || true
 # Seconds per step, continuing the file scan.sh started.
 TIMINGS="$OUT/timings.tsv"; STEP_START=$SECONDS
 timing() { printf '%s\t%s\n' "$1" "$((SECONDS - STEP_START))" >> "$TIMINGS"; STEP_START=$SECONDS; }
