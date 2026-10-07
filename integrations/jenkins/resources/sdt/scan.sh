@@ -39,10 +39,12 @@ log() { printf '[sdt] %s\n' "$*"; }
 # How much of the machine one scan takes, so two scans (and whatever else runs here) fit on a small
 # agent. The code scanner gets the number from sdt; GOMAXPROCS holds sdt, the secret scanner and the
 # dependency scanner to it; the JVM option does the same for sonar-scanner.
-if [ -n "${SDT_SCAN_THREADS:-}" ]; then
+if [[ "${SDT_SCAN_THREADS:-}" =~ ^[1-9][0-9]*$ ]]; then
   export SDT_SCAN_THREADS GOMAXPROCS="$SDT_SCAN_THREADS"
   export SONAR_SCANNER_OPTS="${SONAR_SCANNER_OPTS:-} -XX:ActiveProcessorCount=$SDT_SCAN_THREADS"
   export SONAR_SCANNER_JAVA_OPTS="${SONAR_SCANNER_JAVA_OPTS:-} -XX:ActiveProcessorCount=$SDT_SCAN_THREADS"
+elif [ -n "${SDT_SCAN_THREADS:-}" ]; then
+  log "SDT_SCAN_THREADS=$SDT_SCAN_THREADS is not a number of cores: ignored"; unset SDT_SCAN_THREADS
 fi
 [ -z "${SDT_SCAN_NICE:-}" ] || renice -n "$SDT_SCAN_NICE" $$ >/dev/null 2>&1 || log "priority not changed (SDT_SCAN_NICE=$SDT_SCAN_NICE)"
 
