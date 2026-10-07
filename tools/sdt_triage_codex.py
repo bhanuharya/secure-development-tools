@@ -72,7 +72,7 @@ RESPONSE_SCHEMA = {
     },
 }
 
-from sdt_advisory import redact  # noqa: E402  (one redaction for prompts and reports)
+from sdt_advisory import CREDENTIAL_RULE, redact, redact_credential_line  # noqa: E402  (one redaction for prompts and reports)
 
 
 MAX_BLOCK_LINES = 150
@@ -153,10 +153,11 @@ def related_lines(lines: list[str], index: int, start: int, end: int) -> list[tu
     return merged
 
 
-def context(src_root: Path | None, occurrence: sdt_to_docx.Occurrence) -> str:
+def context(src_root: Path | None, occurrence: sdt_to_docx.Occurrence, credential: bool = False) -> str:
     """The enclosing function (up to MAX_BLOCK_LINES) or +/-CONTEXT_LINES around the flagged line,
     then the lines elsewhere in the file that share its names; numbered with ">" marking the
-    flagged line, redacted; "" when unreadable."""
+    flagged line, redacted; "" when unreadable. For a credential rule every quoted value on the
+    flagged line is withheld too: the review judges that a value is there, never the value."""
     if not src_root or not occurrence.path or occurrence.line < 1:
         return ""
     root = src_root.resolve()
@@ -175,8 +176,13 @@ def context(src_root: Path | None, occurrence: sdt_to_docx.Occurrence) -> str:
         start, end = block
     else:
         start, end = max(0, index - CONTEXT_LINES), min(len(lines) - 1, index + CONTEXT_LINES)
+    def shown(n: int) -> str:
+        line = lines[n].rstrip()
+        return (redact_credential_line(line, occurrence.path) if credential and n == index
+                else redact(line, occurrence.path))[:200]
+
     def numbered(low: int, high: int) -> list[str]:
-        return [f"{'>' if n == index else ' '}{n + 1:>5}  {lines[n].rstrip()[:200]}" for n in range(low, high + 1)]
+        return [f"{'>' if n == index else ' '}{n + 1:>5}  {shown(n)}" for n in range(low, high + 1)]
 
     body = numbered(start, end)
     for low, high in related_lines(lines, index, start, end):
@@ -268,7 +274,10 @@ Answer rules (short, factual, no hedging words like "may" or "might"):
   record when marking it Safe (e.g. "constant URL, no user input"); needs context -> what to
   do for each outcome of the check.
 - confidence: low, medium or high.
-- Answer every id exactly once. Values shown as [REDACTED] were removed on purpose.
+- Answer every id exactly once. Values shown as [REDACTED] were removed on purpose: each one is a
+  real-looking literal in the code. A value you can still read (password, changeit, ${{DB_PASSWORD}})
+  is exactly what the code contains, and is a placeholder or a reference, not a secret.
+- Never write a credential value in your answer; say "the value on line N".
 
 {blocks}
 """
@@ -289,9 +298,8 @@ def validate(answer: object, ids: set[str]) -> list[dict]:
             continue
         seen.add(item_id)
         out.append({"id": item_id, "verdict": item["verdict"], "confidence": item["confidence"],
-                    "reason": " ".join(str(item.get("reason", "")).split())[:MAX_REASON],
-                    "check": " ".join(str(item.get("check", "")).split())[:MAX_REASON],
-                    "suggested_fix": " ".join(str(item.get("suggested_fix", "")).split())[:MAX_REASON]})
+                    **{part: redact(" ".join(str(item.get(part, "")).split()))[:MAX_REASON]
+                       for part in ("reason", "check", "suggested_fix")}})
     return out
 
 
@@ -338,15 +346,17 @@ def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, m
         items, lookup, keys, considered = [], {}, {}, 0
         shown: dict[str, tuple] = {}  # memory key -> (occurrence, code, its result in the report)
         for occurrence in group.occurrences:
-            code = context(src_root, occurrence)
+            code = context(src_root, occurrence, bool(CREDENTIAL_RULE.search(group.rule)))
             if not code:
                 continue
             considered += 1
             key = memory_key(model, group.rule, occurrence.path, code)
             if isinstance(memory.get(key), dict):
                 report["remembered"] += 1
+                remembered = {name: redact(value) if name in ("reason", "check", "suggested_fix") else value
+                              for name, value in memory[key].items()}
                 report["results"].append({"rule": group.rule, "path": occurrence.path, "line": occurrence.line,
-                                          **memory[key], "remembered": True})
+                                          **remembered, "remembered": True})
                 shown[key] = (occurrence, code, report["results"][-1])
             else:
                 shown[key] = (occurrence, code, None)

@@ -434,7 +434,15 @@ def merge(sonar: dict, sdt: dict | None) -> dict:
 
 
 # ------------------------------------------------------------------------ helpers
-def snippet(src_root: Path | None, occurrence: Occurrence) -> list[str]:
+def _shown(line: str, path: str, flagged: bool, credential: bool) -> str:
+    """One source line as the report shows it: no credential value, whatever kind of file it is in."""
+    line = line.rstrip()
+    if flagged and credential:
+        return sdt_advisory.redact_credential_line(line, path)[:160]
+    return sdt_advisory.redact(line, path)[:160]
+
+
+def snippet(src_root: Path | None, occurrence: Occurrence, credential: bool = False) -> list[str]:
     """The flagged line with a little context, prefixed with its location, or []."""
     if not src_root or not occurrence.path or occurrence.line < 1:
         return []
@@ -450,7 +458,7 @@ def snippet(src_root: Path | None, occurrence: Occurrence) -> list[str]:
     out = [f"// {occurrence.path}:{occurrence.line}"]
     for number in range(start, end + 1):
         marker = ">" if number == occurrence.line else " "
-        out.append(f"{marker}{number:>5}  {sdt_advisory.redact(lines[number - 1].rstrip())[:160]}")
+        out.append(f"{marker}{number:>5}  {_shown(lines[number - 1], occurrence.path, number == occurrence.line, credential)}")
     return out
 
 
@@ -474,7 +482,7 @@ def cited_lines(note: dict | None, near: int, reach: int = 200) -> list[int]:
 
 
 def snippet_blocks(src_root: Path | None, path: str, flagged: list[int], max_block: int = 60,
-                   cited: list[int] = ()) -> list[list[str]]:
+                   cited: list[int] = (), credential: bool = False) -> list[list[str]]:
     """Code excerpts covering every flagged line of one file (marked ">") and every line the
     advisory cites as evidence (marked "*"). Nearby lines share one excerpt, so each shows once.
     Likely secret values are redacted: the report must never carry a credential."""
@@ -505,7 +513,7 @@ def snippet_blocks(src_root: Path | None, path: str, flagged: list[int], max_blo
         block = [header]
         for k in range(start, end + 1):
             marker = ">" if k in hits_all else "*" if k in cited_all else " "
-            block.append(f"{marker}{k:>5}  {sdt_advisory.redact(lines[k - 1].rstrip())[:160]}")
+            block.append(f"{marker}{k:>5}  {_shown(lines[k - 1], path, k in hits_all, credential)}")
         blocks.append(block)
     return blocks
 
@@ -1078,7 +1086,8 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
                                     advisory_cols=(4,)))
             for i, occurrence in enumerate(ordered, 1):
                 blocks = snippet_blocks(src_root, occurrence.path, [occurrence.line],
-                                        cited=cited_lines(occurrence.ai, occurrence.line))
+                                        cited=cited_lines(occurrence.ai, occurrence.line),
+                                        credential=bool(sdt_advisory.CREDENTIAL_RULE.search(g.rule)))
                 if blocks:
                     parts.append(para(run(f"#{i} ", bold=True) + run(occurrence.message or g.name), before=160, after=0))
                     parts += [code_block(block) for block in blocks]
@@ -1129,7 +1138,8 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
             parts.append(data_table([("Line", 800), ("Status", 1300), ("Advisory", 2400), ("Details", 5580)], detail,
                                     advisory_cols=(2, 3)))
             cited = sorted({n for o in occs for n in cited_lines(o.ai, o.line)})
-            for block in snippet_blocks(src_root, where, [o.line for o in occs], cited=cited):
+            for block in snippet_blocks(src_root, where, [o.line for o in occs], cited=cited,
+                                        credential=bool(sdt_advisory.CREDENTIAL_RULE.search(g.rule))):
                 parts.append(code_block(block))
 
     # ------------------------------------------------ 2. secret leaks

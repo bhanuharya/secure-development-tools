@@ -31,15 +31,64 @@ SECRET_PATTERNS = [
     re.compile(r"\beyJ[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}\b"),
     re.compile(r"\bsqu_[0-9a-f]{20,}\b"),
 ]
+SECRET_WORD = r"password|passwd|pwd|passphrase|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credentials?"
 SECRET_ASSIGNMENT = re.compile(
-    r"""(?i)((?:password|passwd|secret|token|api[_-]?key|apikey|auth|credential|private[_-]?key)["']?\s*[:=]\s*)(["'])[^"'\s]{6,}\2""")
+    rf"""(?i)((?:{SECRET_WORD}|auth)["']?\s*[:=]\s*)(["'])([^"'\s]+)\2""")
+# Values that say "a secret goes here" rather than being one. They stay readable: seeing that the flagged
+# "password" is the word password, changeit or ${DB_PASSWORD} is how a reviewer recognises a false positive.
+PLACEHOLDER = re.compile(r"""(?ix)^(?: pass(?:word|wd)? | pwd | secret | changeit | change[-_ ]?me | admin | root
+    | test(?:ing)? | example | sample | dummy | default | none | null | nil | empty | todo | true | false
+    | your[-_ ]?[\w-]* | x{3,} | \*{3,} | \.{3,} | <[^>]*> | \$\{[^}]*\} | \{\{[^}]*\}\} | %\([^)]*\)s
+    | \$[A-Za-z_][A-Za-z0-9_]* | \#\{[^}]*\} | \[REDACTED\] )$""")
+# Settings files, where a value is not quoted: "password: x", "db.password=x", "<password>x</password>".
+CONFIG_FILE = re.compile(r"(?i)(\.(ya?ml|properties|env|conf|cfg|ini|toml|xml|json)$|(^|/)\.env[\w.-]*$|\.env\.[\w.-]+$)")
+CONFIG_VALUE = re.compile(
+    rf"""(?ix)^(?P<head>\s*(?:-\s+)?(?:export\s+)?["']?[\w.\-/\[\]]*?(?:{SECRET_WORD})["']?\s*[:=]\s*)
+         (?P<quote>["']?)(?P<value>[^"'\s#][^#]*?)(?P=quote)(?P<tail>\s*(?:\#.*)?)$""")
+XML_VALUE = re.compile(rf"(?i)(<(?P<tag>[\w.:-]*(?:{SECRET_WORD}))>)(?P<value>[^<]+)(</(?P=tag)>)")
+# How the AI review words it: "sets the password to the literal `x`", "the token `x`".
+PROSE_VALUE = re.compile(rf"(?i)((?:\bliteral(?:\s+value)?|\b(?:{SECRET_WORD})(?:\s+(?:is|of|to|as))?)\s+)`([^`\n]+)`")
+URL_PASSWORD = re.compile(r"(\b[a-z][a-z0-9+.-]*://[^/\s:@\"']+:)([^@\s/\"']+)(@)", re.I)
+ANY_CONFIG_VALUE = re.compile(
+    r"""(?x)^(?P<head>\s*(?:-\s+)?(?:export\s+)?["']?[\w.\-/\[\]]+["']?\s*[:=]\s*)
+        (?P<quote>["']?)(?P<value>[^"'\s#][^#]*?)(?P=quote)(?P<tail>\s*(?:\#.*)?)$""")
+CREDENTIAL_RULE = re.compile(r"(?i)S6437|S2068|S6418|S6290|hardcoded|hard-coded|secrets?[.:-]|private-key")
+QUOTED = re.compile(r"""(["'])((?:(?!\1).)+)\1""")
 
 
-def redact(text: str) -> str:
-    """The code with likely secret values replaced by [REDACTED]."""
+def _kept(value: str) -> bool:
+    return bool(PLACEHOLDER.match(value.strip()))
+
+
+def redact(text: str, path: str = "") -> str:
+    """The code with likely secret values replaced by [REDACTED]; placeholders are left as they are.
+    Give the file's path when there is one: in settings files unquoted values are covered too."""
     for pattern in SECRET_PATTERNS:
         text = pattern.sub("[REDACTED]", text)
-    return SECRET_ASSIGNMENT.sub(lambda m: f"{m.group(1)}{m.group(2)}[REDACTED]{m.group(2)}", text)
+    text = SECRET_ASSIGNMENT.sub(
+        lambda m: m.group(0) if _kept(m.group(3)) else f"{m.group(1)}{m.group(2)}[REDACTED]{m.group(2)}", text)
+    text = PROSE_VALUE.sub(lambda m: m.group(0) if _kept(m.group(2)) else f"{m.group(1)}`[REDACTED]`", text)
+    text = URL_PASSWORD.sub(lambda m: m.group(0) if _kept(m.group(2)) else f"{m.group(1)}[REDACTED]{m.group(3)}", text)
+    if path and CONFIG_FILE.search(path):
+        lines = []
+        for line in text.split("\n"):
+            line = XML_VALUE.sub(lambda m: m.group(0) if _kept(m.group("value")) else f"{m.group(1)}[REDACTED]{m.group(4)}", line)
+            found = CONFIG_VALUE.match(line)
+            if found and not _kept(found.group("value")):
+                line = f"{found.group('head')}{found.group('quote')}[REDACTED]{found.group('quote')}{found.group('tail')}"
+            lines.append(line)
+        text = "\n".join(lines)
+    return text
+
+
+def redact_credential_line(line: str, path: str = "") -> str:
+    """The line a credential rule flagged: every quoted value on it is withheld as well, because the rule
+    says one of them is the credential (new Login("app", "s3cret") names no password)."""
+    line = redact(line, path)
+    found = ANY_CONFIG_VALUE.match(line) if path and CONFIG_FILE.search(path) else None
+    if found and not _kept(found.group("value")):  # a settings line: whatever its name, the value is the credential
+        return f"{found.group('head')}{found.group('quote')}[REDACTED]{found.group('quote')}{found.group('tail')}"
+    return QUOTED.sub(lambda m: m.group(0) if _kept(m.group(2)) else f"{m.group(1)}[REDACTED]{m.group(1)}", line)
 
 
 # rule key pattern -> (what to check to decide, fix if it is real, what to record if it is safe)
@@ -157,4 +206,4 @@ def assess(rule: str, path: str, line: int, src_root: Path | None) -> dict:
                     f"The random value near {where} feeds UI or local notification code (placeholder/animation/id).",
                     "Confirm the value never becomes a token, OTP, nonce or server-side id.", record)
     return note("needs_context", f"The rule matched {where}; the code alone does not settle it." if not text else
-                f"The rule matched {where}: {redact(text)[:160]}", check, f"If safe: mark Safe - \"{record}\". Otherwise: {fix}")
+                f"The rule matched {where}: {(redact_credential_line(text, path) if CREDENTIAL_RULE.search(rule) else redact(text, path))[:160]}", check, f"If safe: mark Safe - \"{record}\". Otherwise: {fix}")

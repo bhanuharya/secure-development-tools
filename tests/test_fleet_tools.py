@@ -1420,6 +1420,56 @@ def test_no_secret_value_reaches_any_part_of_the_report(tmp_path):
     assert "[REDACTED]" in document
 
 
+def test_redaction_covers_settings_files_short_values_and_addresses_but_keeps_placeholders():
+    redact = sdt_advisory.redact
+    assert redact("    password: hunter2", "config/application-prod.yml") == "    password: [REDACTED]"
+    assert redact("spring.datasource.password=ab12", "app.properties") == "spring.datasource.password=[REDACTED]"
+    assert redact("DB_PASSWORD=x9z", ".env") == "DB_PASSWORD=[REDACTED]"
+    assert redact("<password>abc</password>", "settings.xml") == "<password>[REDACTED]</password>"
+    assert redact('  "client_secret": "abc123",', "config.json") == '  "client_secret": "[REDACTED]",'
+    assert "s3cr3t" not in redact("url: jdbc:postgresql://app:s3cr3t@db:5432/app", "application.yml")
+    # What tells a reviewer that a flagged "password" is no secret stays readable.
+    for line in ("    key-store-password: password", "    password: changeit", "    password: ${DB_PASSWORD}",
+                 "    token-validity-in-seconds: 86400", "    username: app"):
+        assert redact(line, "application-dev.yml") == line
+    # Code is not a settings file: an unquoted right-hand side there is an expression.
+    line = 'String p = request.getParameter("password");'
+    assert redact(line, "A.java") == line
+
+
+def test_the_line_a_credential_rule_flags_shows_no_value_at_all():
+    flagged = sdt_advisory.redact_credential_line
+    line = flagged('return DriverManager.getConnection(url, "app", "R00t!Pw");', "Db.java")
+    assert "R00t!Pw" not in line and line.count("[REDACTED]") == 2
+    assert flagged("    secret-key-base: 0a1b2c3d", "application-prod.yml") == "    secret-key-base: [REDACTED]"
+    assert flagged('props.put(KEY, "password");', "Mail.java") == 'props.put(KEY, "password");'  # a placeholder: shown
+
+
+def test_a_hard_coded_password_reaches_neither_the_review_nor_the_report(tmp_path):
+    value = "kq7" + "Zp2"  # short and unquoted: what the earlier redaction let through
+    root = _src(tmp_path, "src/main/resources/config/application-prod.yml",
+                f"spring:\n  datasource:\n    username: app\n    password: {value}\n")
+    path = "src/main/resources/config/application-prod.yml"
+    group = sdt_to_docx.Group("java:S6437", "Credentials should not be hard-coded", "Vulnerability", "High")
+    occurrence = sdt_to_docx.Occurrence(path, 4, "Revoke and change this password, as it is compromised.", "Open", "")
+    group.occurrences = [occurrence]
+
+    sent = sdt_triage_codex.context(root, occurrence, credential=True)
+    assert value not in sent and "password: [REDACTED]" in sent
+
+    answer = {"results": [{"id": "o1", "verdict": "likely_true_positive", "confidence": "high", "check": "",
+                           "reason": f"Line 4 sets the datasource password to the literal `{value}`.",
+                           "suggested_fix": ""}]}
+    occurrence.ai = sdt_triage_codex.validate(answer, {"o1"})[0]
+    assert value not in occurrence.ai["reason"]
+
+    occurrence.ai["reason"] = f"Line 4 sets the datasource password to the literal `{value}`."  # an older stored verdict
+    _write_report(tmp_path, {"code": [group], "secret": [], "dependency": [], "config": []}, src_root=root)
+    with zipfile.ZipFile(tmp_path / "r.docx") as z:
+        everything = "".join(z.read(name).decode("utf-8", "ignore") for name in z.namelist() if name.endswith(".xml"))
+    assert value not in everything and "[REDACTED]" in everything
+
+
 def test_file_links_open_bitbucket_at_the_scanned_commit_with_the_lines_highlighted(tmp_path):
     base = sdt_to_docx.bitbucket_base("example/app", "2d50829cc3b8")
     assert base == "https://bitbucket.org/example/app/src/2d50829cc3b8"
