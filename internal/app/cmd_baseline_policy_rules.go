@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
+	"sync"
 
 	"github.com/spf13/cobra"
 
@@ -184,7 +187,8 @@ func newRulesCmd() *cobra.Command {
 					dirs = append(dirs, r)
 				}
 			}
-			if err := rules.Validate(bin, dirs, 300); err != nil {
+			// The engine loads rule files one by one here: allow for a slow CI runner.
+			if err := rules.Validate(bin, dirs, 900); err != nil {
 				return failf(ExitInvalidInput, "rule validation failed: %v", err)
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "validate: clean")
@@ -193,14 +197,25 @@ func newRulesCmd() *cobra.Command {
 			annotationIndex := rules.IndexAnnotations(roots)
 			tested, untested, failed := 0, 0, 0
 			intrafile := scanner.IsOpenGrep(bin)
-			for _, f := range files {
+			// One engine start per rule file, a second or more each: run them
+			// side by side and report in file order.
+			outcomes := make([]error, len(files))
+			hasTests := make([]bool, len(files))
+			slots := make(chan struct{}, min(runtime.NumCPU(), 8))
+			var running sync.WaitGroup
+			for i, f := range files {
 				testSet := map[string]bool{}
 				for _, t := range rules.FindTests(f) {
 					testSet[t] = true
 				}
+				// Upstream reuses rule ids across languages and frameworks
+				// (tainted-sql-string exists six times). A fixture in another
+				// folder tests that folder's rule of the same name, not this one.
 				for _, id := range rules.RuleIDs(f) {
 					for _, t := range annotationIndex[id] {
-						testSet[t] = true
+						if filepath.Dir(t) == filepath.Dir(f) {
+							testSet[t] = true
+						}
 					}
 				}
 				var tests []string
@@ -208,15 +223,29 @@ func newRulesCmd() *cobra.Command {
 					tests = append(tests, t)
 				}
 				if len(tests) == 0 {
+					continue
+				}
+				sort.Strings(tests)
+				hasTests[i] = true
+				running.Add(1)
+				go func(i int, f string, tests []string) {
+					defer running.Done()
+					slots <- struct{}{}
+					defer func() { <-slots }()
+					outcomes[i] = rules.TestRule(bin, f, tests, intrafile, 120)
+				}(i, f, tests)
+			}
+			running.Wait()
+			for i, f := range files {
+				switch {
+				case !hasTests[i]:
 					untested++
-					continue
-				}
-				if err := rules.TestRule(bin, f, tests, intrafile, 120); err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "test failure %s: %v\n", f, err)
+				case outcomes[i] != nil:
+					fmt.Fprintf(cmd.ErrOrStderr(), "test failure %s: %v\n", f, outcomes[i])
 					failed++
-					continue
+				default:
+					tested++
 				}
-				tested++
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "tests: %d rule files passed, %d without tests, %d failed\n", tested, untested, failed)
 			if failed > 0 {
