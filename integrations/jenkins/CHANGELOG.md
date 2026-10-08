@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-08
+
+- Every scan is about 20 seconds shorter. The code scanner loaded its rule files one by one, which took 18 s per
+  scan whatever the size of the repository; SDT now hands it the same rules as one file (2.5 s, identical
+  findings, checked on eight repositories). The plan in `sdt plan` still lists every rule file and shows the
+  command line that runs as `execArgs`. `SDT_OPENGREP_MERGE_RULES=0` loads the files one by one again. Tool
+  versions are looked up while the scanners run, and SonarQube's import is asked for every second at first.
+  Needs the SDT checkout updated (`install/update-sdt.sh`).
+
 ## 2026-10-07
 
 - A scan no longer hangs on a committed JavaScript bundle. Minified and generated files are left out of the code

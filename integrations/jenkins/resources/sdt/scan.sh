@@ -291,10 +291,11 @@ timing sonar-analysis
 
 TASK=$(grep -oE 'api/ce/task[?]id=[A-Za-z0-9_-]+' "$OUT/sonar-scanner.log" | head -1 | cut -d= -f2)
 [ -n "$TASK" ] || { log "no Compute Engine task id (upload failed?)"; exit 1; }
-for _ in $(seq 1 120); do
+# A small import is done within seconds, so ask every second at first, then every five (10 minutes in all).
+for attempt in $(seq 1 136); do
   STATUS=$(sonar_api "/api/ce/task?id=$TASK" | python3 -c 'import json,sys; print(json.load(sys.stdin)["task"]["status"])')
   case "$STATUS" in SUCCESS) log "SonarQube import confirmed"; break ;; FAILED|CANCELED) log "import $STATUS"; exit 1 ;; esac
-  sleep 5
+  if [ "$attempt" -le 20 ]; then sleep 1; else sleep 5; fi
 done
 [ "$STATUS" = SUCCESS ] || { log "import unconfirmed after 10 minutes"; exit 1; }
 timing sonar-import
