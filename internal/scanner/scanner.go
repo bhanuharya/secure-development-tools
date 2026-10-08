@@ -47,6 +47,9 @@ type Task struct {
 	// to the scan root); Note says why, in a sentence, for the run manifest.
 	SkippedFiles []string
 	Note         string
+	// ExecArgs, when set, is what runs in place of Args: an equivalent
+	// invocation that is cheaper to execute (see mergedRules).
+	ExecArgs []string
 }
 
 // ParseResult is adapter parse output.

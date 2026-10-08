@@ -49,6 +49,12 @@ neither.
   `SDT_SCAN_GENERATED_FILES=1` scans them after all.
 - **OpenGrep runs on at most four cores.** With more it took as long or longer
   and used up to twice the CPU. `SDT_SCAN_THREADS` sets another number.
+- **OpenGrep is given the rules as one merged file.** Its command line loads rule
+  files one by one, 18 s for a typical scan against 2.5 s for one file with the
+  same rules. The plan lists every rule file (`args`) next to the command line
+  that runs (`execArgs`). A rule file that cannot be merged safely (YAML anchors,
+  several documents, a duplicate id) makes the scan load the files one by one, as
+  does `SDT_OPENGREP_MERGE_RULES=0`.
 
 ## Legacy tree
 

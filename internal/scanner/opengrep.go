@@ -60,31 +60,43 @@ func (a *OpengrepAdapter) Plan(ctx *sdtctx.ScanContext, cfg *config.ScanConfigur
 	if len(rules) == 0 {
 		return Task{}, fmt.Errorf("no rules: visible configuration failure (no matching rule files)")
 	}
-	args := []string{"scan", "--json", "--no-git-ignore"}
+	options := []string{"scan", "--json", "--no-git-ignore"}
 	isOpenGrep := IsOpenGrep(bin)
 	if isOpenGrep {
-		args = append(args, "-q", "--timeout", "60", "--max-target-bytes", "5000000",
+		options = append(options, "-q", "--timeout", "60", "--max-target-bytes", "5000000",
 			// Cross-function taint within one file: OpenGrep's depth edge
 			// over Semgrep CE. Required for taint-mode rules to track
 			// sources to sinks across function boundaries. Semgrep CE
 			// rejects the flag, so it stays OpenGrep-only.
 			"--taint-intrafile")
 	} else {
-		args = append(args, "--quiet")
+		options = append(options, "--quiet")
 	}
+	var scope []string
+	for _, x := range opengrepExcludes() {
+		scope = append(scope, "--exclude", x)
+	}
+	generated, skipped, note := skipGenerated(root)
+	scope = append(scope, generated...)
+	scope = append(scope, "-j", strconv.Itoa(scanThreads()))
+	target := root
+	scope = append(scope, target)
+
+	args := append([]string{}, options...)
 	for _, r := range rules {
 		args = append(args, "--config", r)
 	}
-	for _, x := range opengrepExcludes() {
-		args = append(args, "--exclude", x)
+	args = append(args, scope...)
+	// The plan names every rule file. What runs is the same scan with the
+	// rules in one file, which the engine loads several times faster.
+	var execArgs []string
+	if isOpenGrep && os.Getenv("SDT_OPENGREP_MERGE_RULES") != "0" {
+		if merged, err := mergedRules(rules, root, ctx.CacheRoot); err == nil {
+			execArgs = append(append(append([]string{}, options...), "--no-rewrite-rule-ids", "--config", merged), scope...)
+		}
 	}
-	generated, skipped, note := skipGenerated(root)
-	args = append(args, generated...)
-	args = append(args, "-j", strconv.Itoa(scanThreads()))
-	target := root
-	args = append(args, target)
 	timeout := taskTimeout(cfg.Scanners.Opengrep.Timeout, 600)
-	return Task{Adapter: "opengrep", Tool: "opengrep", Executable: bin, Args: args, Targets: []string{target}, TimeoutSeconds: timeout, RuleBundle: "secure-default", RuleChecksums: checksumFiles(rules),
+	return Task{Adapter: "opengrep", Tool: "opengrep", Executable: bin, Args: args, ExecArgs: execArgs, Targets: []string{target}, TimeoutSeconds: timeout, RuleBundle: "secure-default", RuleChecksums: checksumFiles(rules),
 		SkippedFiles: skipped, Note: note}, nil
 }
 

@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"sync"
 	"syscall"
 	"time"
 
@@ -79,7 +80,7 @@ func planTasksFull(cfg *config.ScanConfiguration, profile string, ctx *sdtctx.Sc
 		tasks = append(tasks, plan.Task{
 			Adapter: t.Adapter, Tool: t.Tool, Executable: t.Executable, Args: t.Args,
 			Targets: t.Targets, TimeoutSeconds: t.TimeoutSeconds, Mode: t.Mode, RuleBundle: t.RuleBundle,
-			RuleChecksums: t.RuleChecksums, Excludes: t.SkippedFiles, Note: t.Note,
+			RuleChecksums: t.RuleChecksums, Excludes: t.SkippedFiles, Note: t.Note, ExecArgs: t.ExecArgs,
 		})
 		// stash report path via parallel slice hack: re-lookup after build.
 		pendingReportPaths[t.Adapter] = t.ReportPath
@@ -192,16 +193,32 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 	toolVersions := map[string]string{}
 	adapters := map[string]scanner.Adapter{}
 	planned := map[string]plan.Task{}
+	// Asking each tool for its version takes seconds (one starts an
+	// interpreter for it). The answers are only needed for the report, so
+	// they are fetched while the scanners run.
+	var versions sync.WaitGroup
+	var versionsLock sync.Mutex
 	for _, t := range tasks {
 		a, _ := scanner.Lookup(t.Adapter)
 		adapters[t.Adapter] = a
-		toolVersions[t.Adapter] = scanner.ToolVersion(t.Executable)
+		versions.Add(1)
+		go func(adapter, executable string) {
+			defer versions.Done()
+			version := scanner.ToolVersion(executable)
+			versionsLock.Lock()
+			toolVersions[adapter] = version
+			versionsLock.Unlock()
+		}(t.Adapter, t.Executable)
 		if t.Note != "" {
 			fmt.Fprintln(cmd.ErrOrStderr(), "sdt: "+t.Adapter+": "+t.Note)
 		}
 		planned[t.Adapter] = t
+		args := t.Args
+		if len(t.ExecArgs) > 0 {
+			args = t.ExecArgs
+		}
 		execTasks = append(execTasks, execute.Task{
-			Adapter: t.Adapter, Executable: t.Executable, Args: t.Args,
+			Adapter: t.Adapter, Executable: t.Executable, Args: args,
 			TimeoutSeconds: t.TimeoutSeconds, Dir: root, ReportPath: pendingReportPaths[t.Adapter],
 		})
 	}
@@ -216,6 +233,7 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 	}
 	defer cancel()
 	results := execute.RunAll(ectx, execTasks, parallelism, func(s string) string { return report.Redact(s) })
+	versions.Wait()
 
 	// Parse + normalize. Execution health is authoritative: a timeout,
 	// cancellation, or exec/report error is never downgraded to completed

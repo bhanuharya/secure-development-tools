@@ -17,7 +17,8 @@ const SchemaVersion = "secure-dev/plan/v1alpha1"
 
 // Task is one immutable scanner invocation. Excludes lists the files the
 // scanner was told to leave out (paths relative to the scan root); Note says
-// why, in a sentence.
+// why, in a sentence. ExecArgs, when present, is the equivalent command line
+// that actually runs (the rule files of Args merged into one).
 type Task struct {
 	Adapter           string   `json:"adapter"`
 	Tool              string   `json:"tool"`
@@ -33,6 +34,7 @@ type Task struct {
 	Database          string   `json:"database,omitempty"`
 	UpdateMode        string   `json:"updateMode,omitempty"`
 	Note              string   `json:"note,omitempty"`
+	ExecArgs          []string `json:"execArgs,omitempty"`
 }
 
 // Skip records a capability-based skip with reason.
