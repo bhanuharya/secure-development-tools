@@ -130,11 +130,17 @@ func rulesIn(file string) ([]*yaml.Node, []map[string]any, error) {
 
 // portable reports whether a node can move to another document unchanged (no
 // anchors or aliases), and drops its comments, which rules do not depend on.
+// A folded block scalar (">") is written back double-quoted: the YAML library
+// adds a blank line when it re-folds one that has indented lines, which would
+// change a multi-line pattern.
 func portable(node *yaml.Node) bool {
 	if node.Anchor != "" || node.Kind == yaml.AliasNode {
 		return false
 	}
 	node.HeadComment, node.LineComment, node.FootComment = "", "", ""
+	if node.Kind == yaml.ScalarNode && node.Style&yaml.FoldedStyle != 0 {
+		node.Style = yaml.DoubleQuotedStyle
+	}
 	for _, child := range node.Content {
 		if !portable(child) {
 			return false

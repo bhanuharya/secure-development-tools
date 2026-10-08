@@ -41,12 +41,33 @@ const vendoredRule = `rules:
   pattern: $X == "..."
 `
 
+// A folded block (">") with indented lines: the YAML library changes it when it
+// writes it back folded, which would alter the pattern.
+const foldedRule = `rules:
+- id: factory-without-hardening
+  languages: [java]
+  severity: WARNING
+  message: m
+  patterns:
+    - pattern-not-inside: >
+        class $C {
+          ...
+          static {
+            ...
+            $F.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+          }
+        }
+    - pattern: $F.newInstance()
+`
+
 func rulePack(t *testing.T) (pack string, files []string) {
 	t.Helper()
 	pack = filepath.Join(t.TempDir(), "sdt", "rules", "opengrep-rules")
-	files = []string{filepath.Join(pack, "javascript", "injection.yaml"), filepath.Join(pack, "vendor", "semgrep", "java", "lang", "correctness", "eqeq.yaml")}
+	files = []string{filepath.Join(pack, "javascript", "injection.yaml"), filepath.Join(pack, "vendor", "semgrep", "java", "lang", "correctness", "eqeq.yaml"),
+		filepath.Join(pack, "vendor", "semgrep", "java", "lang", "security", "audit", "xxe", "factory.yaml")}
 	writeSource(t, pack, "javascript/injection.yaml", firstPartyRule)
 	writeSource(t, pack, "vendor/semgrep/java/lang/correctness/eqeq.yaml", vendoredRule)
+	writeSource(t, pack, "vendor/semgrep/java/lang/security/audit/xxe/factory.yaml", foldedRule)
 	return pack, files
 }
 
@@ -74,8 +95,8 @@ func TestMergedRulesKeepEachRuleAndTheIdItIsReportedWith(t *testing.T) {
 		t.Fatal(err)
 	}
 	rules := rulesOfFile(t, merged)
-	if len(rules) != 2 {
-		t.Fatalf("want 2 rules, got %d", len(rules))
+	if len(rules) != 3 {
+		t.Fatalf("want 3 rules, got %d", len(rules))
 	}
 	var ids []string
 	for i, rule := range rules {
@@ -86,8 +107,22 @@ func TestMergedRulesKeepEachRuleAndTheIdItIsReportedWith(t *testing.T) {
 			t.Errorf("rule %s changed in the merged file:\n got %v\nwant %v", ids[i], rule, original)
 		}
 	}
-	if want := []string{"scp.javascript.injection.eval", "vendor.semgrep.java.lang.correctness.no-string-eqeq"}; !reflect.DeepEqual(ids, want) {
+	if want := []string{"scp.javascript.injection.eval", "vendor.semgrep.java.lang.correctness.no-string-eqeq",
+		"vendor.semgrep.java.lang.security.audit.xxe.factory-without-hardening"}; !reflect.DeepEqual(ids, want) {
 		t.Fatalf("ids after clean-up = %v, want %v", ids, want)
+	}
+}
+
+// Every rule file this repository ships can be merged. One that cannot would put
+// every scan back on loading the files one by one, without any error.
+func TestTheShippedRulePackMerges(t *testing.T) {
+	withRulePack(t)
+	files := ruleFiles(t.TempDir(), []string{"dart", "go", "hcl", "java", "javascript", "kotlin", "python", "typescript", "yaml"})
+	if len(files) < 100 {
+		t.Fatalf("only %d rule files found", len(files))
+	}
+	if _, err := mergedRules(files, t.TempDir(), t.TempDir()); err != nil {
+		t.Fatalf("the shipped rule pack does not merge: %v", err)
 	}
 }
 
@@ -179,14 +214,43 @@ func TestOpengrepRunsTheMergedRulesAndPlansTheFiles(t *testing.T) {
 	}
 }
 
-// End to end with the real engine and the real rule pack: the merged rule file
-// gives exactly the output the rule files give, raw rule ids included.
+// shippedRules copies part of the shipped rule pack: the first-party folders and
+// a few vendored ones. Loading rule files one by one costs about a second per
+// eight files, so a test that needs both ways of loading uses this, not all 470.
+func shippedRules(t *testing.T) string {
+	t.Helper()
+	source := filepath.Join(repoRoot(t), "rules", "opengrep-rules")
+	pack := filepath.Join(t.TempDir(), "sdt", "rules", "opengrep-rules")
+	for _, folder := range []string{"common", "java", "javascript", "python", "vendor/semgrep/java/lang/correctness",
+		"vendor/semgrep/javascript/lang/security", "vendor/semgrep/python/lang/security"} {
+		err := filepath.WalkDir(filepath.Join(source, filepath.FromSlash(folder)), func(path string, entry os.DirEntry, err error) error {
+			if err != nil || entry.IsDir() || !isRuleFile(entry.Name()) {
+				return err
+			}
+			rel, _ := filepath.Rel(source, path)
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			writeSource(t, pack, filepath.ToSlash(rel), string(raw))
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return pack
+}
+
+// End to end with the real engine and real rules, first-party and vendored: the
+// merged rule file gives exactly the output the rule files give, raw rule ids
+// included.
 func TestRealEngineReportsTheSameWithMergedRules(t *testing.T) {
 	bin := whichBin(envOr("SDT_OPENGREP_BIN", "opengrep"))
 	if bin == "" || strings.Contains(filepath.Base(bin), "semgrep") {
 		t.Skip("opengrep binary not installed")
 	}
-	withRulePack(t)
+	t.Setenv("SDT_RULES_PACK_DIR", shippedRules(t))
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
