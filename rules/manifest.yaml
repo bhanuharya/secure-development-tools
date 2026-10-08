@@ -17,7 +17,7 @@ sources:
       - yaml
       - dart
       - flutter
-    expected_rule_count: 35
+    expected_rule_count: 38
   - id: aikido
     repository: https://github.com/AikidoSec/opengrep-rules
     license: MIT
@@ -41,8 +41,8 @@ sources:
     profile: high-signal
     path_prefixes:
       - vendor/semgrep/python
-    expected_rule_count: 24
-    bundle_sha256: 2c4224831b79ebb4e855e795e70a03b0c02faba015bfbc966012d84bc1edc430
+    expected_rule_count: 121
+    bundle_sha256: 8db669d1bfbb277801a140787eb1557acdc253597be83a3c814c5c17642fb192
   - id: semgrep-javascript
     repository: https://github.com/semgrep/semgrep-rules
     license: Semgrep-Rules-License-1.0
@@ -50,8 +50,8 @@ sources:
     profile: high-signal
     path_prefixes:
       - vendor/semgrep/javascript
-    expected_rule_count: 10
-    bundle_sha256: 9549e04146c1395323a0c330990140708ec72fcc0f328b129947c9a23a8c94fb
+    expected_rule_count: 75
+    bundle_sha256: ef1a2309c40fe7735a0a16111815e80d2242deff2d6047147930afcbffb26a90
   - id: semgrep-go
     repository: https://github.com/semgrep/semgrep-rules
     license: Semgrep-Rules-License-1.0
@@ -59,8 +59,8 @@ sources:
     profile: high-signal
     path_prefixes:
       - vendor/semgrep/go
-    expected_rule_count: 11
-    bundle_sha256: 6816baea5bcdbd9b578ca20ba8064d95a2aa4fc1977addb73f904ae763a66c26
+    expected_rule_count: 59
+    bundle_sha256: 1ef287bab8d86fb985cfe6277bf6a8f55a204ad9d2166dd26a8f8b1733abf64b
   # Wave 2: kotlin/java core, Kubernetes + GitHub Actions hygiene, AWS JSON.
   # Terraform provider rules deliberately excluded (Trivy owns IaC).
   # Shadow-triaged 2026-09-04 with Wave 1: harness green, 0 drops.
@@ -80,8 +80,8 @@ sources:
     profile: high-signal
     path_prefixes:
       - vendor/semgrep/java
-    expected_rule_count: 13
-    bundle_sha256: 2ab423e2c9ff8dff81b295622104ac48e3469fb72981adda35ab667eeee0565d
+    expected_rule_count: 105
+    bundle_sha256: 2d5cabd34b6b6e5ad1a82a2d79a95097bfd66af4da89bfd1b3fd65d3041c117a
   - id: semgrep-yaml
     repository: https://github.com/semgrep/semgrep-rules
     license: Semgrep-Rules-License-1.0
@@ -121,3 +121,20 @@ sources:
       - vendor/semgrep/rust
     expected_rule_count: 10
     bundle_sha256: 4430adc11bcff15379d13908f8a902eae7e22a52509d5bb6f80217668238f1e8
+  # Wave 3 (2026-10-08): the semgrep-python, -javascript, -go and -java sources
+  # above grew by the framework rules (Spring, Express, Flask, Django) and by
+  # named audit/ subtrees (injection, request forgery, deserialisation, XML,
+  # crypto); PHP is new. Fifteen upstream rules are left out for cost or noise:
+  # the list and the reasons are in scripts/vendor_semgrep_rules.sh. Measured on
+  # OWASP Benchmark (score 5% -> 68%) and testdata/detection (11 -> 33 of 34):
+  # docs/detection.md. Shadow triage on real repositories (docs/rule-precision.md)
+  # is still to do for this wave.
+  - id: semgrep-php
+    repository: https://github.com/semgrep/semgrep-rules
+    license: Semgrep-Rules-License-1.0
+    revision: 40b8c63f75dc7c22c8a77482d73bfb864b146f7e
+    profile: high-signal
+    path_prefixes:
+      - vendor/semgrep/php
+    expected_rule_count: 47
+    bundle_sha256: 27acc362348773cd3e498aa5d3065f9ab01cd4321f2d823996fefb3ada52c718

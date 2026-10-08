@@ -16,8 +16,11 @@ Authoritative pinning, hashes, and counts: rules/manifest.yaml
   License: Semgrep Rules License v1.0 (see
   rules/opengrep-rules/vendor/semgrep/LICENSE.semgrep-rules).
   Internal business use. Not for use in competing products or SaaS
-  offerings. audit/ review rules, autofix fixtures, and Terraform provider
-  packs are deliberately excluded; see docs/rule-precision.md.
+  offerings. Autofix fixtures and Terraform provider packs are deliberately
+  excluded. audit/ review rules are vendored only for the subtrees that
+  scripts/vendor_semgrep_rules.sh names, and that script also lists the
+  upstream rules left out for cost or noise; see docs/rule-precision.md and
+  docs/detection.md.
 
 Rule tests: colocated annotated fixtures (`opengrep test` pairing), plus
 ours `<stem>.test.<ext>` convention. Promotion policy: docs/rule-precision.md.

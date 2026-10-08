@@ -194,9 +194,11 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 }
 
 // ruleFolderAliases adds rule folders beyond the one named after a detected language:
-// Flutter's rules target Dart code but live in their own pack folder.
+// Flutter's rules target Dart code but live in their own pack folder, and the
+// JavaScript folder holds rules that declare both JavaScript and TypeScript.
 var ruleFolderAliases = map[string][]string{
-	"dart": {"flutter"},
+	"dart":       {"flutter"},
+	"typescript": {"javascript"},
 }
 
 func ruleFiles(root string, languages []string) []string {

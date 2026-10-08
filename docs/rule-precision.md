@@ -42,6 +42,13 @@ every hit triaged under the promotion ladder above.
 
 - Vendor `lang/security` minus `audit/`; Terraform provider rules stay out
   (Trivy misconfiguration owns IaC — no duplicate ownership).
+- Wave 3 (2026-10-08) adds named `audit/` subtrees and framework rules, because
+  without them injection, request forgery, deserialisation and XML entities
+  were not detected at all (`docs/detection.md` has the measurements). An
+  `audit/` subtree is vendored only when `scripts/vendor_semgrep_rules.sh`
+  names it, and a rule that costs more scan time or noise than it finds is
+  listed there as left out. Wave 3 is at step 1 of the ladder: shadow triage on
+  real repositories is still to do.
 - Pin by commit, hash bundles, record license + revision in
   `rules/manifest.yaml`. Re-vendoring is a deliberate act via
   `scripts/vendor_semgrep_rules.sh`, never a floating pull.

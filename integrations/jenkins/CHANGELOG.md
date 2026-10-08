@@ -2,6 +2,13 @@
 
 ## 2026-10-08
 
+- Rule pack wave 3 (in the SDT repository; a scan uses it once the SDT checkout is updated). The code rules
+  found 11 of 34 planted weaknesses and scored 5% on OWASP Benchmark; with the added upstream folders, PHP
+  rules and three rules of our own they find 33 of 34 and score 68%. Fifteen upstream rules are left out
+  because they cost more scan time or noise than they found. Expect more code findings, most of all in PHP
+  repositories, and a code scan up to about 1.4 times as long on repositories with much JavaScript. Until
+  SonarQube is restarted and `install/sonar/setup-sonar.sh` has run again, findings of the new rules arrive as
+  external issues. Details and how to measure: SDT's `docs/detection.md`.
 - Every scan is about 20 seconds shorter. The code scanner loaded its rule files one by one, which took 18 s per
   scan whatever the size of the repository; SDT now hands it the same rules as one file (2.5 s, identical
   findings, checked on eight repositories). The plan in `sdt plan` still lists every rule file and shows the

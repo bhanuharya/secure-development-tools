@@ -18,3 +18,46 @@ rules:
       cwe: ["CWE-79"]
       owasp: ["A03:2021 - Injection"]
     pattern: $ELEM.innerHTML = $DATA
+
+  - id: scp.javascript.ssrf.request-controlled-url
+    languages: [javascript, typescript]
+    message: >-
+      The address of this outgoing request comes from the incoming HTTP request. A caller can
+      make the server fetch internal addresses (cloud metadata, admin interfaces). Check the
+      host against an allow-list before sending.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-918"]
+      owasp: ["A10:2021 - Server-Side Request Forgery (SSRF)"]
+      confidence: MEDIUM
+    mode: taint
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern-inside: function $HANDLER($REQ, $RES, ...) { ... }
+              - pattern-inside: function ($REQ, $RES, ...) { ... }
+              - pattern-inside: ($REQ, $RES, ...) => { ... }
+          - pattern-either:
+              - pattern: $REQ.query
+              - pattern: $REQ.params
+              - pattern: $REQ.body
+              - pattern: $REQ.headers
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: axios($URL, ...)
+              - pattern: axios.$METHOD($URL, ...)
+              - pattern: "axios({..., url: $URL, ...})"
+              - pattern: fetch($URL, ...)
+              - pattern: got($URL, ...)
+              - pattern: got.$METHOD($URL, ...)
+              - pattern: request($URL, ...)
+              - pattern: request.$METHOD($URL, ...)
+              - pattern: needle.$METHOD($URL, ...)
+              - pattern: superagent.$METHOD($URL, ...)
+              - pattern: http.get($URL, ...)
+              - pattern: http.request($URL, ...)
+              - pattern: https.get($URL, ...)
+              - pattern: https.request($URL, ...)
+          - focus-metavariable: $URL

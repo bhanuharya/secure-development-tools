@@ -8,3 +8,43 @@ rules:
       cwe: ["CWE-78"]
       owasp: ["A03:2021 - Injection"]
     pattern: exec.Command("sh", "-c", $ARG)
+
+  - id: scp.go.path-traversal.request-controlled-path
+    languages: [go]
+    message: >-
+      The file path is built from the HTTP request. "../" in the value reaches files outside
+      the intended folder, and filepath.Join does not prevent that. Use filepath.Base on the
+      name, or check that the cleaned path still starts with the base folder.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-22"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: "($R : *http.Request).URL.Query().Get(...)"
+          - pattern: "($R : *http.Request).FormValue(...)"
+          - pattern: "($R : *http.Request).PostFormValue(...)"
+          - pattern: "($R : *http.Request).URL.Path"
+          - pattern: mux.Vars(...)
+          - pattern: "($C : *fiber.Ctx).Params(...)"
+          - pattern: "($C : *fiber.Ctx).Query(...)"
+          - pattern: "($C : *gin.Context).Param(...)"
+          - pattern: "($C : *gin.Context).Query(...)"
+    pattern-sanitizers:
+      - pattern: filepath.Base(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: os.ReadFile($PATH)
+              - pattern: os.Open($PATH)
+              - pattern: os.OpenFile($PATH, ...)
+              - pattern: os.Create($PATH)
+              - pattern: os.Remove($PATH)
+              - pattern: ioutil.ReadFile($PATH)
+              - pattern: http.ServeFile($W, $REQ, $PATH)
+              - pattern: "($C : *fiber.Ctx).SendFile($PATH, ...)"
+              - pattern: "($C : *gin.Context).File($PATH)"
+          - focus-metavariable: $PATH

@@ -17,3 +17,51 @@ rules:
       category: security
       cwe: ["CWE-328"]
     pattern: MessageDigest.getInstance("MD5")
+
+  - id: scp.java.ssrf.request-controlled-url
+    languages: [java]
+    message: >-
+      The address this request is sent to comes from the HTTP request. A caller can make the
+      server fetch internal addresses (cloud metadata, admin interfaces). Check the host
+      against an allow-list before connecting.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-918"]
+      owasp: ["A10:2021 - Server-Side Request Forgery (SSRF)"]
+      confidence: MEDIUM
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: (HttpServletRequest $REQ).getParameter(...)
+          - pattern: (HttpServletRequest $REQ).getHeader(...)
+          - pattern: (HttpServletRequest $REQ).getQueryString()
+          - patterns:
+              - pattern-inside: |
+                  $RET $METHOD(..., @$ANNOTATION(...) $TYPE $ARG, ...) { ... }
+              - metavariable-regex:
+                  metavariable: $ANNOTATION
+                  regex: ^(RequestParam|PathVariable|RequestHeader|RequestBody)$
+              - focus-metavariable: $ARG
+          - patterns:
+              - pattern-inside: |
+                  $RET $METHOD(..., @$ANNOTATION $TYPE $ARG, ...) { ... }
+              - metavariable-regex:
+                  metavariable: $ANNOTATION
+                  regex: ^(RequestParam|PathVariable|RequestHeader|RequestBody)$
+              - focus-metavariable: $ARG
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: new URL($URL, ...)
+              - pattern: new java.net.URL($URL, ...)
+              - pattern: URI.create($URL)
+              - pattern: new URI($URL)
+              - pattern: new HttpGet($URL)
+              - pattern: new HttpPost($URL)
+              - pattern: (RestTemplate $T).getForObject($URL, ...)
+              - pattern: (RestTemplate $T).getForEntity($URL, ...)
+              - pattern: (RestTemplate $T).postForObject($URL, ...)
+              - pattern: (RestTemplate $T).postForEntity($URL, ...)
+              - pattern: (RestTemplate $T).exchange($URL, ...)
+          - focus-metavariable: $URL
