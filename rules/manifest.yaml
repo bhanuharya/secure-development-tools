@@ -17,7 +17,7 @@ sources:
       - yaml
       - dart
       - flutter
-    expected_rule_count: 38
+    expected_rule_count: 47
   - id: aikido
     repository: https://github.com/AikidoSec/opengrep-rules
     license: MIT
@@ -80,8 +80,8 @@ sources:
     profile: high-signal
     path_prefixes:
       - vendor/semgrep/java
-    expected_rule_count: 105
-    bundle_sha256: 2d5cabd34b6b6e5ad1a82a2d79a95097bfd66af4da89bfd1b3fd65d3041c117a
+    expected_rule_count: 96
+    bundle_sha256: f10af32280a3c786a23498b1d9522ce99ddca22c84e41902e076d41ecee9e7ec
   - id: semgrep-yaml
     repository: https://github.com/semgrep/semgrep-rules
     license: Semgrep-Rules-License-1.0
@@ -129,6 +129,9 @@ sources:
   # OWASP Benchmark (score 5% -> 68%) and testdata/detection (11 -> 33 of 34):
   # docs/detection.md. Shadow triage on real repositories (docs/rule-precision.md)
   # is still to do for this wave.
+  # 2026-10-09: nine Java rules for request data left the semgrep-java source;
+  # java/injection.yaml (project source) replaces them. OWASP Benchmark score
+  # 68% -> 89%, testdata/detection 37 of 38: docs/detection.md.
   - id: semgrep-php
     repository: https://github.com/semgrep/semgrep-rules
     license: Semgrep-Rules-License-1.0

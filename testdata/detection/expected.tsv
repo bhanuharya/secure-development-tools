@@ -12,11 +12,15 @@ go/tls.go	TLS certificate check switched off	295,327,319	rules
 java/Cmd.java	command injection	78	rules
 java/Crypto.java	weak hash or cipher	327,328,326	rules
 java/Deserialize.java	deserialization of untrusted data	502	rules
+java/Ldap.java	LDAP injection	90	rules
 java/PathTraversal.java	path traversal	22	rules
 java/Secret.java	hard-coded password	798,259	sonarqube
+java/Session.java	request data stored in the session	501	rules
 java/Sqli.java	SQL injection	89	rules
 java/Ssrf.java	server-side request forgery	918	rules
 java/TrustAll.java	TLS certificate check switched off	295	rules
+java/Xpath.java	XPath injection	643	rules
+java/Xss.java	cross-site scripting	79	rules
 java/Xxe.java	XML external entities	611	rules
 node/cmd.js	command injection	78	rules
 node/eval.js	code injection through eval	95,94	rules

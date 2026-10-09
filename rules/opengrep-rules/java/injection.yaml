@@ -1,0 +1,575 @@
+# Request data reaching a dangerous call in Java servlet code, one rule per weakness class, and the
+# same for a method argument reaching SQL or an OS command.
+#
+# These replace nine upstream rules (listed in scripts/vendor_semgrep_rules.sh). Those marked the
+# whole request object as untrusted, or matched on the shape of the call alone, and so reported
+# about half of the safe look-alikes in OWASP Benchmark. Here only what the client controls is a
+# source, and the engine's own flow analysis decides the rest: a value replaced by a constant, a
+# branch that cannot run, a map entry that was never given request data are not reported.
+# Measured in docs/detection.md.
+#
+# The sources and the list model are the same text in every rule. They are repeated, not shared
+# through a YAML anchor: the scan merges all rule files into one, and falls back to loading them
+# one by one (18 s slower) when a file has an anchor.
+rules:
+  - id: scp.java.injection.sql-from-request
+    languages: [java]
+    message: >-
+      Data from the HTTP request reaches a SQL statement as text. A caller can change the query: read
+      or alter other rows, or sign in without a password. Pass the value as a bound parameter (a ? in
+      a PreparedStatement, or the template's argument list) instead of joining it into the SQL.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021 - Injection"]
+      confidence: HIGH
+    mode: taint
+    options:
+      taint_assume_safe_numbers: true
+      taint_assume_safe_booleans: true
+    pattern-sources:
+      # What the client controls in a servlet request.
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).$GETTER(...)
+              - pattern: (ServletRequest $REQ).$GETTER(...)
+          - metavariable-regex:
+              metavariable: $GETTER
+              regex: ^(getParameter|getParameterMap|getParameterNames|getParameterValues|getHeader|getHeaders|getHeaderNames|getCookies|getQueryString|getInputStream|getReader|getPart|getParts|getPathInfo|getPathTranslated|getRequestURI|getRequestURL|getServletPath|getServerName|getContentType|getRequestedSessionId)$
+      # A class of the application that wraps the request: what its getters for parameters, cookies,
+      # headers and the query string return is request data. Its other methods are not assumed to be.
+      - patterns:
+          - pattern-inside: |
+              $WRAPPER = new $CLASS(..., (HttpServletRequest $REQ), ...);
+              ...
+          - pattern: $WRAPPER.$GETTER(...)
+          - metavariable-regex:
+              metavariable: $GETTER
+              regex: (?i)^get\w*(param|cookie|header|query)\w*$
+    pattern-sanitizers:
+      - pattern: $ENCODER.encodeForSQL(...)
+      # A new list, three elements added, the first removed: index 1 is then the third element. The
+      # engine does not follow the shift, and would report reading that literal back.
+      - patterns:
+          - pattern-inside: |
+              $LIST = new $LISTTYPE<$ELEMENT>();
+              $LIST.add("...");
+              $LIST.add($ANY);
+              $LIST.add("...");
+              $LIST.remove(0);
+              $READ = $LIST.get(1);
+          - metavariable-regex:
+              metavariable: $LISTTYPE
+              regex: ^(java\.util\.)?(ArrayList|LinkedList|Vector)$
+          - pattern: $LIST.get(1)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: (java.sql.Statement $STMT).$METHOD($SQL, ...)
+              - pattern: (Statement $STMT).$METHOD($SQL, ...)
+          - metavariable-regex:
+              metavariable: $METHOD
+              regex: ^(execute|executeQuery|executeUpdate|executeLargeUpdate|addBatch)$
+          - focus-metavariable: $SQL
+      - patterns:
+          - pattern-either:
+              - pattern: (java.sql.Connection $CONN).$METHOD($SQL, ...)
+              - pattern: (Connection $CONN).$METHOD($SQL, ...)
+          - metavariable-regex:
+              metavariable: $METHOD
+              regex: ^(prepareStatement|prepareCall|nativeSQL)$
+          - focus-metavariable: $SQL
+      # Spring's JdbcTemplate. queryFor... names are its own; query, execute and update count when the
+      # receiver is one by type, or by name where the type is declared in another file.
+      - patterns:
+          - pattern: $TEMPLATE.$METHOD($SQL, ...)
+          - metavariable-regex:
+              metavariable: $METHOD
+              regex: ^(queryForObject|queryForList|queryForMap|queryForRowSet|queryForStream|queryForInt|queryForLong)$
+          - focus-metavariable: $SQL
+      - patterns:
+          - pattern-either:
+              - pattern: (org.springframework.jdbc.core.JdbcTemplate $TEMPLATE).$METHOD($SQL, ...)
+              - pattern: (JdbcTemplate $TEMPLATE).$METHOD($SQL, ...)
+              - patterns:
+                  - pattern: $TEMPLATE.$METHOD($SQL, ...)
+                  - metavariable-regex:
+                      metavariable: $TEMPLATE
+                      regex: (?i)^(.*\.)?\w*jdbc\w*template\w*$
+          - metavariable-regex:
+              metavariable: $METHOD
+              regex: ^(query|execute|update|batchUpdate)$
+          - focus-metavariable: $SQL
+
+  - id: scp.java.injection.sql-from-argument
+    languages: [java]
+    message: >-
+      A method argument is joined into SQL that a Statement runs as text. If a caller ever passes user
+      input, the query can be changed. Pass the value as a bound parameter, or build the statement
+      from constants only.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021 - Injection"]
+      confidence: LOW
+    mode: taint
+    options:
+      taint_assume_safe_numbers: true
+      taint_assume_safe_booleans: true
+    pattern-sources:
+      # An argument of a method that is not handed the servlet request: where the request is at hand,
+      # the rule for request data follows the real input instead.
+      - patterns:
+          - pattern-either:
+              - pattern: |
+                  $RET $METHOD(..., $TYPE $ARG, ...) { ... }
+              - pattern: |
+                  $CLASS(..., $TYPE $ARG, ...) { ... }
+          - pattern-not: |
+              $RET $METHOD(..., HttpServletRequest $REQ, ...) { ... }
+          - pattern-not: |
+              $RET $METHOD(..., ServletRequest $REQ, ...) { ... }
+          - focus-metavariable: $ARG
+    pattern-sanitizers:
+      - pattern: $ENCODER.encodeForSQL(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-not-inside: |
+              $RET $HANDLER(..., HttpServletRequest $REQ, ...) { ... }
+          - pattern-not-inside: |
+              $RET $HANDLER(..., ServletRequest $REQ, ...) { ... }
+          - pattern-either:
+              - pattern: (java.sql.Statement $STMT).$METHOD($SQL, ...)
+              - pattern: (Statement $STMT).$METHOD($SQL, ...)
+          - metavariable-regex:
+              metavariable: $METHOD
+              regex: ^(execute|executeQuery|executeUpdate|executeLargeUpdate|addBatch)$
+          - focus-metavariable: $SQL
+
+  - id: scp.java.injection.command-from-request
+    languages: [java]
+    message: >-
+      Data from the HTTP request reaches an operating-system command: the command, its arguments or
+      its environment. A caller can run commands of their own on the server. Do not start a process
+      from request data; where one is needed, pick the command and its arguments from a fixed list.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021 - Injection"]
+      confidence: MEDIUM
+    mode: taint
+    options:
+      taint_assume_safe_numbers: true
+      taint_assume_safe_booleans: true
+    pattern-sources:
+      # What the client controls in a servlet request.
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).$GETTER(...)
+              - pattern: (ServletRequest $REQ).$GETTER(...)
+          - metavariable-regex:
+              metavariable: $GETTER
+              regex: ^(getParameter|getParameterMap|getParameterNames|getParameterValues|getHeader|getHeaders|getHeaderNames|getCookies|getQueryString|getInputStream|getReader|getPart|getParts|getPathInfo|getPathTranslated|getRequestURI|getRequestURL|getServletPath|getServerName|getContentType|getRequestedSessionId)$
+      # A class of the application that wraps the request: what its getters for parameters, cookies,
+      # headers and the query string return is request data. Its other methods are not assumed to be.
+      - patterns:
+          - pattern-inside: |
+              $WRAPPER = new $CLASS(..., (HttpServletRequest $REQ), ...);
+              ...
+          - pattern: $WRAPPER.$GETTER(...)
+          - metavariable-regex:
+              metavariable: $GETTER
+              regex: (?i)^get\w*(param|cookie|header|query)\w*$
+    pattern-sanitizers:
+      - pattern: $ENCODER.encodeForOS(...)
+      # A new list, three elements added, the first removed: index 1 is then the third element. The
+      # engine does not follow the shift, and would report reading that literal back.
+      - patterns:
+          - pattern-inside: |
+              $LIST = new $LISTTYPE<$ELEMENT>();
+              $LIST.add("...");
+              $LIST.add($ANY);
+              $LIST.add("...");
+              $LIST.remove(0);
+              $READ = $LIST.get(1);
+          - metavariable-regex:
+              metavariable: $LISTTYPE
+              regex: ^(java\.util\.)?(ArrayList|LinkedList|Vector)$
+          - pattern: $LIST.get(1)
+    pattern-sinks:
+      - pattern: (Runtime $RUNTIME).exec(...)
+      - pattern: Runtime.getRuntime().exec(...)
+      - pattern: new ProcessBuilder(...)
+      - pattern: (ProcessBuilder $BUILDER).command(...)
+
+  - id: scp.java.injection.command-from-argument
+    languages: [java]
+    message: >-
+      A method argument reaches an operating-system command. If a caller ever passes user input, it
+      can run commands of its own on the server. Pick the command and its arguments from a fixed list.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021 - Injection"]
+      confidence: LOW
+    mode: taint
+    options:
+      taint_assume_safe_numbers: true
+      taint_assume_safe_booleans: true
+    pattern-sources:
+      # An argument of a method that is not handed the servlet request: where the request is at hand,
+      # the rule for request data follows the real input instead.
+      - patterns:
+          - pattern-either:
+              - pattern: |
+                  $RET $METHOD(..., $TYPE $ARG, ...) { ... }
+              - pattern: |
+                  $CLASS(..., $TYPE $ARG, ...) { ... }
+          - pattern-not: |
+              $RET $METHOD(..., HttpServletRequest $REQ, ...) { ... }
+          - pattern-not: |
+              $RET $METHOD(..., ServletRequest $REQ, ...) { ... }
+          - focus-metavariable: $ARG
+    pattern-sanitizers:
+      - pattern: $ENCODER.encodeForOS(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-not-inside: |
+              $RET $HANDLER(..., HttpServletRequest $REQ, ...) { ... }
+          - pattern-not-inside: |
+              $RET $HANDLER(..., ServletRequest $REQ, ...) { ... }
+          - pattern-either:
+              - pattern: (Runtime $RUNTIME).exec(...)
+              - pattern: Runtime.getRuntime().exec(...)
+              - pattern: new ProcessBuilder(...)
+              - pattern: (ProcessBuilder $BUILDER).command(...)
+
+  - id: scp.java.injection.path-from-request
+    languages: [java]
+    message: >-
+      Data from the HTTP request is used as a file path. With ../ or an absolute path a caller can
+      reach files outside the intended directory. Keep only the file name (FilenameUtils.getName), or
+      resolve the path and check that it is still under the base directory.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-22"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    mode: taint
+    options:
+      taint_assume_safe_numbers: true
+      taint_assume_safe_booleans: true
+    pattern-sources:
+      # What the client controls in a servlet request.
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).$GETTER(...)
+              - pattern: (ServletRequest $REQ).$GETTER(...)
+          - metavariable-regex:
+              metavariable: $GETTER
+              regex: ^(getParameter|getParameterMap|getParameterNames|getParameterValues|getHeader|getHeaders|getHeaderNames|getCookies|getQueryString|getInputStream|getReader|getPart|getParts|getPathInfo|getPathTranslated|getRequestURI|getRequestURL|getServletPath|getServerName|getContentType|getRequestedSessionId)$
+      # A class of the application that wraps the request: what its getters for parameters, cookies,
+      # headers and the query string return is request data. Its other methods are not assumed to be.
+      - patterns:
+          - pattern-inside: |
+              $WRAPPER = new $CLASS(..., (HttpServletRequest $REQ), ...);
+              ...
+          - pattern: $WRAPPER.$GETTER(...)
+          - metavariable-regex:
+              metavariable: $GETTER
+              regex: (?i)^get\w*(param|cookie|header|query)\w*$
+    pattern-sanitizers:
+      - pattern: org.apache.commons.io.FilenameUtils.getName(...)
+      - pattern: FilenameUtils.getName(...)
+      # A new list, three elements added, the first removed: index 1 is then the third element. The
+      # engine does not follow the shift, and would report reading that literal back.
+      - patterns:
+          - pattern-inside: |
+              $LIST = new $LISTTYPE<$ELEMENT>();
+              $LIST.add("...");
+              $LIST.add($ANY);
+              $LIST.add("...");
+              $LIST.remove(0);
+              $READ = $LIST.get(1);
+          - metavariable-regex:
+              metavariable: $LISTTYPE
+              regex: ^(java\.util\.)?(ArrayList|LinkedList|Vector)$
+          - pattern: $LIST.get(1)
+    pattern-sinks:
+      - pattern: new java.io.File(...)
+      - pattern: new File(...)
+      - pattern: new java.io.FileInputStream(...)
+      - pattern: new FileInputStream(...)
+      - pattern: new java.io.FileOutputStream(...)
+      - pattern: new FileOutputStream(...)
+      - pattern: new java.io.FileReader(...)
+      - pattern: new FileReader(...)
+      - pattern: new java.io.FileWriter(...)
+      - pattern: new FileWriter(...)
+      - pattern: new java.io.RandomAccessFile(...)
+      - pattern: new RandomAccessFile(...)
+      - pattern: java.nio.file.Paths.get(...)
+      - pattern: Paths.get(...)
+      - pattern: java.nio.file.Path.of(...)
+      - pattern: Path.of(...)
+
+  - id: scp.java.injection.ldap-from-request
+    languages: [java]
+    message: >-
+      Data from the HTTP request reaches an LDAP search. A caller can change the filter: read entries
+      they should not see, or sign in as someone else. Escape the value for LDAP (Spring's
+      LdapEncoder.filterEncode, ESAPI encodeForLDAP) or pass it as a filter argument ({0}).
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-90"]
+      owasp: ["A03:2021 - Injection"]
+      confidence: MEDIUM
+    mode: taint
+    options:
+      taint_assume_safe_numbers: true
+      taint_assume_safe_booleans: true
+    pattern-sources:
+      # What the client controls in a servlet request.
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).$GETTER(...)
+              - pattern: (ServletRequest $REQ).$GETTER(...)
+          - metavariable-regex:
+              metavariable: $GETTER
+              regex: ^(getParameter|getParameterMap|getParameterNames|getParameterValues|getHeader|getHeaders|getHeaderNames|getCookies|getQueryString|getInputStream|getReader|getPart|getParts|getPathInfo|getPathTranslated|getRequestURI|getRequestURL|getServletPath|getServerName|getContentType|getRequestedSessionId)$
+      # A class of the application that wraps the request: what its getters for parameters, cookies,
+      # headers and the query string return is request data. Its other methods are not assumed to be.
+      - patterns:
+          - pattern-inside: |
+              $WRAPPER = new $CLASS(..., (HttpServletRequest $REQ), ...);
+              ...
+          - pattern: $WRAPPER.$GETTER(...)
+          - metavariable-regex:
+              metavariable: $GETTER
+              regex: (?i)^get\w*(param|cookie|header|query)\w*$
+    pattern-sanitizers:
+      - pattern: $ENCODER.encodeForLDAP(...)
+      - pattern: $ENCODER.encodeForDN(...)
+      - pattern: LdapEncoder.filterEncode(...)
+      - pattern: LdapEncoder.nameEncode(...)
+      - pattern: Rdn.escapeValue(...)
+      # A new list, three elements added, the first removed: index 1 is then the third element. The
+      # engine does not follow the shift, and would report reading that literal back.
+      - patterns:
+          - pattern-inside: |
+              $LIST = new $LISTTYPE<$ELEMENT>();
+              $LIST.add("...");
+              $LIST.add($ANY);
+              $LIST.add("...");
+              $LIST.remove(0);
+              $READ = $LIST.get(1);
+          - metavariable-regex:
+              metavariable: $LISTTYPE
+              regex: ^(java\.util\.)?(ArrayList|LinkedList|Vector)$
+          - pattern: $LIST.get(1)
+    pattern-sinks:
+      - pattern: (javax.naming.directory.DirContext $CTX).search(...)
+      - pattern: (DirContext $CTX).search(...)
+      - pattern: (javax.naming.directory.InitialDirContext $CTX).search(...)
+      - pattern: (InitialDirContext $CTX).search(...)
+      - pattern: (javax.naming.ldap.LdapContext $CTX).search(...)
+      - pattern: (LdapContext $CTX).search(...)
+      - pattern: (LdapTemplate $TEMPLATE).search(...)
+
+  - id: scp.java.injection.xpath-from-request
+    languages: [java]
+    message: >-
+      Data from the HTTP request is joined into an XPath expression. A caller can change which nodes
+      are selected and read data they should not see. Pass the value through a variable resolver
+      (XPath.setXPathVariableResolver) instead of joining it into the expression.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-643"]
+      owasp: ["A03:2021 - Injection"]
+      confidence: MEDIUM
+    mode: taint
+    options:
+      taint_assume_safe_numbers: true
+      taint_assume_safe_booleans: true
+    pattern-sources:
+      # What the client controls in a servlet request.
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).$GETTER(...)
+              - pattern: (ServletRequest $REQ).$GETTER(...)
+          - metavariable-regex:
+              metavariable: $GETTER
+              regex: ^(getParameter|getParameterMap|getParameterNames|getParameterValues|getHeader|getHeaders|getHeaderNames|getCookies|getQueryString|getInputStream|getReader|getPart|getParts|getPathInfo|getPathTranslated|getRequestURI|getRequestURL|getServletPath|getServerName|getContentType|getRequestedSessionId)$
+      # A class of the application that wraps the request: what its getters for parameters, cookies,
+      # headers and the query string return is request data. Its other methods are not assumed to be.
+      - patterns:
+          - pattern-inside: |
+              $WRAPPER = new $CLASS(..., (HttpServletRequest $REQ), ...);
+              ...
+          - pattern: $WRAPPER.$GETTER(...)
+          - metavariable-regex:
+              metavariable: $GETTER
+              regex: (?i)^get\w*(param|cookie|header|query)\w*$
+    pattern-sanitizers:
+      - pattern: $ENCODER.encodeForXPath(...)
+      # A new list, three elements added, the first removed: index 1 is then the third element. The
+      # engine does not follow the shift, and would report reading that literal back.
+      - patterns:
+          - pattern-inside: |
+              $LIST = new $LISTTYPE<$ELEMENT>();
+              $LIST.add("...");
+              $LIST.add($ANY);
+              $LIST.add("...");
+              $LIST.remove(0);
+              $READ = $LIST.get(1);
+          - metavariable-regex:
+              metavariable: $LISTTYPE
+              regex: ^(java\.util\.)?(ArrayList|LinkedList|Vector)$
+          - pattern: $LIST.get(1)
+    pattern-sinks:
+      - pattern: (javax.xml.xpath.XPath $XPATH).evaluate(...)
+      - pattern: (XPath $XPATH).evaluate(...)
+      - pattern: (javax.xml.xpath.XPath $XPATH).compile(...)
+      - pattern: (XPath $XPATH).compile(...)
+
+  - id: scp.java.session.request-data-in-session
+    languages: [java]
+    message: >-
+      Data from the HTTP request is stored in the session, as an attribute's value or as its name,
+      unchecked. Code that reads the session later treats it as trusted. Validate the value first, and
+      never let the request choose the attribute name.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-501"]
+      owasp: ["A04:2021 - Insecure Design"]
+      confidence: MEDIUM
+    mode: taint
+    options:
+      taint_assume_safe_numbers: true
+      taint_assume_safe_booleans: true
+    pattern-sources:
+      # What the client controls in a servlet request.
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).$GETTER(...)
+              - pattern: (ServletRequest $REQ).$GETTER(...)
+          - metavariable-regex:
+              metavariable: $GETTER
+              regex: ^(getParameter|getParameterMap|getParameterNames|getParameterValues|getHeader|getHeaders|getHeaderNames|getCookies|getQueryString|getInputStream|getReader|getPart|getParts|getPathInfo|getPathTranslated|getRequestURI|getRequestURL|getServletPath|getServerName|getContentType|getRequestedSessionId)$
+      # A class of the application that wraps the request: what its getters for parameters, cookies,
+      # headers and the query string return is request data. Its other methods are not assumed to be.
+      - patterns:
+          - pattern-inside: |
+              $WRAPPER = new $CLASS(..., (HttpServletRequest $REQ), ...);
+              ...
+          - pattern: $WRAPPER.$GETTER(...)
+          - metavariable-regex:
+              metavariable: $GETTER
+              regex: (?i)^get\w*(param|cookie|header|query)\w*$
+    pattern-sanitizers:
+      # A new list, three elements added, the first removed: index 1 is then the third element. The
+      # engine does not follow the shift, and would report reading that literal back.
+      - patterns:
+          - pattern-inside: |
+              $LIST = new $LISTTYPE<$ELEMENT>();
+              $LIST.add("...");
+              $LIST.add($ANY);
+              $LIST.add("...");
+              $LIST.remove(0);
+              $READ = $LIST.get(1);
+          - metavariable-regex:
+              metavariable: $LISTTYPE
+              regex: ^(java\.util\.)?(ArrayList|LinkedList|Vector)$
+          - pattern: $LIST.get(1)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).getSession(...).$METHOD(...)
+              - pattern: (javax.servlet.http.HttpSession $SESSION).$METHOD(...)
+              - pattern: (HttpSession $SESSION).$METHOD(...)
+          - metavariable-regex:
+              metavariable: $METHOD
+              regex: ^(setAttribute|putValue)$
+
+  - id: scp.java.xss.request-data-in-response
+    languages: [java]
+    message: >-
+      Data from the HTTP request is written to the response without escaping. A link can make a
+      victim's browser run the attacker's script on this site. Escape the value for where it lands in
+      the page first (for HTML, OWASP Java Encoder's Encode.forHtml).
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-79"]
+      owasp: ["A03:2021 - Injection"]
+      confidence: MEDIUM
+    mode: taint
+    options:
+      taint_assume_safe_numbers: true
+      taint_assume_safe_booleans: true
+    pattern-sources:
+      # What the client controls in a servlet request.
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).$GETTER(...)
+              - pattern: (ServletRequest $REQ).$GETTER(...)
+          - metavariable-regex:
+              metavariable: $GETTER
+              regex: ^(getParameter|getParameterMap|getParameterNames|getParameterValues|getHeader|getHeaders|getHeaderNames|getCookies|getQueryString|getInputStream|getReader|getPart|getParts|getPathInfo|getPathTranslated|getRequestURI|getRequestURL|getServletPath|getServerName|getContentType|getRequestedSessionId)$
+      # A class of the application that wraps the request: what its getters for parameters, cookies,
+      # headers and the query string return is request data. Its other methods are not assumed to be.
+      - patterns:
+          - pattern-inside: |
+              $WRAPPER = new $CLASS(..., (HttpServletRequest $REQ), ...);
+              ...
+          - pattern: $WRAPPER.$GETTER(...)
+          - metavariable-regex:
+              metavariable: $GETTER
+              regex: (?i)^get\w*(param|cookie|header|query)\w*$
+    pattern-sanitizers:
+      - pattern: (PolicyFactory $POLICY).sanitize(...)
+      - pattern: (AntiSamy $SCANNER).scan(...)
+      - pattern: Jsoup.clean(...)
+      # HTML encoders by name: OWASP Java Encoder, ESAPI, Spring HtmlUtils, commons-text, and an
+      # application's own helper called the same.
+      - patterns:
+          - pattern: $ENCODER.$ENCODE(...)
+          - metavariable-regex:
+              metavariable: $ENCODE
+              regex: (?i)^(forHtml\w*|encodeForHTML\w*|escapeHtml\d*|htmlEscape\w*|escapeXml\d*|htmlEncode)$
+      # A new list, three elements added, the first removed: index 1 is then the third element. The
+      # engine does not follow the shift, and would report reading that literal back.
+      - patterns:
+          - pattern-inside: |
+              $LIST = new $LISTTYPE<$ELEMENT>();
+              $LIST.add("...");
+              $LIST.add($ANY);
+              $LIST.add("...");
+              $LIST.remove(0);
+              $READ = $LIST.get(1);
+          - metavariable-regex:
+              metavariable: $LISTTYPE
+              regex: ^(java\.util\.)?(ArrayList|LinkedList|Vector)$
+          - pattern: $LIST.get(1)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletResponse $RESPONSE).getWriter(...).$WRITE(...)
+              - pattern: (HttpServletResponse $RESPONSE).getOutputStream(...).$WRITE(...)
+              - pattern: (java.io.PrintWriter $WRITER).$WRITE(...)
+              - pattern: (PrintWriter $WRITER).$WRITE(...)
+              - pattern: (javax.servlet.ServletOutputStream $WRITER).$WRITE(...)
+              - pattern: (ServletOutputStream $WRITER).$WRITE(...)
+              - pattern: (java.io.OutputStream $WRITER).$WRITE(...)
+              - pattern: (OutputStream $WRITER).$WRITE(...)
+          - metavariable-regex:
+              metavariable: $WRITE
+              regex: ^(print|println|printf|format|write|append)$

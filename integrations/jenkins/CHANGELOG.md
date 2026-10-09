@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-10-09
+
+- Java rules for request data (in the SDT repository; a scan uses them once the SDT checkout is updated). Nine
+  upstream rules for request data in SQL, OS commands, file paths, LDAP, XPath, the session and the response
+  are replaced by nine of our own that follow only what the client controls. On OWASP Benchmark the score goes
+  from 68% to 89%: real weaknesses reported 91% to 97%, safe look-alikes reported 23% to 8%. On the three
+  internal Java services measured, the findings are the same and the scan is at most 2 s longer. Such findings
+  are now reported under `scp.java.injection.*`, `scp.java.session.*` and `scp.java.xss.*`; the fleet history
+  holds none from the nine replaced rules, so no review decision is affected. Until SonarQube is restarted and
+  `install/sonar/setup-sonar.sh` has run again, findings of the new rules arrive as external issues. Details,
+  and what the 89% is made of: SDT's `docs/detection.md`.
+
 ## 2026-10-08
 
 - Rule pack wave 3 (in the SDT repository; a scan uses it once the SDT checkout is updated). The code rules

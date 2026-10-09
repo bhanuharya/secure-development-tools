@@ -70,6 +70,17 @@ SKIP_DEFAULT="$SKIP_DEFAULT javascript/express/security/injection/raw-html-forma
 SKIP_DEFAULT="$SKIP_DEFAULT javascript/express/security/audit/express-check-csurf-middleware-usage.yaml"
 SKIP_DEFAULT="$SKIP_DEFAULT go/lang/security/audit/xss/no-direct-write-to-responsewriter.yaml"
 SKIP_DEFAULT="$SKIP_DEFAULT python/django/security/audit/query-set-extra.yaml"
+# Nine Java rules for request data in SQL, commands, paths, LDAP, XPath, the session and the
+# response are left out because rules/opengrep-rules/java/injection.yaml replaces them. They mark
+# the whole request object as untrusted, or match the shape of the call alone, and reported about
+# half of the safe look-alikes in OWASP Benchmark; the replacements report what these reported on
+# their own test files, at the call that runs the query or command (docs/detection.md).
+for name in tainted-cmd-from-http-request command-injection-process-builder tainted-ldapi-from-http-request \
+            tainted-session-from-http-request tainted-xpath-from-http-request sqli/jdbc-sqli \
+            sqli/tainted-sql-from-http-request xss/no-direct-response-writer; do
+  SKIP_DEFAULT="$SKIP_DEFAULT java/lang/security/audit/$name.yaml"
+done
+SKIP_DEFAULT="$SKIP_DEFAULT java/lang/security/httpservlet-path-traversal.yaml"
 SKIP="${SKIP:-$SKIP_DEFAULT}"
 
 echo "vendoring from $SRC @ $REV"
@@ -112,13 +123,12 @@ for spec in $SPECS; do
   done < <(find "$base" \( -name "*.yaml" -o -name "*.yml" \) "${audit[@]}" | sort)
 done
 
-# Four upstream fixtures mark cases that only Semgrep's cross-function engine is
+# Two upstream fixtures mark cases that only Semgrep's cross-function engine is
 # expected to get right (deepruleid, proruleid, "ruleid: deepok"). OpenGrep's
 # intra-file taint analysis gets them right as well, so the annotations are
 # rewritten to what OpenGrep must report: an engine that loses this fails
 # `sdt rules verify`.
-for fixture in java/lang/security/audit/tainted-cmd-from-http-request.java java/lang/security/audit/xss/no-direct-response-writer.java \
-               java/spring/security/injection/tainted-sql-string.java java/spring/security/injection/tainted-system-command.java; do
+for fixture in java/spring/security/injection/tainted-sql-string.java java/spring/security/injection/tainted-system-command.java; do
   if [ -f "$DEST/$fixture" ]; then
     sed -i -e 's#// ruleid: deepok:#// ok:#' -e 's#// deepruleid:#// ruleid:#' -e 's#// proruleid:#// ruleid:#' "$DEST/$fixture"
   fi
