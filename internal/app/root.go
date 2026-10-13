@@ -76,7 +76,7 @@ func NewRoot() *cobra.Command {
 		newInitCmd(), newDoctorCmd(), newDetectCmd(),
 		newConfigCmd(), newPlanCmd(), newScanCmd(),
 		newBaselineCmd(), newPolicyCmd(), newRulesCmd(),
-		newPublishCmd(), newExplainCmd(), newFixCmd(), newVersionCmd(),
+		newPublishCmd(), newExplainCmd(), newFixCmd(), newHookCmd(), newVersionCmd(),
 	)
 	return root
 }

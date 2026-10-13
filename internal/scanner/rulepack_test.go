@@ -90,7 +90,7 @@ func rulesOfFile(t *testing.T, path string) []map[string]any {
 // a scan reports today once the engine's own clean-up has run.
 func TestMergedRulesKeepEachRuleAndTheIdItIsReportedWith(t *testing.T) {
 	_, files := rulePack(t)
-	merged, err := mergedRules(files, t.TempDir(), t.TempDir())
+	merged, err := mergedRules(files, t.TempDir(), t.TempDir(), "opengrep-rules.yaml", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,6 +113,56 @@ func TestMergedRulesKeepEachRuleAndTheIdItIsReportedWith(t *testing.T) {
 	}
 }
 
+// A staged scan loads the rules its files can need and no others: a rule is left
+// out only when every language it names is known and no file is in one of them.
+func TestAStagedScanLoadsOnlyTheRulesItsFilesCanNeed(t *testing.T) {
+	_, files := rulePack(t)
+	staged := t.TempDir()
+	writeSource(t, staged, "src/Main.java", "class Main {}\n")
+	writeSource(t, staged, "README.md", "text\n")
+	wanted := rulesFor(staged)
+	for languages, want := range map[string]bool{
+		"java": true, "javascript": false, "python,php": false, "javascript,java": true,
+		"generic": true, "regex": true, "python,generic": true, "ruby": true, "": true,
+	} {
+		var list []string
+		if languages != "" {
+			list = strings.Split(languages, ",")
+		}
+		if got := wanted(list); got != want {
+			t.Errorf("a rule for %q: wanted = %v, want %v", languages, got, want)
+		}
+	}
+	merged, err := mergedRules(files, t.TempDir(), t.TempDir(), "opengrep-rules-staged.yaml", wanted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, rule := range rulesOfFile(t, merged) {
+		ids = append(ids, cleanRuleID(rule["id"].(string)))
+	}
+	if want := []string{"vendor.semgrep.java.lang.correctness.no-string-eqeq",
+		"vendor.semgrep.java.lang.security.audit.xxe.factory-without-hardening"}; !reflect.DeepEqual(ids, want) {
+		t.Fatalf("rules loaded for a Java file = %v, want %v", ids, want)
+	}
+}
+
+// The engine reads the interpreter of a script without an extension from its
+// first line. Such a file can be in any language, so every rule is loaded.
+func TestAStagedScriptWithoutAnExtensionLoadsEveryRule(t *testing.T) {
+	staged := t.TempDir()
+	writeSource(t, staged, "bin/manage", "#!/usr/bin/env python3\nprint(1)\n")
+	writeSource(t, staged, "LICENSE", "text\n")
+	if rulesFor(staged) != nil {
+		t.Fatal("a script without an extension must not narrow the rules")
+	}
+	plain := t.TempDir()
+	writeSource(t, plain, "LICENSE", "text\n")
+	if wanted := rulesFor(plain); wanted == nil || wanted([]string{"python"}) {
+		t.Fatal("a plain file without an extension is not a script")
+	}
+}
+
 // Every rule file this repository ships can be merged. One that cannot would put
 // every scan back on loading the files one by one, without any error.
 func TestTheShippedRulePackMerges(t *testing.T) {
@@ -121,7 +171,7 @@ func TestTheShippedRulePackMerges(t *testing.T) {
 	if len(files) < 100 {
 		t.Fatalf("only %d rule files found", len(files))
 	}
-	if _, err := mergedRules(files, t.TempDir(), t.TempDir()); err != nil {
+	if _, err := mergedRules(files, t.TempDir(), t.TempDir(), "opengrep-rules.yaml", nil); err != nil {
 		t.Fatalf("the shipped rule pack does not merge: %v", err)
 	}
 }
@@ -155,7 +205,7 @@ func TestRulesThatCannotBeMergedAreLoadedFileByFile(t *testing.T) {
 	for name, content := range cases {
 		pack := filepath.Join(t.TempDir(), "opengrep-rules")
 		writeSource(t, pack, "java/rule.yaml", content)
-		if merged, err := mergedRules([]string{filepath.Join(pack, "java", "rule.yaml")}, t.TempDir(), t.TempDir()); err == nil {
+		if merged, err := mergedRules([]string{filepath.Join(pack, "java", "rule.yaml")}, t.TempDir(), t.TempDir(), "opengrep-rules.yaml", nil); err == nil {
 			t.Errorf("%s: merged into %s, want an error", name, merged)
 		}
 	}

@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-10-13
+
+- Pre-commit check on the developer's machine (in the SDT repository; nothing changes in Jenkins). `sdt scan
+  --staged` existed but read the whole working tree, reported every old weakness in a touched file, named no
+  file or line and left its reports in the working tree. It now reads only the staged files, reports what is
+  on the lines the commit adds, and prints file, line, rule and what to do. A commit takes 3 to 4 s whatever
+  the size of the repository (2.3 to 4.6 s measured). `sdt hook install` sets it up in a repository;
+  `.pre-commit-hooks.yaml` serves teams that use the pre-commit framework. It checks secrets and code rules;
+  dependencies and SonarQube's own analysers stay with the scan of the pull request, which remains the gate.
+  `sdt` now also compiles for Windows; it has not been run there. Set-up, coverage and limits: SDT's
+  `docs/local-hook.md`.
+
 ## 2026-10-08
 
 - Rule pack wave 3 (in the SDT repository; a scan uses it once the SDT checkout is updated). The code rules

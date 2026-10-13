@@ -15,7 +15,9 @@ func main() {
 	if err := root.Execute(); err != nil {
 		var ee *app.ExitError
 		if errors.As(err, &ee) {
-			fmt.Fprintln(os.Stderr, "sdt: "+ee.Msg)
+			if ee.Msg != "" {
+				fmt.Fprintln(os.Stderr, "sdt: "+ee.Msg)
+			}
 			os.Exit(ee.Code)
 		}
 		fmt.Fprintln(os.Stderr, "sdt: "+err.Error())

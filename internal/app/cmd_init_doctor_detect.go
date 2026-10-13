@@ -24,18 +24,6 @@ func gitToplevel() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-const preCommitHook = `#!/bin/sh
-# sdt pre-commit hook (managed by "sdt init --hook"). Fast staged scan.
-# Bypass for a single commit: SKIP_SDT=1 git commit ...
-# CI remains the authoritative gate; this hook is the fast net.
-if [ "${SKIP_SDT:-0}" = "1" ]; then exit 0; fi
-if ! command -v sdt >/dev/null 2>&1; then
-  echo "sdt: not on PATH, skipping pre-commit scan (CI remains the gate)" >&2
-  exit 0
-fi
-exec sdt scan --staged
-`
-
 func newInitCmd() *cobra.Command {
 	var force, dryRun, hook bool
 	cmd := &cobra.Command{
@@ -88,34 +76,18 @@ profiles:
 			if !hook {
 				return nil
 			}
-			hookPath, err := installHook(force)
+			hook, err := installHook(force)
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "wrote %s (bypass: SKIP_SDT=1 git commit ...)\n", hookPath)
+			fmt.Fprintf(cmd.OutOrStdout(), "wrote %s (bypass: SKIP_SDT=1 git commit ...)\n", hook)
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite existing config")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview only")
-	cmd.Flags().BoolVar(&hook, "hook", false, "also install a pre-commit hook running `sdt scan --staged`")
+	cmd.Flags().BoolVar(&hook, "hook", false, "also install the pre-commit hook (`sdt hook install` installs it alone)")
 	return cmd
-}
-
-// installHook writes the pre-commit hook into the current repo's .git/hooks.
-func installHook(force bool) (string, error) {
-	top, err := gitToplevel()
-	if err != nil {
-		return "", failf(ExitInvalidInput, "init --hook needs a git worktree: %v", err)
-	}
-	hookPath := filepath.Join(top, ".git", "hooks", "pre-commit")
-	if _, err := os.Stat(hookPath); err == nil && !force {
-		return "", failf(ExitInvalidInput, "%s exists (use --force to overwrite)", hookPath)
-	}
-	if err := os.WriteFile(hookPath, []byte(preCommitHook), 0o755); err != nil {
-		return "", failf(ExitInternalError, "write hook: %v", err)
-	}
-	return hookPath, nil
 }
 
 func newDoctorCmd() *cobra.Command {

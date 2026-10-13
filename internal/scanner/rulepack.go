@@ -25,7 +25,10 @@ import (
 // Anything unusual in a rule file (an anchor, a second document, two rules
 // with one id, a value that does not survive rewriting) is an error, and the
 // caller then passes the files one by one as before.
-func mergedRules(files []string, root, cacheRoot string) (string, error) {
+//
+// wanted, when it is set, leaves out the rules it answers no for; name is the
+// merged file's name in the cache.
+func mergedRules(files []string, root, cacheRoot, name string, wanted func(languages []string) bool) (string, error) {
 	var merged []*yaml.Node
 	var expected []any
 	from := map[string]string{}
@@ -45,6 +48,9 @@ func mergedRules(files []string, root, cacheRoot string) (string, error) {
 				return "", fmt.Errorf("rule id %s is in both %s and %s", id.Value, first, file)
 			}
 			from[id.Value] = file
+			if wanted != nil && !wanted(ruleLanguages(rule)) {
+				continue
+			}
 			merged = append(merged, rule)
 			plain[i]["id"] = id.Value
 			expected = append(expected, plain[i])
@@ -76,7 +82,7 @@ func mergedRules(files []string, root, cacheRoot string) (string, error) {
 	if !reflect.DeepEqual(written.Rules, expected) {
 		return "", errors.New("merged rules differ from the rule files")
 	}
-	path, err := nativeReportPath(cacheRoot, "opengrep-rules.yaml")
+	path, err := nativeReportPath(cacheRoot, name)
 	if err != nil {
 		return "", err
 	}
@@ -147,6 +153,90 @@ func portable(node *yaml.Node) bool {
 		}
 	}
 	return true
+}
+
+// ruleLanguages is the languages list of a rule; nil when it has none.
+func ruleLanguages(rule *yaml.Node) []string {
+	list := mappingValue(rule, "languages")
+	if list == nil || list.Kind != yaml.SequenceNode {
+		return nil
+	}
+	var languages []string
+	for _, item := range list.Content {
+		languages = append(languages, item.Value)
+	}
+	return languages
+}
+
+// languageExtensions lists, for the languages the rule pack has rules for, the
+// file names the engine reads as that language. A list here must not be
+// shorter than the engine's own: a rule is left out of a staged scan when no
+// staged file has one of its languages' extensions.
+var languageExtensions = map[string][]string{
+	"python": {".py", ".pyi", ".pyw"}, "python2": {".py", ".pyi", ".pyw"}, "python3": {".py", ".pyi", ".pyw"}, "py": {".py", ".pyi", ".pyw"},
+	"javascript": {".js", ".jsx", ".cjs", ".mjs", ".vue"}, "js": {".js", ".jsx", ".cjs", ".mjs", ".vue"},
+	"typescript": {".ts", ".tsx", ".mts", ".cts", ".vue"}, "ts": {".ts", ".tsx", ".mts", ".cts", ".vue"},
+	"go": {".go"}, "golang": {".go"},
+	"java":   {".java"},
+	"kotlin": {".kt", ".kts", ".ktm"}, "kt": {".kt", ".kts", ".ktm"},
+	"php":   {".php", ".phtml", ".tpl", ".inc", ".php3", ".php4", ".php5", ".phps"},
+	"c":     {".c", ".h"},
+	"rust":  {".rs"},
+	"scala": {".scala", ".sc"},
+	"json":  {".json", ".ipynb"},
+	"yaml":  {".yaml", ".yml"},
+	"dart":  {".dart"},
+}
+
+// rulesFor answers which rules a scan of the files under dir can need. A rule
+// is needed unless every language it names is in languageExtensions and no
+// file has one of those extensions. A rule for any file (generic, regex) or
+// for a language not in the table is always needed.
+//
+// The answer is nil, meaning every rule, when a file has no extension and
+// starts with "#!": the engine reads the interpreter's name there, and this
+// function does not.
+func rulesFor(dir string) func(languages []string) bool {
+	extensions := map[string]bool{}
+	script := false
+	_ = filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return nil
+		}
+		extension := strings.ToLower(filepath.Ext(entry.Name()))
+		if extension != "" {
+			extensions[extension] = true
+			return nil
+		}
+		if file, err := os.Open(path); err == nil {
+			start := make([]byte, 2)
+			if n, _ := io.ReadFull(file, start); n == 2 && string(start) == "#!" {
+				script = true
+			}
+			file.Close()
+		}
+		return nil
+	})
+	if script {
+		return nil
+	}
+	return func(languages []string) bool {
+		if len(languages) == 0 {
+			return true
+		}
+		for _, language := range languages {
+			known, ok := languageExtensions[strings.ToLower(language)]
+			if !ok {
+				return true
+			}
+			for _, extension := range known {
+				if extensions[extension] {
+					return true
+				}
+			}
+		}
+		return false
+	}
 }
 
 func mappingValue(mapping *yaml.Node, key string) *yaml.Node {
