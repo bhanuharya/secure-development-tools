@@ -23,7 +23,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"syscall"
 
 	"github.com/bhanuharya/secure-development-tools/internal/finding"
 )
@@ -298,7 +297,12 @@ func ApplyEdits(root string, matched map[*finding.Finding]Transform, skipValidat
 }
 
 func writeNoFollow(path string, data []byte, perm os.FileMode) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, perm)
+	if openNoFollow == 0 {
+		if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s is a symbolic link", path)
+		}
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|openNoFollow, perm)
 	if err != nil {
 		return err
 	}
