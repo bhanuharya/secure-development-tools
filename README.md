@@ -113,6 +113,16 @@ tree:
 A `pr` plan refuses to run without a merge base rather than falling back to a
 full scan.
 
+To check the lines of a commit before it is made, on the developer's machine:
+
+```bash
+cd /path/to/a/repository
+sdt hook install          # every `git commit` there then runs `sdt scan --staged`
+```
+
+It reads only the staged files, reports what the commit adds, and takes 3 to 4
+seconds; see [`docs/local-hook.md`](docs/local-hook.md).
+
 ## How it works
 
 Each engine runs as a direct argv process, never through a shell. Its native
@@ -175,6 +185,7 @@ for the fleet runner's settings.
 - [`docs/security-posture.md`](docs/security-posture.md) — what each control does and does not cover
 - [`docs/rule-precision.md`](docs/rule-precision.md) — rule governance
 - [`docs/false-positives.md`](docs/false-positives.md) — secret-scanning defaults, dependency reachability, and how to check a finding locally
+- [`docs/local-hook.md`](docs/local-hook.md) — the pre-commit check on the developer's machine: set-up, what it covers, how long it takes
 - [`docs/fleet-scanning.md`](docs/fleet-scanning.md) — scheduled workspace scans, SonarQube import, fleet store, review sync
 - [`docs/sast-report.md`](docs/sast-report.md) — the per-scan SAST report (.docx) developers receive
 - [`SECURITY.md`](SECURITY.md) — reporting a vulnerability

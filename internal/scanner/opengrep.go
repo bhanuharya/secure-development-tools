@@ -91,7 +91,13 @@ func (a *OpengrepAdapter) Plan(ctx *sdtctx.ScanContext, cfg *config.ScanConfigur
 	// rules in one file, which the engine loads several times faster.
 	var execArgs []string
 	if isOpenGrep && os.Getenv("SDT_OPENGREP_MERGE_RULES") != "0" {
-		if merged, err := mergedRules(rules, root, ctx.CacheRoot); err == nil {
+		// A staged scan reads a few files and runs before every commit:
+		// loading only the rules those files can need takes half the time.
+		name, wanted := "opengrep-rules.yaml", (func([]string) bool)(nil)
+		if ctx.Staged {
+			name, wanted = "opengrep-rules-staged.yaml", rulesFor(root)
+		}
+		if merged, err := mergedRules(rules, root, ctx.CacheRoot, name, wanted); err == nil {
 			execArgs = append(append(append([]string{}, options...), "--no-rewrite-rule-ids", "--config", merged), scope...)
 		}
 	}
@@ -201,6 +207,34 @@ var ruleFolderAliases = map[string][]string{
 	"typescript": {"javascript"},
 }
 
+// rulePackOfExecutable finds the rule pack that came with the running sdt: the
+// rules folder of the checkout it was built in. That is the folder next to the
+// executable (go build -o sdt ./cmd/sdt) or a few levels above it (a build
+// into bin/, or into the environment a hook manager keeps inside the checkout).
+// A developer then needs no setting to scan a repository that has no rules.
+func rulePackOfExecutable() string {
+	executable, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
+		executable = resolved
+	}
+	dir := filepath.Dir(executable)
+	for level := 0; level < 4; level++ {
+		pack := filepath.Join(dir, "rules", "opengrep-rules")
+		if info, err := os.Stat(filepath.Join(pack, "common")); err == nil && info.IsDir() {
+			return pack
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
+}
+
 func ruleFiles(root string, languages []string) []string {
 	pack := envOr("SDT_RULES_PACK_DIR", filepath.Join(root, "rules", "opengrep-rules"))
 	// Fall back to repo-bundled rules when scanning fixtures elsewhere.
@@ -208,6 +242,8 @@ func ruleFiles(root string, languages []string) []string {
 		if alt := envOr("SDT_DEFAULT_RULES_DIR", "rules/opengrep-rules"); alt != "" {
 			if _, err2 := os.Stat(alt); err2 == nil {
 				pack = alt
+			} else if shipped := rulePackOfExecutable(); shipped != "" {
+				pack = shipped
 			}
 		}
 	}

@@ -1,0 +1,18 @@
+# For repositories that use the pre-commit framework (https://pre-commit.com):
+#
+#   repos:
+#     - repo: https://github.com/bhanuharya/secure-development-tools
+#       rev: <commit>
+#       hooks:
+#         - id: sdt
+#
+# pre-commit builds sdt from this repository (it needs Go, or fetches it).
+# OpenGrep and Gitleaks have to be on PATH. See docs/local-hook.md.
+- id: sdt
+  name: sdt (secrets and code weaknesses in the lines being committed)
+  description: Checks the lines a commit adds with Gitleaks and OpenGrep, using the rule pack of this repository.
+  entry: sdt scan --staged
+  language: golang
+  pass_filenames: false
+  require_serial: true
+  minimum_pre_commit_version: "3.0.0"

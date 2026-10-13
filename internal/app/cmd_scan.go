@@ -125,6 +125,15 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 	if !ok {
 		return ExitInvalidInput, failf(ExitInvalidInput, "unknown profile %q", g.Profile)
 	}
+	if g.Staged {
+		// The way out is the same whichever hook manager runs the check.
+		if os.Getenv("SKIP_SDT") == "1" {
+			fmt.Fprintln(cmd.OutOrStdout(), "sdt: SKIP_SDT=1, the staged changes were not checked (the pull request scan still runs)")
+			return ExitPassed, nil
+		}
+		staged.files, staged.note = 0, ""
+		stagedOutputDefaults(cmd)
+	}
 	// CLI flags win over file/env for artifact roots (PRD layer 6).
 	if g.Output != "" {
 		cfg.Outputs.Directory = g.Output
@@ -149,8 +158,48 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 	if err != nil {
 		return ExitInvalidInput, err
 	}
+	// A staged scan reads the staged files from a directory of their own
+	// (see stagedSnapshot); every other scan reads the working tree.
+	scanRoot := root
+	var snapshot *stagedSnapshot
+	if ctx.Staged {
+		nothing := ""
+		if mergeInProgress(root) {
+			nothing = "this commit concludes a merge; what it brings in is left to the scan in CI"
+		} else {
+			if snapshot, err = newStagedSnapshot(root); err != nil {
+				return ExitInvalidInput, failf(ExitInvalidInput, "%v", err)
+			}
+			defer snapshot.Close()
+			if len(snapshot.added) == 0 {
+				nothing = "the commit adds no lines"
+			}
+		}
+		if nothing != "" {
+			var skipped []plan.Skip
+			for _, id := range prof.Scanners {
+				skipped = append(skipped, plan.Skip{Adapter: id, Reason: "staged mode: " + nothing})
+			}
+			p, err := plan.Build(cfg, g.Profile, ctx, nil, skipped)
+			if err != nil {
+				return ExitInternalError, err
+			}
+			staged.note = nothing
+			health, recs := skippedTaskRecords(skipped)
+			return finalizeOutcome(cmd, cfg, p, runID, started, nil, nil, recs, health, map[string]string{}, policy.Evaluate(cfg, nil), "passed", ExitPassed, nil)
+		}
+		scanRoot = snapshot.dir
+		staged.files = len(snapshot.added)
+		// The snapshot holds a part of the repository. A rule pack that the
+		// repository carries is read from the working tree, whole.
+		if own := filepath.Join(root, "rules", "opengrep-rules"); os.Getenv("SDT_RULES_PACK_DIR") == "" {
+			if info, err := os.Stat(own); err == nil && info.IsDir() {
+				os.Setenv("SDT_RULES_PACK_DIR", own)
+			}
+		}
+	}
 	pendingReportPaths = map[string]string{}
-	tasks, skipped := planTasks(cfg, g.Profile, ctx, root)
+	tasks, skipped := planTasks(cfg, g.Profile, ctx, scanRoot)
 	p, err := plan.Build(cfg, g.Profile, ctx, tasks, skipped)
 	if err != nil {
 		return ExitInternalError, err
@@ -219,7 +268,7 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 		}
 		execTasks = append(execTasks, execute.Task{
 			Adapter: t.Adapter, Executable: t.Executable, Args: args,
-			TimeoutSeconds: t.TimeoutSeconds, Dir: root, ReportPath: pendingReportPaths[t.Adapter],
+			TimeoutSeconds: t.TimeoutSeconds, Dir: scanRoot, ReportPath: pendingReportPaths[t.Adapter],
 		})
 	}
 	// A request to stop sdt (Ctrl-C, or SIGTERM from the CI server) stops the
@@ -260,7 +309,7 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 			taskRecords = append(taskRecords, rec)
 			continue
 		}
-		pr := a.Parse(toolVersions[r.Adapter], root, r.Stdout, r.StderrRedacted, r.NativeExit)
+		pr := a.Parse(toolVersions[r.Adapter], scanRoot, r.Stdout, r.StderrRedacted, r.NativeExit)
 		if execHealth == string(scanner.HealthCompleted) {
 			health[r.Adapter] = string(pr.Health)
 			rec.State = string(pr.Health)
@@ -290,13 +339,13 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 		taskRecords = append(taskRecords, report.TaskRecord{Adapter: s.Adapter, State: "skipped", Diagnostic: s.Reason})
 	}
 
-	// Staged fast path: keep only findings attributable to staged files.
-	// Engines scan the tree; attribution happens here so every adapter obeys
-	// the same boundary without bespoke file-list plumbing.
+	// Staged fast path: keep only the findings on lines the commit adds or
+	// changes. The scanners read whole files; attribution happens here so
+	// every adapter obeys the same boundary.
 	if ctx.Staged {
-		kept, dropped := filterStaged(findings, ctx.ChangedPaths)
-		if dropped > 0 {
-			diagnostics = append(diagnostics, fmt.Sprintf("staged mode: %d finding(s) outside staged files omitted (full gate runs in CI)", dropped))
+		kept, left := onAddedLines(findings, snapshot.added)
+		if left > 0 {
+			diagnostics = append(diagnostics, fmt.Sprintf("staged mode: %d finding(s) on lines the commit does not change omitted (full gate runs in CI)", left))
 		}
 		findings = kept
 	}
@@ -495,7 +544,15 @@ func finalizeOutcome(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.
 	if err := writeArtifacts(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, out, status, exitCode, extra); err != nil {
 		return ExitInternalError, &ExitError{Code: ExitInternalError, Msg: fmt.Sprintf("sdt: artifact finalization failed: %v", err)}
 	}
-	fmt.Fprint(cmd.OutOrStdout(), report.Summary(status, findings, out, health))
+	if g.Staged {
+		fmt.Fprint(cmd.OutOrStdout(), stagedSummary(status, findings, out, health, cfg.Outputs.Directory, time.Since(started)))
+		if exitCode == ExitPolicyFailed {
+			// The summary above says what blocks and what to do.
+			return exitCode, &ExitError{Code: exitCode}
+		}
+	} else {
+		fmt.Fprint(cmd.OutOrStdout(), report.Summary(status, findings, out, health))
+	}
 	if exitCode == ExitPassed {
 		return exitCode, nil
 	}
@@ -510,6 +567,9 @@ func finalize(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.Plan, r
 	}
 	fmt.Fprint(cmd.OutOrStdout(), report.Summary(status, findings, out, health))
 	fmt.Fprintln(cmd.ErrOrStderr(), "sdt: "+msg)
+	if g.Staged {
+		fmt.Fprint(cmd.ErrOrStderr(), stagedCouldNotRun)
+	}
 	return exitCode, &ExitError{Code: exitCode, Msg: "sdt: " + status}
 }
 
@@ -650,29 +710,6 @@ func wantsFormat(cfg *config.ScanConfiguration, name string) bool {
 		}
 	}
 	return false
-}
-
-// filterStaged keeps findings located in the staged path set. Findings with
-// no attributable location are dropped: staged mode answers only "what am I
-// about to commit". Comparison uses the normalized repo-relative form both
-// sides already carry (adapters relativize; context normalizes).
-func filterStaged(findings []*finding.Finding, staged []string) (kept []*finding.Finding, dropped int) {
-	allowed := map[string]bool{}
-	for _, p := range staged {
-		allowed[p] = true
-	}
-	for _, f := range findings {
-		loc := ""
-		if f.Location != nil {
-			loc = f.Location.Path
-		}
-		if loc != "" && allowed[loc] {
-			kept = append(kept, f)
-			continue
-		}
-		dropped++
-	}
-	return kept, dropped
 }
 
 func truncateJoin(ss []string, n int) string {

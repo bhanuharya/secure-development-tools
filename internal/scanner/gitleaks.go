@@ -61,6 +61,11 @@ func gitleaksDefaultConfig(cacheRoot, root string) (string, error) {
 // otherwise the profile scan mode decides (changed -> changed-history,
 // repository -> full-history).
 func gitleaksHistoryMode(cfg *config.ScanConfiguration, profile string, ctx *sdtctx.ScanContext) string {
+	// A staged scan is given the staged files in a directory of their own:
+	// there is no history to read there.
+	if ctx != nil && ctx.Staged {
+		return "tree"
+	}
 	if m := cfg.Scanners.Gitleaks.History; len(m) > 0 {
 		if v, ok := m[profile]; ok && v != "" {
 			return v

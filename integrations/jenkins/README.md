@@ -28,7 +28,7 @@ Bitbucket (full history) ─► sdt scan ─► findings.json ─┬─► sonar
 | Job definitions | `jobs/*.Jenkinsfile` |
 | Scanner image (sdt, opengrep, gitleaks, trivy, sonar-scanner, Flutter, Python) | `docker/Dockerfile` |
 | SonarQube profiles + quality gate | `install/sonar/setup-sonar.sh` |
-| Developer pre-commit secret scan | `hooks/.pre-commit-config.yaml` |
+| Developer pre-commit check (secrets; with sdt also code rules) | `hooks/.pre-commit-config.yaml`, SDT's `docs/local-hook.md` |
 | Repositories for the nightly fleet scan | `config/repos.txt` |
 
 SDT's own tools (`sdt_to_docx.py`, `sdt_sonar_sync.py`, `sdt_fleet_ingest.py`, …) live in the SDT repository

@@ -39,3 +39,17 @@ all without a server.
   degrades to diagnostics, never to silent assurance.
 - Policy schema gains `reachable`; finding schema gains `reachability`;
   manifests gain `mode`. All additive and backward compatible.
+
+## Amendment, 2026-10-13: staged mode reads the index and judges lines
+
+Staged mode as decided above scanned the whole working tree and kept the
+findings in staged files. On a real repository that took as long as a full code
+scan, and touching an old file reported every weakness already in it.
+
+It now writes the staged files, as they are in the index, to a temporary
+directory, scans that, and keeps the findings on lines the commit adds or
+changes. Only the rules for the staged files' languages are loaded. Reports and
+cache go to `.git/sdt/`. `sdt hook install` writes the hook without a
+configuration file; `.pre-commit-hooks.yaml` serves the pre-commit framework.
+`SKIP_SDT=1` is honoured by `sdt scan --staged` itself. A commit that concludes
+a merge is not scanned. See `docs/local-hook.md`.
