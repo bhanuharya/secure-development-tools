@@ -42,6 +42,18 @@ sdt hook install          # writes the pre-commit hook; `sdt hook uninstall` rem
 Updating is `git pull` and the same build. The hook is per clone: git does not
 copy hooks, so every developer runs `sdt hook install` once in every repository.
 
+**Once per machine, for every repository on it.** Give git one hooks folder for
+all repositories, then install into it:
+
+```bash
+git config --global core.hooksPath ~/.config/git/hooks
+sdt hook install          # in any repository; the hook then runs in all of them
+```
+
+A repository that sets its own `core.hooksPath` (husky does) keeps its own hooks
+and needs the line below. Hooks that sit in a repository's `.git/hooks` are no
+longer run once the global folder is set, the pre-commit framework's among them.
+
 **The pre-commit framework** ([pre-commit.com](https://pre-commit.com)). The
 configuration is committed, so the team shares the hook and its version.
 pre-commit builds `sdt` itself (it needs Go, or fetches it).
@@ -104,10 +116,35 @@ does not depend on the size of the repository: only the staged files are read.
 | YAML | 3.0, 3.5, 3.6 |
 | Python | 3.7, 3.9, 4.0 |
 
+Two things make it longer:
+
+- **A busy machine.** With another job using three to four cores, the same
+  commits took 5 to 8 s.
+- **A large commit.** Whole files are read, not only the changed lines: a commit
+  that touched 300 Java files of 200 lines each took 22 to 27 s.
+
 About 2 s of every run is the code scanner starting. Most of the rest is reading
 the rules, which is why only the rules for the staged files' languages are
 loaded; with all rules loaded a commit took 6 s. Before 2026-10-13 the staged
 scan read the whole working tree and took as long as a full code scan.
+
+## What it needs on the machine
+
+Measured on the same machine.
+
+| | |
+|---|---|
+| Disk, programs | OpenGrep 45 MB, Gitleaks 21 MB, `sdt` 6 MB |
+| Disk, this repository (the rule pack is 5 MB of it) | 89 MB with history |
+| Disk, to build `sdt` | the Go toolchain, about 100 MB, and up to 500 MB of build cache |
+| Disk, per repository that is checked | 1.4 MB in `.git/sdt/` |
+| Memory while a commit is checked | 450 to 600 MB, all processes together, for a few seconds |
+| Processor per commit | 10 to 13 s of processor time on up to 4 threads (`SDT_SCAN_THREADS` sets the number) |
+| Network | none: the check ran with no network interface at all |
+
+There is no server and nothing shared between developers: each machine runs its
+own check, and Jenkins and SonarQube are not involved. What grows with the number
+of developers is the set-up and the updates, not load.
 
 ## Committing anyway
 
