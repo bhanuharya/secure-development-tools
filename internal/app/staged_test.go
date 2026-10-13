@@ -172,6 +172,25 @@ func TestStagedSnapshotHoldsTheIndexNotTheWorkingTree(t *testing.T) {
 	}
 }
 
+// The first commit of a repository has no commit to compare with: everything
+// staged is added.
+func TestTheFirstCommitOfARepositoryIsAllAddedLines(t *testing.T) {
+	repo := gitRepo(t)
+	write(t, repo, "a.py", "one\ntwo\n")
+	git(t, repo, "add", "-A")
+	snapshot, err := newStagedSnapshot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer snapshot.Close()
+	if want := map[string][]lineRange{"a.py": {{1, 2}}}; !reflect.DeepEqual(snapshot.added, want) {
+		t.Fatalf("added lines = %v, want %v", snapshot.added, want)
+	}
+	if mergeInProgress(repo) {
+		t.Fatal("a first commit is not a merge")
+	}
+}
+
 // A commit that only removes, renames or changes modes has nothing to scan.
 func TestACommitThatAddsNoLinesNeedsNoSnapshot(t *testing.T) {
 	repo := gitRepo(t)
