@@ -14,7 +14,7 @@ of one project branch and records each as a verdict through src/api/fleet_store.
 Run it after each analysis (the Jenkins library does) or on a schedule. It is idempotent.
 
   SONAR_TOKEN=... python3 tools/sdt_sonar_sync.py --sonar-url http://localhost:9000 \\
-      --project-key KEY --branch main --repository app --database sqlite:///fleet.db
+      --project-key KEY --branch main --repository app --database sqlite:///sdt-fleet.db
 """
 from __future__ import annotations
 
