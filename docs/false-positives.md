@@ -27,6 +27,10 @@ that is not a credential is allowlisted at the rule.
    ```bash
    python3 tools/sdt_fleet_exceptions.py --database "$SCP_DATABASE_URL" \
      --repository my-repo --out .secure-dev/exceptions.yaml
+
+   Set $SCP_DATABASE_URL to the fleet store connection URL. Without it (and
+   without --database), the fleet tools fall back to a local SQLite file,
+   `sqlite:///./sdt-fleet.db`.
    ```
 
    Run it in the checkout that is about to be scanned, or write the file
