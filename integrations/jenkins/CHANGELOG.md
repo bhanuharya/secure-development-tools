@@ -2,6 +2,14 @@
 
 ## 2026-10-19
 
+- A decision made in SonarQube now shows in the SAST report for every kind of finding, not only for code
+  hotspots. A package or configuration check marked Safe, Accepted or False positive still read Open and still
+  counted under Needs a Decision; a secret or code issue marked Accepted or False positive was not read at all.
+  Packages and configuration checks now have a Status column; a decided secret says "Decided in SonarQube"
+  instead of asking for rotation; Fix First and the Review Notes list only what is still open. A package counts
+  as decided once all its advisories are. Takes effect with the next scan after the SDT checkout is updated
+  (no pipeline library change).
+
 - "Changes Since Previous Scan" in the SAST report now counts SonarQube's own findings. It compared only SDT's
   findings (OpenGrep, Gitleaks, Trivy), so a commit that fixed ten SonarQube hotspots showed 0 fixed, and a report
   listing them showed 0 still open. Each report now writes what it lists (`report-state.json`, digests only) to

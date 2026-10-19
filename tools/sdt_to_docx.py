@@ -260,8 +260,9 @@ def from_sonar(sonar: Sonar, project_key: str, branch: str, pull_request: str) -
     scope = {"branch": branch, "pullRequest": pull_request}
     component = sonar.get("/api/components/show", component=project_key, **scope)["component"]
     hotspots = sonar.paged("/api/hotspots/search", "hotspots", projectKey=project_key, **scope)
+    # Open issues and the ones a reviewer decided (Accepted, False positive): a decision is shown, not dropped.
     issues = sonar.paged("/api/issues/search", "issues", componentKeys=project_key, types="VULNERABILITY",
-                         resolved="false", **scope)
+                         issueStatuses="OPEN,CONFIRMED,ACCEPTED,FALSE_POSITIVE", **scope)
     groups: "OrderedDict[str, Group]" = OrderedDict()
     rules: dict[str, dict] = {}
     found = {"code": [], "secret": [], "dependency": [], "config": []}
@@ -409,9 +410,10 @@ def _where(src_root: Path | None, path: str, line: int, evidence: str = "") -> s
 
 
 def merge(sonar: dict, sdt: dict | None) -> dict:
-    """Code from SonarQube; secrets, dependencies and configuration from SDT (with Sonar's
-    review status where the same file and line match). A secret that both gitleaks and
-    Sonar's own secret rules report on one line is listed once."""
+    """Code from SonarQube; secrets, dependencies and configuration from SDT, with the review
+    status SonarQube holds for the same finding (secret: file and line; package: advisory and
+    manifest; configuration: check, file and line). A secret that both gitleaks and Sonar's own
+    secret rules report on one line is listed once."""
     if not sdt:
         merged = dict(sonar)
     else:
@@ -421,6 +423,16 @@ def merge(sonar: dict, sdt: dict | None) -> dict:
         for row in merged["secret"]:
             row.status = status.get((row.path, row.line), row.status)
         merged["secret"] += [r for r in sonar["secret"] if (r.path, r.line) not in {(s.path, s.line) for s in sdt["secret"]}]
+        # A package is decided once every one of its advisories is.
+        advisory = {(a, r.manifest): r.status for r in sonar["dependency"] for a in r.advisories}
+        for row in merged["dependency"]:
+            decisions = {advisory.get((a, row.manifest)) for a in row.advisories}
+            if decisions and not decisions & {None, *OPEN_STATES}:
+                row.status = ", ".join(sorted(decisions))
+        if sdt["config"]:
+            check = {(c.check, c.path, c.line): c.status for c in sonar["config"]}
+            for row in merged["config"]:
+                row.status = check.get((row.check, row.path, row.line), row.status)
     seen, secrets = set(), []
     for row in merged["secret"]:
         key = (row.path, row.line) if row.path else (row.kind, row.commit, id(row))
@@ -670,6 +682,8 @@ class SecretGroup:
 
     @property
     def action(self) -> str:
+        if not self.open:
+            return "Decided in SonarQube: " + ", ".join(sorted(self.statuses))
         if self.client_key:
             return "Restrict the key (API + Android/iOS app restrictions); rotation not required"
         if "Current code" in self.places:
@@ -816,8 +830,8 @@ def review_notes(report: Report) -> list[str]:
         if tests:
             notes.append(f"{plural(tests, 'code finding')} sit in test code and are candidates for Safe after review.")
     groups = group_secrets(report.secrets)
-    in_code = [g for g in groups if "Current code" in g.places and not g.client_key]
-    history = [g for g in groups if g.places == {"Git history only"} and not g.client_key]
+    in_code = [g for g in groups if "Current code" in g.places and not g.client_key and g.open]
+    history = [g for g in groups if g.places == {"Git history only"} and not g.client_key and g.open]
     client = [g for g in groups if g.client_key]
     if in_code:
         notes.append(f"Secrets still in the current code in {plural(len(in_code), 'place')}: rotate and remove before "
@@ -828,7 +842,7 @@ def review_notes(report: Report) -> list[str]:
     if client:
         notes.append(f"{plural(len(client), 'file')} hold Firebase/Google client keys. They ship inside the app by design: "
                      "restrict them in the Google Cloud console instead of rotating.")
-    fixable = [r for r in report.dependencies if r.fixed and r.severity in ("Critical", "High")]
+    fixable = [r for r in report.dependencies if r.fixed and r.severity in ("Critical", "High") and r.status in OPEN_STATES]
     if fixable:
         notes.append(f"{plural(len(fixable), 'package')} with Critical/High advisories already have a fixed version.")
     return notes
@@ -967,7 +981,7 @@ def fix_first(report: Report) -> list[list]:
                 rows.append(["3", f"{g.name} ({g.rule})", f"{o.path}:{o.line}", "Fix, or mark False positive with a reason"])
     for r in report.dependencies:
         target = upgrade_to(r)
-        if target and r.severity in ("Critical", "High"):
+        if target and r.severity in ("Critical", "High") and r.status in OPEN_STATES:
             rows.append(["4", f"{r.package} {r.installed} ({r.severity}, {len(r.advisories)} advisories)",
                          r.manifest or "-", f"Upgrade to {target}"])
     return rows
@@ -1179,10 +1193,11 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
     if not report.dependencies:
         parts.append(para(run("No dependency advisories.")))
     else:
-        parts.append(data_table([("No.", 500), ("Package", 1900), ("Installed", 1100), ("Upgrade To", 1300),
-                                 ("Advisories", 2480), ("Severity", 900), ("Reachable", 900), ("Manifest", 1000)],
+        parts.append(data_table([("No.", 500), ("Package", 1500), ("Installed", 1000), ("Upgrade To", 1200),
+                                 ("Advisories", 1880), ("Severity", 900), ("Reachable", 900), ("Manifest", 1000),
+                                 ("Status", 1200)],
                                 [[i, r.package or "(see advisory)", r.installed or "-", upgrade_to(r) or "no fix yet",
-                                  _advisories(r), r.severity, r.reachable, r.manifest or "-"]
+                                  _advisories(r), r.severity, r.reachable, r.manifest or "-", r.status]
                                  for i, r in enumerate(report.dependencies, 1)], severity_col=5))
         parts.append(para(run("What to do", bold=True), before=120))
         parts += [para(run(f"{i}. ", bold=True) + run(step), before=0, after=0)
@@ -1190,8 +1205,8 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
     if report.config:
         parts.append(section_heading("3.2 Configuration Checks", 2))
         parts.append(data_table([("No.", 600), ("Check", 1300), ("File", 2600), ("Line", 700), ("Severity", 1000),
-                                 ("Finding", 3880)],
-                                [[i, c.check, c.path or "-", c.line or "-", c.severity, c.message[:200]]
+                                 ("Finding", 2880), ("Status", 1000)],
+                                [[i, c.check, c.path or "-", c.line or "-", c.severity, c.message[:200], c.status]
                                  for i, c in enumerate(report.config, 1)], severity_col=4))
 
     parts.append(section_heading("Review Notes", 1, "sec_notes"))

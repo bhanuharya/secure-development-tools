@@ -1629,6 +1629,72 @@ def test_docx_compares_with_the_state_the_previous_report_wrote(tmp_path, monkey
     assert "Changes Since Previous Scan" not in third and "no comparison" in capsys.readouterr().err
 
 
+class _Sonar:
+    """SonarQube as from_sonar reads it: one project, these hotspots and issues."""
+    url = "http://sonar.example.com"
+
+    def __init__(self, hotspots, issues):
+        self.hotspots, self.issues, self.asked = hotspots, issues, []
+
+    def get(self, path, **params):
+        return {"component": {"name": "app"}} if path == "/api/components/show" else {"rule": {"name": params["key"]}}
+
+    def paged(self, path, key, **params):
+        self.asked.append(params)
+        return self.hotspots if key == "hotspots" else self.issues
+
+
+def test_docx_shows_the_decisions_made_in_sonarqube_on_packages_secrets_and_issues(tmp_path):
+    def issue(key, rule, component, status, message, line=None):
+        return {"key": key, "rule": rule, "component": "proj" + (":" + component if component else ""), "line": line,
+                "severity": "MAJOR", "issueStatus": status, "message": message}
+    # SonarQube files a package the code does not reach as a hotspot, the others as issues.
+    sonar = _Sonar([_hotspot("H1", "Dockerfile", 17, status="REVIEWED", resolution="SAFE"),
+                    _hotspot("H2", "go.mod", 9, status="REVIEWED", resolution="SAFE", ruleKey="sdt:vulnerable-dependency-unreachable",
+                             message="CVE-2026-0004 in example.com/yaml 1.0.0 (no fixed version published yet).")], [
+        issue("I1", "sdt:vulnerable-dependency", "go.mod", "ACCEPTED", "CVE-2026-0001 in example.com/jwt 3.2.2: upgrade to 3.2.3."),
+        issue("I2", "sdt:vulnerable-dependency", "package-lock.json", "ACCEPTED", "CVE-2026-0002 in lodash 4.17.20."),
+        issue("I3", "sdt:vulnerable-dependency", "package-lock.json", "OPEN", "CVE-2026-0003 in lodash 4.17.20."),
+        issue("I4", "sdt:secret", "", "FALSE_POSITIVE", "Secret (generic-api-key) in git history: .env:7 at commit 1a2b3c4d"),
+        issue("I5", "javascript:S2076", "a.js", "FALSE_POSITIVE", "Make sure this command is safe.", 3)])
+    name, found = sdt_to_docx.from_sonar(sonar, "proj", "staging", "")
+    # Decided issues are read too (an Accepted or False positive issue used to vanish from the report).
+    assert all(p.get("issueStatuses") == "OPEN,CONFIRMED,ACCEPTED,FALSE_POSITIVE" for p in sonar.asked[1:])
+
+    def package(name, version, advisory, target, fixed=""):
+        return {"scanner": {"adapter": "trivy-fs"}, "category": "dependency-vulnerability", "rule": {"id": advisory},
+                "severity": {"canonical": "high"}, "location": {"path": target},
+                "artifact": {"package": name, "installedVersion": version, "target": target, "fixedVersion": fixed}}
+    sdt = sdt_to_docx.from_findings({"findings": [
+        package("example.com/jwt", "3.2.2", "CVE-2026-0001", "go.mod", "3.2.3"),
+        package("example.com/yaml", "1.0.0", "CVE-2026-0004", "go.mod"),
+        package("lodash", "4.17.20", "CVE-2026-0002", "package-lock.json"),
+        package("lodash", "4.17.20", "CVE-2026-0003", "package-lock.json"),
+        {"scanner": {"adapter": "gitleaks"}, "category": "secret", "rule": {"id": "generic-api-key"},
+         "severity": {"canonical": "high"}, "location": {"path": ".env", "startLine": 7},
+         "metadata": {"commit": "1a2b3c4d5e6f"}}]}, tmp_path)
+    merged = sdt_to_docx.merge(found, sdt)
+    merged["dependency"] = sdt_to_docx.consolidate(merged["dependency"])
+    assert {r.package: r.status for r in merged["dependency"]} == {
+        "example.com/jwt": "Accepted", "example.com/yaml": "Safe", "lodash": "Open"}
+    assert [r.status for r in merged["secret"]] == ["False positive"]
+    assert sorted((o.path, o.status) for g in merged["code"] for o in g.occurrences) == [
+        ("Dockerfile", "Safe"), ("a.js", "False positive")]
+
+    report = sdt_to_docx.Report("app", "ws/app", "branch staging", "", "abc", "SonarQube + OpenGrep + Gitleaks + Trivy",
+                                merged["code"], merged["secret"], merged["dependency"], merged["config"],
+                                sdt_to_docx.date(2026, 10, 19))
+    counts = sdt_to_docx._counts(report)
+    assert (counts["code"][2], counts["secret"][2], counts["dependency"][2]) == (0, 0, 1)  # only lodash needs a decision
+    out = tmp_path / "decided.docx"
+    sdt_to_docx.write_docx(report, tmp_path, out)
+    text, *_ = _docx(out)
+    assert "Decided in SonarQube: False positive" in text
+    assert "Upgrade to 3.2.3" not in text  # an accepted package is not in Fix First
+    assert "Secrets only in git history" not in text
+    assert "package-lock.jsonOpen" in text and "go.modAccepted" in text  # the Status column
+
+
 def _hotspot(key, path, line, **extra):
     return {"key": key, "component": "proj:" + path, "ruleKey": "javascript:S5852", "line": line, **extra}
 
