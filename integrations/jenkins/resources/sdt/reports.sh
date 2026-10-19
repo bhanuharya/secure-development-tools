@@ -45,15 +45,17 @@ if [ -f "$OUT/sonar-project-key" ] && [ -n "${SONAR_TOKEN:-}" ]; then
       || log "automatic Safe marking skipped (error); findings stay To review"
   fi
   TRIAGE+=(--coverage "$OUT/coverage.txt")
-  # Trend against the previous scan of this repository and branch (needs a persistent SDT_HISTORY_DIR).
+  # Trend against the previous report of this repository and branch (needs a persistent SDT_HISTORY_DIR):
+  # each report writes what it lists, SonarQube's own findings included, for the next one to compare with.
   HISTORY=""
   if [ -n "${SDT_HISTORY_DIR:-}" ] && [ -z "${PR_ID:-}" ]; then
     HISTORY="$SDT_HISTORY_DIR/$REPO_SLUG/$(printf '%s' "${BRANCH:-main}" | tr '/' '_')"
-    PREVIOUS="$HISTORY/findings.json"
+    PREVIOUS="$HISTORY/report-state.json"
     # A branch scanned for the first time (a new release branch) is compared with the most recently
     # scanned other branch of the repository, so the report still says what was fixed since then.
-    [ -s "$PREVIOUS" ] || PREVIOUS=$(ls -t "$SDT_HISTORY_DIR/$REPO_SLUG"/*/findings.json 2>/dev/null | head -1 || true)
-    [ -n "$PREVIOUS" ] && [ -s "$PREVIOUS" ] && TRIAGE+=(--previous-findings "$PREVIOUS")
+    [ -s "$PREVIOUS" ] || PREVIOUS=$(ls -t "$SDT_HISTORY_DIR/$REPO_SLUG"/*/report-state.json 2>/dev/null | head -1 || true)
+    [ -n "$PREVIOUS" ] && [ -s "$PREVIOUS" ] && TRIAGE+=(--previous-state "$PREVIOUS")
+    TRIAGE+=(--state-out "$OUT/report-state.json")
   fi
   # A pull request reports only what it adds (scan.sh wrote findings-new.json from the baseline).
   REPORT_FINDINGS="$OUT/sdt/findings.json"
@@ -80,7 +82,10 @@ if [ "${SDT_AI_DIFF_REVIEW:-0}" = 1 ] && [ -n "${PR_ID:-}" ] && [ -n "${PR_BASE:
   timing ai-change-review
 fi
 
-[ -n "${HISTORY:-}" ] && mkdir -p "$HISTORY" && cp "$OUT/sdt/findings.json" "$HISTORY/findings.json"
+if [ -n "${HISTORY:-}" ]; then
+  mkdir -p "$HISTORY" && cp "$OUT/sdt/findings.json" "$HISTORY/findings.json"
+  [ -s "$OUT/report-state.json" ] && cp "$OUT/report-state.json" "$HISTORY/report-state.json"
+fi
 
 # The fleet register: the same inputs the nightly fleet report uses, for one repository.
 mkdir -p "$OUT/fleet/repositories/$REPO_SLUG"

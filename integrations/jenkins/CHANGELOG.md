@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-19
+
+- "Changes Since Previous Scan" in the SAST report now counts SonarQube's own findings. It compared only SDT's
+  findings (OpenGrep, Gitleaks, Trivy), so a commit that fixed ten SonarQube hotspots showed 0 fixed, and a report
+  listing them showed 0 still open. Each report now writes what it lists (`report-state.json`, digests only) to
+  the history directory, and the next report compares with that. Columns: New, Fixed, Still Present (New plus
+  Still Present equals the findings the report lists; a hotspot marked Safe is still present). The previous scan
+  is named with its commit. The first report after the update has no comparison yet; the one after it does.
+  Needs the SDT checkout updated and the pipeline library cache cleared.
+
 ## 2026-10-13
 
 - Pre-commit check on the developer's machine (in the SDT repository; nothing changes in Jenkins). `sdt scan

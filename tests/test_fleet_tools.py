@@ -1335,12 +1335,51 @@ def test_secrets_group_by_type_and_file_and_client_keys_are_restricted_not_rotat
     assert groups[0].action.startswith("Rotate, then remove")
 
 
-def test_trend_counts_new_fixed_and_open_by_fingerprint():
-    def doc(*items):
-        return {"findings": [{"fingerprint": {"value": v}, "category": c} for v, c in items]}
-    now = doc(("a", "sast"), ("b", "sast"), ("s1", "secret"))
-    before = doc(("a", "sast"), ("c", "sast"), ("s1", "secret"), ("s2", "secret"))
-    assert sdt_to_docx.compare(now, before) == {"code": (1, 1, 1), "secret": (0, 1, 1), "dependency": (0, 0, 0)}
+def _listed(code=(), secrets=(), dependencies=(), source="SonarQube + OpenGrep + Gitleaks + Trivy"):
+    """A report that lists these findings: code as (rule, path, line, status), packages as (name, version, advisory)."""
+    groups = {}
+    for rule, path, line, status in code:
+        groups.setdefault(rule, sdt_to_docx.Group(rule, rule, "Security Hotspot", "Medium")).occurrences.append(
+            sdt_to_docx.Occurrence(path, line, "regex", status, ""))
+    packages = [sdt_to_docx.DependencyRow(name, version, "package-lock.json", advisories={advisory: "High"})
+                for name, version, advisory in dependencies]
+    return sdt_to_docx.Report("app", "ws/app", "branch dev", "", "abc", source, list(groups.values()), list(secrets),
+                              packages, [], sdt_to_docx.date(2026, 10, 19))
+
+
+def test_trend_counts_the_sonarqube_findings_the_report_lists(tmp_path):
+    # SonarQube's own hotspots were left out when only SDT findings were compared: a commit that fixed
+    # all of them showed 0 fixed, and a report listing them showed 0 still open.
+    (tmp_path / "a.ts").write_text("const x = s.replace(/\\/+$/, '');\nconst y = s.replace(/=+$/, '');\n")
+    secret = sdt_to_docx.SecretRow("generic-api-key", ".env", 7, "1a2b3c4d5e6f", "Git history only", "High")
+    before = sdt_to_docx.report_state(_listed(
+        code=[("typescript:S5852", "a.ts", 1, "Safe"), ("typescript:S5852", "a.ts", 2, "To review")], secrets=[secret],
+        dependencies=[("braces", "3.0.3", "CVE-2026-1"), ("source-map-js", "1.2.1", "CVE-2026-2")]), tmp_path)
+    after = sdt_to_docx.report_state(_listed(secrets=[secret]), tmp_path)
+    assert sdt_to_docx.compare(after, before) == {"code": (0, 2, 0), "secret": (0, 0, 1), "dependency": (0, 2, 0)}
+    # A hotspot marked Safe is still in the code: present, not fixed.
+    assert sdt_to_docx.compare(before, before) == {"code": (0, 0, 2), "secret": (0, 0, 1), "dependency": (0, 0, 2)}
+
+
+def test_trend_follows_a_moved_line_and_counts_identical_lines_apart(tmp_path):
+    old, new = tmp_path / "old", tmp_path / "new"
+    old.mkdir(), new.mkdir()
+    (old / "a.js").write_text("const a = /(x+)+$/;\nmd5(v)\nmd5(v)\nconst b = /y+$/;\n")
+    (new / "a.js").write_text("// header\n\nconst a = /(x+)+$/;\n  md5(v)\nconst b = /y+z$/;\n")
+    rule = "javascript:S5852"
+    before = sdt_to_docx.report_state(_listed(code=[(rule, "a.js", n, "To review") for n in (1, 2, 3, 4)]), old)
+    after = sdt_to_docx.report_state(_listed(code=[(rule, "a.js", n, "To review") for n in (3, 4, 5)]), new)
+    # Moved: still present. One of two identical lines removed: fixed. Edited line: fixed and new.
+    assert sdt_to_docx.compare(after, before)["code"] == (1, 2, 2)
+
+
+def test_report_state_holds_no_code_and_no_secret(tmp_path):
+    value = "-".join(("k3y", "v4lue", "0123456789"))  # assembled, so the repository's own secret scan stays quiet
+    (tmp_path / "app.py").write_text(f"token = '{value}'\nquery(request.args['q'])\n")
+    secret = sdt_to_docx.SecretRow("generic-api-key", "app.py", 1, "", "Current code", "High")
+    state = json.dumps(sdt_to_docx.report_state(_listed(code=[("python:S3649", "app.py", 2, "To review")],
+                                                        secrets=[secret]), tmp_path))
+    assert "k3y-v4lue" not in state and "request.args" not in state and "app.py" not in state
 
 
 def test_coverage_gaps_come_from_the_pipeline_and_the_run_manifest(tmp_path):
@@ -1548,10 +1587,46 @@ def test_docx_leaves_out_suppressed_findings(tmp_path):
     assert len(report["code"]) == 1
 
 
-def test_docx_trend_leaves_out_findings_an_exception_covers():
+def test_docx_trend_does_not_count_a_finding_an_exception_now_covers_as_fixed(tmp_path):
     kept, gone = _suppressed_pair()
-    before = {"findings": [kept, {k: v for k, v in gone.items() if k != "suppression"}]}
-    assert sdt_to_docx.compare({"findings": [kept, gone]}, before)["code"] == (0, 0, 1)
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("import db\n\ndb.query(q)\n")
+    # The previous report listed both under SonarQube's rule keys; now an exception covers one.
+    before = sdt_to_docx.report_state(_listed(code=[("opengrep-py:kept", "src/app.py", 3, "To review"),
+                                                    ("opengrep-py:gone", "src/app.py", 3, "To review"),
+                                                    ("opengrep-py:other", "src/app.py", 1, "To review")]), tmp_path)
+    after = sdt_to_docx.report_state(_listed(code=[("opengrep-py:kept", "src/app.py", 3, "To review")]), tmp_path)
+    excepted = sdt_to_docx.excepted_places({"findings": [kept, gone]}, tmp_path)
+    assert sdt_to_docx.compare(after, before, excepted)["code"] == (0, 1, 1)
+
+
+def test_docx_compares_with_the_state_the_previous_report_wrote(tmp_path, monkeypatch, capsys):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "app.py").write_text("import db\n\ndb.query(q)\n")
+    finding = {"scanner": {"adapter": "opengrep"}, "category": "sast", "severity": {"canonical": "high"},
+               "rule": {"id": "sqli"}, "location": {"path": "app.py", "startLine": 3}, "message": "tainted query",
+               "fingerprint": {"value": "sha256:" + "1" * 64}}
+
+    def report(name, findings, commit, *extra):
+        (tmp_path / f"{name}.json").write_text(json.dumps({"findings": findings}))
+        monkeypatch.setattr(sys, "argv", ["sdt_to_docx.py", "--findings", str(tmp_path / f"{name}.json"),
+                                          "--src-root", str(src), "--commit", commit, "--out", str(tmp_path / f"{name}.docx"),
+                                          "--state-out", str(tmp_path / f"{name}-state.json"), *extra])
+        assert sdt_to_docx.main() == 0
+        return _docx(tmp_path / f"{name}.docx")[0]
+
+    first = report("first", [finding], "aaa1111")
+    assert "Changes Since Previous Scan" not in first
+    second = report("second", [], "bbb2222", "--previous-state", str(tmp_path / "first-state.json"))
+    today = json.loads((tmp_path / "first-state.json").read_text())["generatedAt"][:10]
+    assert f"Since the previous scan ({today}, commit aaa1111): 0 new, 1 fixed" in second
+    assert "Still Present" in second
+    # A previous report from other sources (SonarQube reachable then, not now) is not compared.
+    state = json.loads((tmp_path / "first-state.json").read_text())
+    (tmp_path / "other-state.json").write_text(json.dumps({**state, "source": "SonarQube + OpenGrep + Gitleaks + Trivy"}))
+    third = report("third", [], "ccc3333", "--previous-state", str(tmp_path / "other-state.json"))
+    assert "Changes Since Previous Scan" not in third and "no comparison" in capsys.readouterr().err
 
 
 def _hotspot(key, path, line, **extra):

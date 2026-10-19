@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import html
 import json
 import os
@@ -31,7 +32,7 @@ import urllib.request
 import zipfile
 from collections import Counter, OrderedDict
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -194,8 +195,8 @@ class Report:
     config: list[ConfigRow]
     report_date: date
     ai: dict | None = None  # triage.json header: engine, model, calls, stopped
-    trend: dict | None = None  # category -> (new, fixed, still open) against the previous scan
-    previous: str = ""  # when the previous scan ran
+    trend: dict | None = None  # category -> (new, fixed, still present) against the previous report
+    previous: str = ""  # when the previous scan ran, and its commit
     coverage: list = field(default_factory=list)  # what this scan could not cover
     source_base: str = ""  # https://bitbucket.org/<workspace>/<repo>/src/<commit>: code links point here
     link_to: str = "bitbucket"  # "bitbucket" (default) or "sonar" for file links
@@ -740,7 +741,7 @@ def executive_summary(report: Report) -> list[str]:
         new = sum(v[0] for v in report.trend.values())
         fixed = sum(v[1] for v in report.trend.values())
         lines.append(f"Since the previous scan ({report.previous}): {new} new, {fixed} fixed "
-                     "(scanner findings; see Changes Since Previous Scan).")
+                     "(see Changes Since Previous Scan).")
     if code:
         kinds = f" ({plural(hotspots, 'security hotspot')}, {plural(len(code) - hotspots, 'vulnerability')})" \
             if report.source.startswith("SonarQube") else ""
@@ -1017,8 +1018,11 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
 
     if report.trend:
         parts.append(section_heading("Changes Since Previous Scan", 1, "sec_trend"))
-        parts.append(para(run(f"Compared with the scan of {report.previous}, by scanner finding fingerprint.")))
-        parts.append(data_table([("Category", 4680), ("New", 1800), ("Fixed", 1800), ("Still Open", 1800)],
+        parts.append(para(run(f"Compared with the scan of {report.previous}, finding by finding: the same rule on the "
+                              "same code line (also when the line moved), the same secret, the same advisory of a "
+                              "package. Fixed: listed then, not now. New and Still Present add up to the findings "
+                              "this report lists.")))
+        parts.append(data_table([("Category", 4680), ("New", 1800), ("Fixed", 1800), ("Still Present", 1800)],
                                 [[title, *report.trend.get(key, (0, 0, 0))] for key, title in CATEGORY_TITLES]))
 
     # ------------------------------------------------ contents: a Word TOC field (page numbers) whose
@@ -1314,37 +1318,92 @@ def write_docx(report: Report, src_root: Path | None, out: Path, template: Path 
 
 
 # ---------------------------------------------------------------- trend / coverage
-def _category_of(finding: dict) -> str:
-    kind = str(finding.get("category") or "")
-    if kind == "secret":
-        return "secret"
-    if (finding.get("artifact") or {}).get("package") or kind == "misconfiguration":
-        return "dependency"
-    return "code"
-
-
 def rule_ref(rule: str) -> str:
     """A short name for a rule that is the same in every report, unlike its section number."""
     return rule.rsplit(":", 1)[-1].rsplit(".", 1)[-1] or rule
 
 
-def compare(current: dict, previous: dict) -> dict:
-    """category -> (new, fixed, still open), by SDT finding fingerprint.
+def _digest(*parts) -> str:
+    return hashlib.sha256("\0".join(str(p) for p in parts).encode()).hexdigest()[:20]
 
-    A finding an exception covers in the current scan is none of the three: it was not
-    fixed, and it is no longer open, so it is left out of both sides.
+
+def _line_reader(src_root: Path | None):
+    """(path, line) -> that source line with its spacing collapsed, or "" when it cannot be read."""
+    root = src_root.resolve() if src_root else None
+    files: dict[str, list[str]] = {}
+
+    def read(path: str, line: int) -> str:
+        if root is None or not path or line < 1:
+            return ""
+        if path not in files:
+            target = (root / path).resolve()
+            try:
+                files[path] = target.read_text(encoding="utf-8", errors="replace").splitlines() \
+                    if root in target.parents and target.is_file() else []
+            except OSError:
+                files[path] = []
+        lines = files[path]
+        return " ".join(lines[line - 1].split()) if line <= len(lines) else ""
+    return read
+
+
+def _entries(code: list[Group], secrets: list[SecretRow], dependencies: list[DependencyRow],
+             config: list[ConfigRow], text) -> dict:
+    """category -> [identity, place] per finding listed. The place leaves out the rule, so a
+    finding SonarQube reports under its own rule key still matches its SDT finding."""
+    out = {"code": [], "secret": [], "dependency": []}
+    for group in code:
+        for o in group.occurrences:
+            place = _digest(o.path, text(o.path, o.line) or o.line or o.message)
+            out["code"].append([_digest(group.rule, place), place])
+    for row in secrets:
+        place = _digest(row.path, row.line, row.commit)
+        out["secret"].append([_digest(row.kind, place), place])
+    for row in dependencies:
+        out["dependency"] += [[place, place] for place in (_digest(row.package, row.manifest, a) for a in row.advisories)]
+    for row in config:
+        place = _digest(row.path, text(row.path, row.line) or row.line or row.message)
+        out["dependency"].append([_digest(row.check, place), place])
+    return out
+
+
+def report_state(report: Report, src_root: Path | None) -> dict:
+    """Every finding this report lists, for the next report's "Changes Since Previous Scan".
+
+    The same finding in the next scan is the same rule on the same code line (a line that moved
+    is the same finding, as sdt_sonar_carry recognises it), the same secret (file, line, commit)
+    or the same advisory of a package in its manifest. Digests only: no code, no secret value.
     """
-    excepted = {(f.get("fingerprint") or {}).get("value") for f in current.get("findings", []) if f.get("suppression")}
+    return {"version": 1, "source": report.source, "commit": report.commit,
+            "generatedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "findings": _entries(report.code, report.secrets, report.dependencies, report.config,
+                                 _line_reader(src_root))}
 
-    def index(doc):
-        out = {"code": set(), "secret": set(), "dependency": set()}
-        for f in doc.get("findings", []):
-            value = (f.get("fingerprint") or {}).get("value")
-            if value and value not in excepted:
-                out[_category_of(f)].add(value)
-        return out
-    now, before = index(current), index(previous)
-    return {k: (len(now[k] - before[k]), len(before[k] - now[k]), len(now[k] & before[k])) for k in now}
+
+def excepted_places(doc: dict, src_root: Path | None) -> set:
+    """The places of findings an approved exception covers in this scan (left out of the report)."""
+    covered = [dict(f, suppression=None) for f in doc.get("findings", []) if f.get("suppression")]
+    found = from_findings({"findings": covered}, src_root)
+    entries = _entries(found["code"], found["secret"], found["dependency"], found["config"], _line_reader(src_root))
+    return {place for items in entries.values() for _, place in items}
+
+
+def compare(now: dict, before: dict, excepted: set = frozenset()) -> dict:
+    """category -> (new, fixed, still present): what this report lists against the previous one.
+
+    Both sides are what the reports listed, SonarQube's own findings included. A finding the
+    previous report listed that an exception now covers was not fixed: it counts nowhere.
+    """
+    out = {}
+    for category, _ in CATEGORY_TITLES:
+        current = Counter(key for key, _ in now["findings"].get(category, []))
+        places = dict((before.get("findings") or {}).get(category, []))
+        earlier = Counter(key for key, _ in (before.get("findings") or {}).get(category, []))
+        gone = earlier - current
+        out[category] = (sum((current - earlier).values()),
+                         sum(n for key, n in gone.items() if places.get(key) not in excepted),
+                         sum((current & earlier).values()))
+    return out
 
 
 def coverage_gaps(coverage: Path | None, findings: Path | None) -> list[str]:
@@ -1382,7 +1441,9 @@ def main() -> int:
     ap.add_argument("--template", type=Path, default=TEMPLATE)
     ap.add_argument("--logo", type=Path, default=LOGO, help="PNG for the cover and page header (default: templates/logo.png when present; none is shipped)")
     ap.add_argument("--triage", type=Path, help="per-finding review recommendations from sdt_triage_codex.py (optional)")
-    ap.add_argument("--previous-findings", type=Path, help="findings.json of the previous scan of this branch (trend)")
+    ap.add_argument("--previous-state", type=Path,
+                    help="report-state.json the previous report of this branch wrote (Changes Since Previous Scan)")
+    ap.add_argument("--state-out", type=Path, help="write what this report lists, for the next report's comparison")
     ap.add_argument("--coverage", type=Path, help="text file, one coverage gap per line (e.g. lint skipped)")
     ap.add_argument("--link-to", choices=("bitbucket", "sonar"), default="bitbucket",
                     help="where file links point: Bitbucket source at the scanned commit (default) or SonarQube")
@@ -1397,10 +1458,11 @@ def main() -> int:
         print("sdt_to_docx: give --sonar-url and/or --findings", file=sys.stderr)
         return 2
 
-    sdt = None
+    sdt, doc = None, {}
     if args.findings:
         try:
-            sdt = from_findings(json.loads(args.findings.read_text()), args.src_root)
+            doc = json.loads(args.findings.read_text())
+            sdt = from_findings(doc, args.src_root)
         except (OSError, ValueError) as exc:
             print(f"sdt_to_docx: invalid findings: {exc}", file=sys.stderr)
             return 2
@@ -1437,19 +1499,26 @@ def main() -> int:
             if not occurrence.ai:
                 occurrence.ai = sdt_advisory.assess(group.rule, occurrence.path, occurrence.line, args.src_root)
     ai = ai or {"engine": "rules"}
-    trend, previous = None, ""
-    if args.previous_findings and args.previous_findings.is_file() and args.findings:
-        try:
-            before = json.loads(args.previous_findings.read_text())
-            trend = compare(json.loads(args.findings.read_text()), before)
-            previous = str(before.get("generatedAt") or "")[:10] or "the previous run"
-        except (OSError, ValueError):
-            trend = None
     report = Report(project, args.repository or name, scope, args.scope_url, args.commit, source,
                     found["code"], found["secret"], found["dependency"], found["config"], date.today(), ai,
-                    trend, previous, coverage_gaps(args.coverage, args.findings),
+                    None, "", coverage_gaps(args.coverage, args.findings),
                     args.source_url or bitbucket_base(args.repository, args.commit), args.link_to)
+    state = report_state(report, args.src_root)
+    if args.previous_state and args.previous_state.is_file():
+        try:
+            before = json.loads(args.previous_state.read_text())
+        except (OSError, ValueError):
+            before = {}
+        if before.get("version") == 1 and before.get("source") == source:
+            report.trend = compare(state, before, excepted_places(doc, args.src_root))
+            report.previous = ", commit ".join(filter(None, (str(before.get("generatedAt") or "")[:10] or
+                                                             "the previous run", before.get("commit"))))
+        else:
+            print("sdt_to_docx: the previous report read other sources or is unreadable; no comparison",
+                  file=sys.stderr)
     write_docx(report, args.src_root, args.out, args.template, args.logo)
+    if args.state_out:
+        args.state_out.write_text(json.dumps(state, indent=1) + "\n")
     code = sum(len(g.occurrences) for g in report.code)
     print(f"sdt_to_docx: wrote {args.out} (code {code} in {len(report.code)} rules, secrets {len(report.secrets)}, "
           f"packages {len(report.dependencies)}, configuration {len(report.config)})")
