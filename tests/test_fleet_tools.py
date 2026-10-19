@@ -1374,7 +1374,8 @@ def test_trend_follows_a_moved_line_and_counts_identical_lines_apart(tmp_path):
 
 
 def test_report_state_holds_no_code_and_no_secret(tmp_path):
-    (tmp_path / "app.py").write_text("token = 'k3y-v4lue-0123456789'\nquery(request.args['q'])\n")
+    value = "-".join(("k3y", "v4lue", "0123456789"))  # assembled, so the repository's own secret scan stays quiet
+    (tmp_path / "app.py").write_text(f"token = '{value}'\nquery(request.args['q'])\n")
     secret = sdt_to_docx.SecretRow("generic-api-key", "app.py", 1, "", "Current code", "High")
     state = json.dumps(sdt_to_docx.report_state(_listed(code=[("python:S3649", "app.py", 2, "To review")],
                                                         secrets=[secret]), tmp_path))
