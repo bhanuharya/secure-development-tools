@@ -18,7 +18,9 @@ SONAR_TOKEN=... python3 tools/sdt_to_docx.py \
 
 Either source alone works: `--sonar-url` (code findings with their review status and assignee) or
 `--findings` (SDT canonical findings). With both, code comes from SonarQube and secrets, dependencies and
-configuration come from SDT, which knows commits, versions and reachability.
+configuration come from SDT, which knows commits, versions and reachability; each takes the review status
+SonarQube holds for it (Safe, Accepted, False positive, ...), so a decision made there shows in the report and
+leaves Needs a Decision, Fix First and the Review Notes.
 
 ## What is in it
 
