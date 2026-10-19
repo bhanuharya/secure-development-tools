@@ -11,7 +11,8 @@ SONAR_TOKEN=... python3 tools/sdt_to_docx.py \
   --findings out/findings.json --src-root source \
   --repository example/app --commit 2d50829cc3b8 \
   --scope-url https://bitbucket.org/example/app/branch/release/1.0 \
-  --triage triage.json --previous-findings history/findings.json --coverage coverage.txt \
+  --triage triage.json --coverage coverage.txt \
+  --previous-state history/report-state.json --state-out out/report-state.json \
   --out "SAST Report - app.docx"
 ```
 
@@ -112,8 +113,14 @@ Once reviewers decide findings in SonarQube, the cover shows "Advisory accuracy 
 
 ## Trend and coverage
 
-* `--previous-findings`: the previous scan of the same branch; the report counts new, fixed and still-open
-  findings by SDT fingerprint.
+* `--state-out`: writes what this report lists (`report-state.json`): one digest per finding, no code and no
+  secret value. `--previous-state`: the file the previous report of the same branch wrote. The report then
+  counts new, fixed and still-present findings over everything it lists, SonarQube's own findings included.
+  A finding is the same one when it is the same rule on the same code line (also after the line moved), the
+  same secret (file, line, commit) or the same advisory of a package in its manifest. Fixed means the
+  previous report listed it and this one does not; a finding an exception now covers is not counted as
+  fixed. A hotspot marked Safe is still present. A previous report that read other sources (SonarQube
+  reachable then and not now) is not compared.
 * `--coverage`: a text file, one gap per line, written by the pipeline (for example when `flutter pub get`
   fails and Dart lint is skipped). Scanners that did not complete are read from `run-manifest.json`.
 
