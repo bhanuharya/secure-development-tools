@@ -310,10 +310,10 @@ def run_codex(codex: str, model: str, prompt: str, timeout: float, response_sche
         schema.write_text(json.dumps(response_schema or RESPONSE_SCHEMA))
         command = [codex, "exec", "--model", model, "--sandbox", "read-only", "--skip-git-repo-check",
                    "--ephemeral", "--cd", work]
-        # Pin the reasoning depth to "high" by default rather than inherit the agent's codex
-        # config: at "max" a single call can exceed the per-call timeout and the review stalls.
+        # Pin the reasoning depth to "medium" by default rather than inherit the agent's codex
+        # config: at "high"/"max" a single call can exceed the per-call timeout and the review stalls.
         # SDT_CODEX_REASONING overrides it; "inherit" falls back to the codex config.
-        effort = os.environ.get("SDT_CODEX_REASONING", "high")
+        effort = os.environ.get("SDT_CODEX_REASONING", "medium")
         if effort and effort != "inherit":
             command += ["-c", f"model_reasoning_effort={effort}"]
         command += ["--output-schema", str(schema), "--output-last-message", str(answer), "-"]
