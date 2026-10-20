@@ -41,11 +41,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sdt_to_docx  # noqa: E402  (same findings, same order as the report)
 
-DEFAULT_MODEL = "gpt-6-luna"
+DEFAULT_MODEL = "gpt-6.1-sol"
 VERDICTS = ("likely_true_positive", "likely_false_positive", "needs_context")
 CONFIDENCE = ("low", "medium", "high")
-CONTEXT_LINES = 40  # enough to see where a flagged value comes from
-PROMPT_VERSION = "2"  # part of every remembered verdict: change it when the prompt or context changes
+CONTEXT_LINES = 64  # lines of surrounding code: enough to see where a flagged value comes from and how it is sanitised
+PROMPT_VERSION = "3"  # part of every remembered verdict: change it when the prompt or context changes
 MAX_REASON = 400
 
 RESPONSE_SCHEMA = {
@@ -75,7 +75,7 @@ RESPONSE_SCHEMA = {
 from sdt_advisory import CREDENTIAL_RULE, redact, redact_lines  # noqa: E402  (one redaction for prompts and reports)
 
 
-MAX_BLOCK_LINES = 150
+MAX_BLOCK_LINES = 200
 BRACE_FILE = re.compile(r"\.(dart|java|kt|kts|js|jsx|ts|tsx|go|swift|c|cc|cpp|h|cs|scala|php|rs)$")
 STRINGS_AND_COMMENTS = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|//.*$')
 CONTROL_BLOCK = re.compile(r"^\}?\s*(if|else|for|while|switch|try|catch|do|finally)\b")
@@ -114,7 +114,7 @@ COMMON_WORDS = frozenset("""await async break case catch class const continue de
 function import return static string super switch this throw true undefined void while with null new let var
 value values item items data result results index length name type key keys error props attrs slot template
 href class style http https""".split())
-RELATED_MATCHES, RELATED_PAD, RELATED_MAX_LINES = 6, 2, 60
+RELATED_MATCHES, RELATED_PAD, RELATED_MAX_LINES = 8, 3, 96
 
 
 def related_lines(lines: list[str], index: int, start: int, end: int) -> list[tuple[int, int]]:
@@ -309,7 +309,11 @@ def run_codex(codex: str, model: str, prompt: str, timeout: float, response_sche
         answer = Path(work) / "answer.json"
         schema.write_text(json.dumps(response_schema or RESPONSE_SCHEMA))
         command = [codex, "exec", "--model", model, "--sandbox", "read-only", "--skip-git-repo-check",
-                   "--ephemeral", "--cd", work, "--output-schema", str(schema), "--output-last-message", str(answer), "-"]
+                   "--ephemeral", "--cd", work]
+        effort = os.environ.get("SDT_CODEX_REASONING", "")
+        if effort:
+            command += ["-c", f"model_reasoning_effort={effort}"]
+        command += ["--output-schema", str(schema), "--output-last-message", str(answer), "-"]
         result = subprocess.run(command, input=prompt, capture_output=True, text=True, timeout=timeout, cwd=work)
         if result.returncode != 0:
             last = (result.stderr or result.stdout).strip().splitlines()[-3:]
@@ -433,7 +437,7 @@ def main() -> int:
     ap.add_argument("--budget", type=float, default=float(os.environ.get("SDT_CODEX_BUDGET", 900)),
                     help="seconds for the whole review")
     ap.add_argument("--max-rules", type=int, default=15)
-    ap.add_argument("--max-per-rule", type=int, default=6)
+    ap.add_argument("--max-per-rule", type=int, default=8)
     ap.add_argument("--max-failures", type=int, default=2, help="stop after this many consecutive failed calls")
     ap.add_argument("--memory", type=Path, help="file of remembered verdicts (default: $SDT_TRIAGE_MEMORY, else "
                                                 "$SDT_STATE_DIR/triage/<project>.json, else ~/.cache/sdt/triage/); "

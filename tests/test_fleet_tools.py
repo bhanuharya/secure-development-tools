@@ -1907,3 +1907,27 @@ def test_triage_memory_lives_in_the_state_directory_when_there_is_one(tmp_path):
     assert where("proj:key/1", {"SDT_STATE_DIR": str(tmp_path)}) == tmp_path / "triage" / "proj_key_1.json"
     assert where("p", {"SDT_STATE_DIR": str(tmp_path), "SDT_TRIAGE_MEMORY": "/x/m.json"}) == Path("/x/m.json")
     assert where("p", {}) == Path.home() / ".cache" / "sdt" / "triage" / "p.json"
+
+def test_run_codex_passes_reasoning_effort_only_when_set(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["cmd"] = command
+        work = command[command.index("--cd") + 1]
+        (Path(work) / "answer.json").write_text('{"results": []}')
+
+        class R:
+            returncode = 0
+            stdout = stderr = ""
+        return R()
+
+    monkeypatch.setattr(sdt_triage_codex.subprocess, "run", fake_run)
+
+    monkeypatch.delenv("SDT_CODEX_REASONING", raising=False)
+    sdt_triage_codex.run_codex("codex", "gpt-6.1-sol", "prompt", 30)
+    assert captured["cmd"][captured["cmd"].index("--model") + 1] == "gpt-6.1-sol"
+    assert "-c" not in captured["cmd"]  # reasoning inherits the user's codex config when unset
+
+    monkeypatch.setenv("SDT_CODEX_REASONING", "max")
+    sdt_triage_codex.run_codex("codex", "gpt-6.1-sol", "prompt", 30)
+    assert "-c" in captured["cmd"] and "model_reasoning_effort=max" in captured["cmd"]

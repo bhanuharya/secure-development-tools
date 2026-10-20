@@ -191,9 +191,10 @@ status or an SDT verdict, and secret findings and secret-looking values are neve
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `SDT_CODEX_MODEL` | `gpt-6-luna` | model Codex uses |
+| `SDT_CODEX_MODEL` | `gpt-6.1-sol` | model Codex uses |
+| `SDT_CODEX_REASONING` | _(codex config)_ | `minimal`/`low`/`medium`/`high`/`max`: reasoning depth; unset inherits the agent's codex config |
 | `SDT_CODEX_TIMEOUT` | `120` | seconds per call |
-| `SDT_CODEX_BUDGET` | `600` | seconds for the whole review; the step is also wrapped in `timeout` |
+| `SDT_CODEX_BUDGET` | `600` | seconds for the whole review; the step is also wrapped in `timeout`. Raise it when running a deeper model or more reasoning |
 | `SDT_AI_TRIAGE` | `1` | `0` turns the review off |
 | `SDT_TRIAGE_MEMORY` | `~/.cache/sdt/triage/<project>.json` | remembered verdicts: unchanged code is not asked again |
 | `SDT_AI_AUTOCLOSE` | `0` | `1` marks the clearest false positives Safe in SonarQube (see SDT's `docs/sast-report.md`) |
