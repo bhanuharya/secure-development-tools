@@ -184,3 +184,45 @@ func TestGitleaksRepoAllowlistComposesWithDefaults(t *testing.T) {
 		t.Fatalf("findings:\n%s\n\nwant:\n%s", got, want)
 	}
 }
+
+// ckeditorLicense builds a CKEditor 5 trial license key: an ES256 JWT whose payload
+// names CKEditor's usage endpoint. It is a public product key, not a credential, so it
+// is constructed here rather than committed as a literal. The base64url of "ckeditor"
+// in the payload is the signature the default allowlist matches.
+func ckeditorLicense() string {
+	enc := func(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
+	header := enc([]byte(`{"alg":"ES256"}`))
+	payload := enc([]byte(`{"exp":1799999999,"jti":"d54b165b-2def-4e8f-9192-3a9f8c45e098",` +
+		`"usageEndpoint":"https://proxy-event.ckeditor.com","licenseType":"trial"}`))
+	return header + "." + payload + "." + enc([]byte(fakeSecret("cksig", 32)))
+}
+
+// CKEditor license keys and kebab-case content slugs are noise; a genuine JWT and a
+// real generic key next to them must still be reported.
+func TestGitleaksDefaultsCutCKEditorKeysAndSlugs(t *testing.T) {
+	t.Setenv("GITLEAKS_CONFIG", "")
+	license := ckeditorLicense()
+	// A real app token (HS256, no CKEditor markers) must survive the jwt allowlist.
+	realJWT := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`)) + "." +
+		base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"42","role":"admin","iss":"mstock-api"}`)) + "." +
+		base64.RawURLEncoding.EncodeToString([]byte(fakeSecret("jwtsig", 32)))
+	root := writeTree(t, map[string]string{
+		// Cut: CKEditor license key in a Strapi content-type schema and the generated types.
+		"src/api/article/content-types/article/schema.json": `{"body":{"type":"customField","options":{"licenseKey":"` + license + `"}}}` + "\n",
+		"types/generated/components.d.ts":                   "  body: { licenseKey: '" + license + "' };\n",
+		// Cut: kebab-case content slugs in seed data. Assembled, so this file is not itself flagged.
+		"src/seeds/data/csr-events.data.ts": "  { key: '" + "2024-" + "christmas-desa-putera" + "' },\n" +
+			"  { key: '" + "2023-" + "live-trading-jendela" + "' },\n",
+		// Keep: a genuine application JWT, and a real generic key that is not a slug.
+		"src/auth.ts": "const session = '" + realJWT + "'\n",
+		"src/cfg.ts":  "const apiKey = '" + fakeSecret("realkey", 32) + "'\n",
+	})
+	got := strings.Join(gitleaksHits(t, config.Defaults(), root), "\n")
+	want := strings.Join([]string{
+		"generic-api-key src/cfg.ts",
+		"jwt src/auth.ts",
+	}, "\n")
+	if got != want {
+		t.Fatalf("findings with sdt defaults:\n%s\n\nwant:\n%s", got, want)
+	}
+}

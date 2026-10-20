@@ -59,6 +59,8 @@ binary; its digest is recorded in the scan plan.
 |---|---|
 | `generic-api-key` in dependency lock files (`Podfile.lock`, `pubspec.lock`, `Gemfile.lock`, `composer.lock`, `Cargo.lock`, `Package.resolved`, `packages.lock.json`, `flake.lock`, `gradle.lockfile`) | Package checksums next to a package name containing `auth`, `key` or `token`. |
 | A Google API key (`AIza…`) in `google-services.json`, `GoogleService-Info.plist` or `firebase_options.dart` | Firebase client configuration. The key identifies the app and ships inside it; it cannot be kept out of the build. Restrict it in the Google Cloud console (application and API restrictions) instead. |
+| A CKEditor 5 license key (an ES256 JWT naming `proxy-event.ckeditor.com`) anywhere, including a Strapi content-type `schema.json` and the generated `types/generated/*.d.ts` | A public product key that ships in the client by design, not a credential. The `jwt` match carries the base64url of `ckeditor`; a genuine JWT without that marker is still reported. |
+| A kebab-case slug reported as `generic-api-key` (lowercase words joined by hyphens, e.g. a content key `2024-year-end-event`) | An identifier or slug, not a credential. Scoped to `generic-api-key`, so dedicated token rules (AWS, Slack, GitHub, …) still fire; a mixed-case or high-entropy value is still reported. |
 
 The Firebase exception is narrow on purpose: the same key in any other file is
 still reported, and any other secret in those three files is still reported.
