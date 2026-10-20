@@ -1926,8 +1926,12 @@ def test_run_codex_passes_reasoning_effort_only_when_set(tmp_path, monkeypatch):
     monkeypatch.delenv("SDT_CODEX_REASONING", raising=False)
     sdt_triage_codex.run_codex("codex", "gpt-6.1-sol", "prompt", 30)
     assert captured["cmd"][captured["cmd"].index("--model") + 1] == "gpt-6.1-sol"
-    assert "-c" not in captured["cmd"]  # reasoning inherits the user's codex config when unset
+    assert "model_reasoning_effort=medium" in captured["cmd"]  # default is medium, not the slower high/max
 
-    monkeypatch.setenv("SDT_CODEX_REASONING", "max")
+    monkeypatch.setenv("SDT_CODEX_REASONING", "high")
     sdt_triage_codex.run_codex("codex", "gpt-6.1-sol", "prompt", 30)
-    assert "-c" in captured["cmd"] and "model_reasoning_effort=max" in captured["cmd"]
+    assert "model_reasoning_effort=high" in captured["cmd"]
+
+    monkeypatch.setenv("SDT_CODEX_REASONING", "inherit")  # fall back to the agent's codex config
+    sdt_triage_codex.run_codex("codex", "gpt-6.1-sol", "prompt", 30)
+    assert "-c" not in captured["cmd"]
