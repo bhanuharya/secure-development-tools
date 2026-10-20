@@ -31,6 +31,7 @@ leaves Needs a Decision, Fix First and the Review Notes.
 | 1. Code Security | Per rule: severity, type, status, assignee, risk, recommendation, then the findings (see layout below) |
 | 2. Secret Leaks | Grouped by secret type and file (gitleaks and SonarQube reports of the same file collapse); still-in-code first, Firebase/Google client keys last ("restrict, don't rotate") |
 | 3. Dependencies & Configuration | One row per vulnerable package with all its advisories and one **Upgrade To** version (the lowest release that fixes all of them), reachability; Trivy configuration checks |
+| Resolved in SonarQube | Findings already decided there (Safe, False positive, Accepted, Fixed): one compact row each (category, finding, where, status). Kept for the audit trail, but out of the sections above, out of the Total/Needs-a-Decision counts, and not reported as fixed in Changes Since Previous Scan. The section and its contents entry appear only when there are any. |
 | Review Notes | Factual notes, then **Coverage**: what the scan could not cover (e.g. Dart lint skipped) and scanners that did not complete |
 
 Every page after the cover has a header (logo when supplied, project, scope) and a footer with "Page X of Y"; table

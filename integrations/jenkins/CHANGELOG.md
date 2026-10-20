@@ -2,6 +2,16 @@
 
 ## 2026-10-20
 
+- A finding decided in SonarQube now leaves the body of the SAST report instead of staying in its section. A
+  hotspot marked Safe, or an issue marked False positive, Accepted or Fixed, moves to a new compact "Resolved in
+  SonarQube" appendix (category, finding, where, status) and no longer counts toward Total Findings or Needs a
+  Decision, and is not reported as fixed in Changes Since Previous Scan. The appendix keeps the audit trail. So
+  once a reviewer marks a finding, the next report shows only what still needs attention. With no SonarQube
+  source every finding is open, so nothing moves. (The separate suppression/exception flow, which removes a
+  finding from findings.json and the Sonar import as well, is unchanged.)
+
+## 2026-10-20
+
 - Two secret-scanning false positives are no longer reported. A CKEditor 5 license key (an ES256 JWT naming
   `proxy-event.ckeditor.com`, shipped in the client by design) was flagged as `jwt`, including where Strapi
   stores it in a content-type `schema.json` and in the generated `types/generated/*.d.ts`; a kebab-case
