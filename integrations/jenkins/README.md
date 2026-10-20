@@ -192,6 +192,7 @@ status or an SDT verdict, and secret findings and secret-looking values are neve
 | Setting | Default | Meaning |
 |---|---|---|
 | `SDT_CODEX_MODEL` | `gpt-6.1-sol` | model Codex uses |
+| `SDT_SANITISERS` | _(none)_ | comma-separated helper names that sanitise/validate HTML or URLs (e.g. your `toTrustedMarkup`, `validateUrl`); S6299 bindings they produce are advised false positive |
 | `SDT_CODEX_REASONING` | `medium` | `minimal`/`low`/`medium`/`high`/`max`: reasoning depth. `medium` is the default so a single call stays under the per-call timeout; `inherit` falls back to the agent's codex config |
 | `SDT_CODEX_TIMEOUT` | `120` | seconds per call |
 | `SDT_CODEX_BUDGET` | `600` | seconds for the whole review; the step is also wrapped in `timeout`. Raise it when running a deeper model or more reasoning |

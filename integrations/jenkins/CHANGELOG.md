@@ -2,6 +2,17 @@
 
 ## 2026-10-20
 
+- The deterministic advisory now settles Vue/JS HTML-injection hotspots (`S6299`: `v-html`, `innerHTML`, `:href`)
+  instead of printing one generic "manual check" for the whole rule. It reads the binding and advises false
+  positive when the bound value is a constant, an i18n string, named sanitised/validated (`safe*`/`validated*`),
+  or produced by a sanitiser/validator - matched generically (`sanitize`, `DOMPurify`, `escapeHtml`, allow-list)
+  or by the helper names a project lists in `SDT_SANITISERS`. A bare binding to raw CMS/API data, or an unguarded
+  `:href`, stays a manual check (it is a real `javascript:`-URL / XSS risk until a guard is added). This covers
+  every occurrence of the rule, not only the few a model review samples. Advisory only: it never changes a
+  SonarQube status.
+
+## 2026-10-20
+
 - A finding decided in SonarQube now leaves the body of the SAST report instead of staying in its section. A
   hotspot marked Safe, or an issue marked False positive, Accepted or Fixed, moves to a new compact "Resolved in
   SonarQube" appendix (category, finding, where, status) and no longer counts toward Total Findings or Needs a
