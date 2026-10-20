@@ -16,7 +16,8 @@
   whose value is sanitised first). The default model is now `gpt-6.1-sol`; the code shown to the model grew
   (64 lines of surrounding code, up from 40; the enclosing function up to 200 lines; more related lines from
   elsewhere in the file), and up to 8 occurrences per rule are reviewed. `SDT_CODEX_REASONING`
-  (`minimal`..`max`) pins the reasoning depth regardless of the agent's codex config. Remembered verdicts from
+  (`minimal`..`max`, default `high`) pins the reasoning depth; `high` keeps a single call under the
+  per-call timeout (at `max` a deep call could time out and stall the review), and `inherit` uses the codex config. Remembered verdicts from
   the previous, shallower context are re-asked once. The review stays advisory: it never changes a SonarQube
   status or an SDT verdict. A deeper review is slower, so raise `SDT_CODEX_BUDGET` if the step reports it
   stopped on the time budget.
