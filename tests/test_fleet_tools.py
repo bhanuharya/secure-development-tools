@@ -1935,3 +1935,47 @@ def test_run_codex_passes_reasoning_effort_only_when_set(tmp_path, monkeypatch):
     monkeypatch.setenv("SDT_CODEX_REASONING", "inherit")  # fall back to the agent's codex config
     sdt_triage_codex.run_codex("codex", "gpt-6.1-sol", "prompt", 30)
     assert "-c" not in captured["cmd"]
+
+
+def test_resolved_findings_move_to_an_appendix_and_leave_the_counts(tmp_path):
+    (tmp_path / "a.ts").write_text("const x = s.replace(/\\/+$/, '')\n")
+    found = {
+        "code": [sdt_to_docx.Group("typescript:S5852", "slow regex", "Security Hotspot", "Medium", [], [], [
+            sdt_to_docx.Occurrence("a.ts", 1, "regex", "To review", ""),
+            sdt_to_docx.Occurrence("a.ts", 1, "regex", "Safe", "")])],
+        "secret": [],
+        "dependency": [
+            sdt_to_docx.DependencyRow("lodash", "4.17.20", "package-lock.json", advisories={"CVE-1": "High"}, status="Accepted"),
+            sdt_to_docx.DependencyRow("braces", "3.0.3", "package-lock.json", advisories={"CVE-2": "High"}, status="Open")],
+        "config": []}
+    resolved = sdt_to_docx.split_resolved(found)
+    # The decided occurrence and package move out; the open ones stay.
+    assert [o.status for g in found["code"] for o in g.occurrences] == ["To review"]
+    assert [o.status for g in resolved["code"] for o in g.occurrences] == ["Safe"]
+    assert [r.package for r in found["dependency"]] == ["braces"]
+    assert [r.package for r in resolved["dependency"]] == ["lodash"]
+
+    report = sdt_to_docx.Report("app", "ws/app", "branch dev", "", "abc", "SonarQube + OpenGrep + Gitleaks + Trivy",
+                                found["code"], found["secret"], found["dependency"], found["config"],
+                                sdt_to_docx.date(2026, 10, 20), resolved=resolved)
+    counts = sdt_to_docx._counts(report)
+    assert counts["code"][0] == 1 and counts["dependency"][0] == 1  # active-only, decided ones not counted
+    out = tmp_path / "r.docx"
+    sdt_to_docx.write_docx(report, tmp_path, out)
+    text, *_ = _docx(out)
+    assert "Resolved in SonarQube" in text and "lodash" in text and "Accepted" in text
+
+
+def test_a_finding_resolved_in_sonarqube_is_not_counted_as_fixed(tmp_path):
+    (tmp_path / "a.ts").write_text("const x = /(a+)+$/\n")
+    before = sdt_to_docx.report_state(_listed(code=[("typescript:S5852", "a.ts", 1, "To review")]), tmp_path)
+    found = {"code": [sdt_to_docx.Group("typescript:S5852", "r", "Security Hotspot", "Medium", [], [], [
+                 sdt_to_docx.Occurrence("a.ts", 1, "regex", "Safe", "")])],
+             "secret": [], "dependency": [], "config": []}
+    resolved = sdt_to_docx.split_resolved(found)
+    active = sdt_to_docx.Report("app", "ws/app", "branch dev", "", "x", "SonarQube + OpenGrep + Gitleaks + Trivy",
+                                found["code"], [], [], [], sdt_to_docx.date(2026, 10, 20), resolved=resolved)
+    now = sdt_to_docx.report_state(active, tmp_path)
+    # Without the resolved places it would read (0, 1, 0) - wrongly "fixed".
+    assert sdt_to_docx.compare(now, before) == {"code": (0, 1, 0), "secret": (0, 0, 0), "dependency": (0, 0, 0)}
+    assert sdt_to_docx.compare(now, before, sdt_to_docx.resolved_places(resolved, tmp_path))["code"] == (0, 0, 0)

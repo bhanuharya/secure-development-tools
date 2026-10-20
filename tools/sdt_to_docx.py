@@ -200,6 +200,7 @@ class Report:
     coverage: list = field(default_factory=list)  # what this scan could not cover
     source_base: str = ""  # https://bitbucket.org/<workspace>/<repo>/src/<commit>: code links point here
     link_to: str = "bitbucket"  # "bitbucket" (default) or "sonar" for file links
+    resolved: dict | None = None  # findings decided in SonarQube (Safe / False positive / Accepted / Fixed): kept for the audit appendix, out of the sections and counts
 
 
 # ------------------------------------------------------------------ categorising
@@ -783,6 +784,10 @@ def executive_summary(report: Report) -> list[str]:
     lines.append(f"Dependencies: {plural(advisories, 'advisory')} in {plural(len(report.dependencies), 'package')}"
                  + (f", {fixable} with a fixed version" if report.dependencies else "")
                  + (f"; {plural(len(report.config), 'configuration check')} failed" if report.config else "") + ".")
+    n_resolved = len(resolved_rows(report.resolved)) if report.resolved else 0
+    if n_resolved:
+        lines.append(f"Resolved in SonarQube: {plural(n_resolved, 'finding')} already marked Safe, False positive, "
+                     "Accepted or Fixed, listed in 'Resolved in SonarQube' and not counted above.")
     return lines
 
 
@@ -1050,6 +1055,8 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
               for n, g in enumerate(report.code, 1)]
     parts.append(internal_link("2. Secret Leaks", "sec_secrets"))
     parts.append(internal_link("3. Dependencies & Configuration (Trivy)", "sec_dependencies"))
+    if report.resolved and any(report.resolved.values()):
+        parts.append(internal_link("Resolved in SonarQube", "sec_resolved"))
     parts.append(internal_link("Review Notes", "sec_notes"))
     parts.append('<w:p><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>')
     parts.append(para(run("Page numbers appear once Word updates the contents (right-click it, Update Field).",
@@ -1208,6 +1215,15 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
                                  ("Finding", 2880), ("Status", 1000)],
                                 [[i, c.check, c.path or "-", c.line or "-", c.severity, c.message[:200], c.status]
                                  for i, c in enumerate(report.config, 1)], severity_col=4))
+
+    if report.resolved and any(report.resolved.values()):
+        rows = resolved_rows(report.resolved)
+        parts.append(section_heading("Resolved in SonarQube", 1, "sec_resolved"))
+        parts.append(para(run(f"{plural(len(rows), 'finding')} already decided in SonarQube (Safe, False positive, "
+                              "Accepted or Fixed). Kept for the audit trail; not counted in the sections above, and "
+                              "not reported as fixed in Changes Since Previous Scan.")))
+        parts.append(data_table([("No.", 600), ("Category", 1800), ("Finding", 3200), ("Where", 3000),
+                                 ("Status", 1480)], rows))
 
     parts.append(section_heading("Review Notes", 1, "sec_notes"))
     parts += [bullet(note) for note in review_notes(report)]
@@ -1403,6 +1419,53 @@ def excepted_places(doc: dict, src_root: Path | None) -> set:
     return {place for items in entries.values() for _, place in items}
 
 
+def split_resolved(found: dict) -> dict:
+    """Move findings already decided in SonarQube out of `found` (mutated in place) into a
+    same-shaped dict. A finding is active while its status is an open state; any other status
+    (Safe, False positive, Accepted, Fixed, ...) is a recorded decision, so it leaves the
+    sections and the counts and is listed only in the "Resolved in SonarQube" appendix. With
+    no SonarQube source every status is open, so nothing moves."""
+    out = {"code": [], "secret": [], "dependency": [], "config": []}
+    active_groups = []
+    for g in found["code"]:
+        active = [o for o in g.occurrences if o.status in OPEN_STATES]
+        decided = [o for o in g.occurrences if o.status not in OPEN_STATES]
+        if decided:
+            out["code"].append(Group(g.rule, g.name, g.kind, g.severity, g.risk, g.fixes, decided))
+        if active:
+            g.occurrences = active
+            active_groups.append(g)
+    found["code"] = active_groups
+    for key in ("secret", "dependency", "config"):
+        out[key] = [r for r in found[key] if r.status not in OPEN_STATES]
+        found[key] = [r for r in found[key] if r.status in OPEN_STATES]
+    return out
+
+
+def resolved_places(resolved: dict | None, src_root: Path | None) -> set:
+    """The places of the findings decided in SonarQube, so the trend does not count them as fixed."""
+    if not resolved:
+        return set()
+    entries = _entries(resolved["code"], resolved["secret"], resolved["dependency"], resolved["config"],
+                       _line_reader(src_root))
+    return {place for items in entries.values() for _, place in items}
+
+
+def resolved_rows(resolved: dict) -> list[list]:
+    """Compact appendix rows: No. | Category | Finding | Where | Status."""
+    rows = []
+    for g in resolved["code"]:
+        for o in g.occurrences:
+            rows.append(["Code", f"{g.name} [{rule_ref(g.rule)}]", f"{o.path}:{o.line}" if o.path else "-", o.status])
+    for r in resolved["secret"]:
+        rows.append(["Secret", r.kind, f"{r.path}:{r.line}" if r.path else "-", r.status])
+    for r in resolved["dependency"]:
+        rows.append(["Dependency", r.package or "(advisory)", r.manifest or "-", r.status])
+    for c in resolved["config"]:
+        rows.append(["Configuration", c.check, f"{c.path}:{c.line}" if c.path else "-", c.status])
+    return [[i, *row] for i, row in enumerate(rows, 1)]
+
+
 def compare(now: dict, before: dict, excepted: set = frozenset()) -> dict:
     """category -> (new, fixed, still present): what this report lists against the previous one.
 
@@ -1514,10 +1577,12 @@ def main() -> int:
             if not occurrence.ai:
                 occurrence.ai = sdt_advisory.assess(group.rule, occurrence.path, occurrence.line, args.src_root)
     ai = ai or {"engine": "rules"}
+    # Findings already decided in SonarQube leave the sections and the counts (audit appendix only).
+    resolved = split_resolved(found)
     report = Report(project, args.repository or name, scope, args.scope_url, args.commit, source,
                     found["code"], found["secret"], found["dependency"], found["config"], date.today(), ai,
                     None, "", coverage_gaps(args.coverage, args.findings),
-                    args.source_url or bitbucket_base(args.repository, args.commit), args.link_to)
+                    args.source_url or bitbucket_base(args.repository, args.commit), args.link_to, resolved)
     state = report_state(report, args.src_root)
     if args.previous_state and args.previous_state.is_file():
         try:
@@ -1525,7 +1590,8 @@ def main() -> int:
         except (OSError, ValueError):
             before = {}
         if before.get("version") == 1 and before.get("source") == source:
-            report.trend = compare(state, before, excepted_places(doc, args.src_root))
+            report.trend = compare(state, before,
+                                   excepted_places(doc, args.src_root) | resolved_places(resolved, args.src_root))
             report.previous = ", commit ".join(filter(None, (str(before.get("generatedAt") or "")[:10] or
                                                              "the previous run", before.get("commit"))))
         else:
