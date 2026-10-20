@@ -2,6 +2,16 @@
 
 ## 2026-10-20
 
+- Two secret-scanning false positives are no longer reported. A CKEditor 5 license key (an ES256 JWT naming
+  `proxy-event.ckeditor.com`, shipped in the client by design) was flagged as `jwt`, including where Strapi
+  stores it in a content-type `schema.json` and in the generated `types/generated/*.d.ts`; a kebab-case
+  content slug (e.g. `2024-year-end-event`) was flagged as `generic-api-key`. Both are now allowlisted in the
+  built-in secret defaults. The cuts are narrow: a JWT without CKEditor's marker and a mixed-case or
+  high-entropy value are still reported, and dedicated token rules (AWS, Slack, GitHub, ...) are untouched.
+  Takes effect with the next scan after the SDT checkout is updated (no pipeline library change).
+
+## 2026-10-20
+
 - Deeper AI review of code-security findings, to cut false positives a shallow read misses (e.g. a Vue `v-html`
   whose value is sanitised first). The default model is now `gpt-6.1-sol`; the code shown to the model grew
   (64 lines of surrounding code, up from 40; the enclosing function up to 200 lines; more related lines from

@@ -33,6 +33,17 @@ paths = [
   '''(?:^|/)firebase_options\.dart$''',
 ]
 
+[[allowlists]]
+description = "CKEditor 5 license keys are public product keys shipped in the client by design, not credentials. They are ES256 JWTs whose payload names CKEditor's usage endpoint; the match carries the base64url of \"ckeditor\". Strapi stores the key in content-type schema.json and copies it into types/generated/*.d.ts."
+targetRules = ["jwt", "jwt-base64"]
+regexTarget = "match"
+regexes = ['''NrZWRpdG9y''']
+
+[[allowlists]]
+description = "Kebab-case slugs and identifiers (lowercase words joined by hyphens, e.g. a content key like 2024-year-end-event) are not credentials. Scoped to generic-api-key, so dedicated token rules (aws, slack, github, ...) are unaffected."
+targetRules = ["generic-api-key"]
+regexes = ['''^[a-z0-9]{1,24}(?:-[a-z0-9]{1,24}){2,}$''']
+
 # --- Added detections --------------------------------------------------------
 
 [[rules]]
