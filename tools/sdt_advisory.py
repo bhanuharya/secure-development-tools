@@ -9,6 +9,7 @@ rule-specific manual check, so a developer always knows what to look at.
 """
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -54,6 +55,59 @@ ANY_CONFIG_VALUE = re.compile(
         (?P<quote>["']?)(?P<value>[^"'\s#][^#]*?)(?P=quote)(?P<tail>\s*(?:\#.*)?)$""")
 CREDENTIAL_RULE = re.compile(r"(?i)S6437|S2068|S6418|S6290|hardcoded|hard-coded|secrets?[.:-]|private-key")
 QUOTED = re.compile(r"""(["'])((?:(?!\1).)+)\1""")
+
+# Vue/JS HTML-injection hotspots (S6299). A binding is a false positive when the value is produced by a
+# sanitiser/validator, an i18n call, or a constant. Generic markers are matched below; a project adds its own
+# helper names (comma-separated) in SDT_SANITIZERS, so team-specific sanitisers need no code change.
+VUE_BINDING = re.compile(r"""(?:v-html|:inner-?html|v-bind:inner-?html)\s*=\s*(["'])(?P<html>(?:(?!\1).)*)\1"""
+                         r"""|(?::href|v-bind:href)\s*=\s*(["'])(?P<href>(?:(?!\3).)*)\3""", re.I)
+SANITISER = re.compile(r"(?i)sanit|purif|dompurify|escapehtml|escape\(|allow-?list|\bxss\b")
+SAFE_NAME = re.compile(r"(?i)^(safe|validated?|sanit\w*|escaped?|cleaned?|trusted)")
+I18N_CALL = re.compile(r"\$tc?\(|\bi18n\b|\btranslate\b")
+
+
+def _extra_sanitisers() -> re.Pattern | None:
+    names = [n.strip() for n in os.environ.get("SDT_SANITISERS", os.environ.get("SDT_SANITIZERS", "")).split(",") if n.strip()]
+    return re.compile("|".join(re.escape(n) for n in names), re.I) if names else None
+
+
+def _vue_binding(src_root: Path | None, path: str, line: int) -> tuple[str, str] | None:
+    """The v-html or :href binding on or just above the flagged line: (kind, bound expression)."""
+    for n in range(max(1, line - 3), line + 2):
+        text = _line(src_root, path, n)
+        m = VUE_BINDING.search(text) if text else None
+        if m:
+            return ("html", m.group("html")) if m.group("html") is not None else ("href", m.group("href"))
+    return None
+
+
+def _binding_is_safe(expr: str, src_root: Path | None, path: str, extra: re.Pattern | None) -> str:
+    """Why the bound value cannot inject (a short reason), or "" when the code does not show it."""
+    e = (expr or "").strip()
+    if not e or e[0] in "'\"`":
+        return "a constant string" if e else ""
+    core = re.sub(r"\s*\|\|.*$", "", e).strip()  # drop "|| undefined" fallbacks
+    if SANITISER.search(core) or I18N_CALL.search(core) or (extra and extra.search(core)):
+        return "produced by a sanitiser, validator or i18n call"
+    m = re.match(r"[A-Za-z_$][\w$]*", core)
+    head = m.group(0) if m else core
+    prop = core.split("(")[0].split(".")[-1]
+    if SAFE_NAME.match(head) or SAFE_NAME.match(prop):
+        return f"named as sanitised/validated ({head if SAFE_NAME.match(head) else prop})"
+    # Trace: is the variable or property assigned from a sanitiser elsewhere in the same file?
+    if src_root and path:
+        try:
+            lines = (src_root.resolve() / path).read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            lines = []
+        decl = re.compile(rf"(?:const|let|var)\s+{re.escape(head)}\b|[\"']?{re.escape(prop)}[\"']?\s*:")
+        for i, l in enumerate(lines):
+            if decl.search(l):
+                window = "\n".join(lines[i:i + 6])
+                if SANITISER.search(window) or I18N_CALL.search(window) or (extra and extra.search(window)):
+                    return f"'{prop or head}' is assigned from a sanitiser/validator"
+    return ""
+
 
 
 def _kept(value: str) -> bool:
@@ -235,5 +289,15 @@ def assess(rule: str, path: str, line: int, src_root: Path | None) -> dict:
         return note("likely_false_positive",
                     f"The random value near {where} feeds UI or local notification code (placeholder/animation/id).",
                     "Confirm the value never becomes a token, OTP, nonce or server-side id.", record)
+    if text and re.search(r"S6299|v-html|vue.*escap|inner-?html", rule, re.I):
+        binding = _vue_binding(src_root, path, line)
+        if binding:
+            kind, expr = binding
+            why = _binding_is_safe(expr, src_root, path, _extra_sanitisers())
+            if why:
+                tag = "v-html" if kind == "html" else "href"
+                return note("likely_false_positive", f"The {tag} binding at {where} uses a value that is {why}.",
+                            f"Confirm the bound value at {where} still comes only from that sanitiser, validator or "
+                            "constant.", record)
     return note("needs_context", f"The rule matched {where}; the code alone does not settle it." if not text else
                 f"The rule matched {where}: {(redact_credential_line(text, path) if CREDENTIAL_RULE.search(rule) else redact(text, path))[:160]}", check, f"If safe: mark Safe - \"{record}\". Otherwise: {fix}")

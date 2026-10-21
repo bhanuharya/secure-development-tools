@@ -1979,3 +1979,33 @@ def test_a_finding_resolved_in_sonarqube_is_not_counted_as_fixed(tmp_path):
     # Without the resolved places it would read (0, 1, 0) - wrongly "fixed".
     assert sdt_to_docx.compare(now, before) == {"code": (0, 1, 0), "secret": (0, 0, 0), "dependency": (0, 0, 0)}
     assert sdt_to_docx.compare(now, before, sdt_to_docx.resolved_places(resolved, tmp_path))["code"] == (0, 0, 0)
+
+
+def test_s6299_advisory_clears_sanitised_bindings_and_leaves_raw_ones(tmp_path, monkeypatch):
+    monkeypatch.delenv("SDT_SANITISERS", raising=False)
+    monkeypatch.delenv("SDT_SANITIZERS", raising=False)
+    assess = sdt_advisory.assess
+    rule = "typescript:S6299"
+
+    def verdict(name, body, line=1):
+        root = _src(tmp_path, name, body)
+        return assess(rule, name, line, root)
+
+    # Sanitised / validated / i18n / constant bindings are false positives.
+    assert verdict("Safe.vue", '<div v-html="safeBody"></div>\n')["verdict"] == "likely_false_positive"
+    assert verdict("Purify.vue", '<div v-html="DOMPurify.sanitize(raw)"></div>\n')["verdict"] == "likely_false_positive"
+    assert verdict("I18n.vue", "<div v-html=\"$t('hello')\"></div>\n")["verdict"] == "likely_false_positive"
+    assert verdict("Const.vue", "<div v-html=\"'<b>x</b>'\"></div>\n")["verdict"] == "likely_false_positive"
+    assert verdict("Href.vue", '<a :href="validatedUrl">x</a>\n')["verdict"] == "likely_false_positive"
+    # A value assigned from a sanitiser a few lines away is traced.
+    traced = verdict("Trace.vue", '<div v-html="row.answerHtml"/>\n\nconst rows = items.map(x => ({ answerHtml: sanitizeBody(x.html) }))\n')
+    assert traced["verdict"] == "likely_false_positive"
+
+    # Raw CMS/API HTML, and a bare href to a config field, are not auto-cleared.
+    assert verdict("RawHtml.vue", '<div v-html="detailBody"></div>\n\nconst detailBody = computed(() => cms.value.body)\n')["verdict"] == "needs_context"
+    assert verdict("RawHref.vue", '<a :href="item.url">x</a>\n')["verdict"] == "needs_context"
+
+    # A project names its own sanitiser helper; then the binding it produces is a false positive too.
+    monkeypatch.setenv("SDT_SANITISERS", "toTrustedMarkup")
+    proj = verdict("Proj.vue", '<div v-html="row.body"/>\n\nconst rows = items.map(x => ({ body: toTrustedMarkup(x.v) }))\n')
+    assert proj["verdict"] == "likely_false_positive"

@@ -77,7 +77,7 @@ It never changes a SonarQube status or an SDT verdict.
 what to fix, what to record when Safe), and a conclusion only on strong signals in the flagged line: test or
 example code, a log of static text, an XML namespace URL, random values used for UI/notification ids (false
 positives), or a PIN/password/token variable interpolated into a log (real issue). Same input, same report.
-A generic rule-based check is printed once per rule in the grouped layout.
+A generic rule-based check is printed once per rule in the grouped layout. For Vue/JS HTML-injection hotspots (`S6299`, `v-html`/`innerHTML`/`:href`) it reads the binding and calls it a false positive when the bound value is a constant, an i18n string, named as sanitised/validated (`safe*`/`validated*`), or produced by a sanitiser or validator - matched generically (`sanitize`, `DOMPurify`, `escapeHtml`, allow-list, ...) or by the helper names a project lists in `SDT_SANITISERS` (comma-separated). A bare binding to raw CMS/API data or an unguarded `:href` stays a manual check.
 
 **Optional model review** (`tools/sdt_triage_codex.py`): when the `codex` CLI is installed and logged in, the
 code findings are sent, rule by rule, to Codex (`SDT_CODEX_MODEL`, default `gpt-6-luna`) with the enclosing
