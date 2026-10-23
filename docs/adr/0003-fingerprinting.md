@@ -1,7 +1,9 @@
 # ADR 0003: sdt-v1 fingerprint algorithm
 
 Date: 2026-09-04
-Status: accepted (PRD D-04)
+Status: superseded on the algorithm (see note below); the decision to own fingerprinting in-tree (PRD D-04) still stands
+
+> **Superseded algorithm:** the runtime now emits `sdt-v2` (`FingerprintVersion` in `internal/finding/finding.go`), which adds the start line as a last-resort disambiguator for true duplicates and an explicit empty trailing field. The `sdt-v1` formula below is kept for history. The drift is recorded in `docs/known-limits.md`; a correct ADR rewrite is still open. Baselines carrying a `sdt-v1` algorithm tag still fail closed.
 
 ## Context
 
