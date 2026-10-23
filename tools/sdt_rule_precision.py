@@ -12,7 +12,7 @@ and a recommendation once there is enough evidence:
 
 Precision is only reported for reviewed findings; it is never extrapolated to recall.
 
-  python3 tools/sdt_rule_precision.py --database sqlite:///fleet.db [--min-reviewed 5] [--csv out.csv]
+  python3 tools/sdt_rule_precision.py --database sqlite:///sdt-fleet.db [--min-reviewed 5] [--csv out.csv]
 """
 from __future__ import annotations
 
