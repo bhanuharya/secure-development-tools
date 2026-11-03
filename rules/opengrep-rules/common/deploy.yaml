@@ -1,0 +1,49 @@
+# Deployment files that start a development server.
+# Compose files are left out: most of them describe a local development setup.
+rules:
+  - id: scp.common.deploy.dev-server-start
+    languages: [generic]
+    message: >-
+      This starts a development server (such as strapi develop, npm run dev, vite, next dev or
+      flask run) from a container image, a Kubernetes manifest, a PM2 file or a Procfile.
+      Development servers are not built to be exposed: Strapi's develop mode and Vite serve
+      project files under /@fs/ without authentication, add hot-reload and debug routes, and
+      skip production settings. Build the application and start its production server
+      (strapi start, next start, nuxt start, node on the build output, gunicorn).
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-489", "CWE-552"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      confidence: HIGH
+    paths:
+      include: ["Dockerfile", "Dockerfile.*", "*.Dockerfile", "*.dockerfile", "Containerfile", "Containerfile.*", "*.yaml", "*.yml", "Procfile", "Procfile.*", "ecosystem.config.*", "pm2*.json", "pm2*.config.*"]
+      exclude: ["Dockerfile.dev", "Dockerfile.local", "*.dev.Dockerfile", "dev.Dockerfile", "**/.devcontainer/**", "docker-compose*", "compose.y*ml", "compose.*.y*ml", "*.dev.y*ml", "*.local.y*ml", "**/.github/**", ".gitlab-ci.yml", "bitbucket-pipelines.yml", "**/.circleci/**", "azure-pipelines*.yml"]
+    pattern-either:
+      # Dockerfile CMD or ENTRYPOINT
+      - pattern-regex: '(?im)^\s*(?:CMD|ENTRYPOINT)\b[^\n]*?(?<![\w@/.-])(?:strapi["'',\s]+(?:develop|dev)|(?:npm|yarn|pnpm|bun)(?:["'',\s]+run)?["'',\s]+(?:develop|dev|serve|start:dev)|next["'',\s]+dev|nuxi?["'',\s]+dev|ng["'',\s]+serve|vue-cli-service["'',\s]+serve|webpack["'',\s]+serve|webpack-dev-server|react-scripts["'',\s]+start|vite(?:["'',\s]+(?:serve|dev))?(?=["''\s,]*(?:$|--|\]))|flask["'',\s]+run|manage\.py["'',\s]+runserver)(?![\w:.-])'
+      # Kubernetes, Helm or PM2 command on one line
+      - pattern-regex: '(?im)^\s*-?\s*["'']?(?:command|args|entrypoint|script|cmd)["'']?\s*[:=]\s*[^\n]*?(?<![\w@/.-])(?:strapi["'',\s]+(?:develop|dev)|(?:npm|yarn|pnpm|bun)(?:["'',\s]+run)?["'',\s]+(?:develop|dev|serve|start:dev)|next["'',\s]+dev|nuxi?["'',\s]+dev|ng["'',\s]+serve|vue-cli-service["'',\s]+serve|webpack["'',\s]+serve|webpack-dev-server|react-scripts["'',\s]+start|vite(?:["'',\s]+(?:serve|dev))?(?=["''\s,]*(?:$|--|\]))|flask["'',\s]+run|manage\.py["'',\s]+runserver)(?![\w:.-])'
+      # PM2: script 'npm' with args 'run develop'
+      - pattern-regex: '(?im)^\s*args\s*:\s*["''`](?:run\s+)?(?:develop|dev)["''`]'
+      # Procfile process
+      - pattern-regex: '(?im)^(?:web|worker|app)\s*:\s*[^\n]*?(?<![\w@/.-])(?:strapi["'',\s]+(?:develop|dev)|(?:npm|yarn|pnpm|bun)(?:["'',\s]+run)?["'',\s]+(?:develop|dev|serve|start:dev)|next["'',\s]+dev|nuxi?["'',\s]+dev|ng["'',\s]+serve|vue-cli-service["'',\s]+serve|webpack["'',\s]+serve|webpack-dev-server|react-scripts["'',\s]+start|vite(?:["'',\s]+(?:serve|dev))?(?=["''\s,]*(?:$|--|\]))|flask["'',\s]+run|manage\.py["'',\s]+runserver)(?![\w:.-])'
+      # Kubernetes command or args as a block list
+      - pattern-regex: '(?im)^\s*-?\s*(?:command|args)\s*:\s*\n(?:\s*-\s*[^\n]*\n){0,3}?\s*-\s*["'']?(?:npm|yarn|pnpm|bun|npx|strapi|next|nuxi?)["'']?\s*\n(?:\s*-\s*["'']?run["'']?\s*\n)?\s*-\s*["'']?(?:develop|dev)["'']?\s*$'
+
+  - id: scp.common.deploy.start-script-dev-server
+    languages: [generic]
+    message: >-
+      The start script runs a development server. Images and process managers usually run
+      npm start, so a deployment that looks right (CMD ["npm", "start"]) still runs develop
+      mode. Point start at the production server (strapi start, next start, nuxt start) and
+      keep the development server under dev or develop.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-489"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      confidence: MEDIUM
+    paths:
+      include: ["package.json"]
+    pattern-regex: '(?m)^\s*"(?:start|serve|prod|production)"\s*:\s*"[^"\n]*?(?<![\w@/.-])(?:strapi\s+(?:develop|dev)|next\s+dev|nuxi?\s+dev)(?![\w:.-])'

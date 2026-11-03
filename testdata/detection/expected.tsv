@@ -36,3 +36,7 @@ python/path.py	path traversal	22	rules
 python/settings.py	weak hash	327,328,326	rules
 python/sqli.py	SQL injection	89	rules
 python/ssrf.py	server-side request forgery	918	rules
+node/env-fallback.js	secret read from the environment with a literal fallback	798,1188	rules
+python/env_fallback.py	secret read from the environment with a literal fallback	798,1188	rules
+java/application.yml	secret placeholder with a literal default	798,1188	rules
+deploy/Dockerfile	development server started by the container image	489,552	rules

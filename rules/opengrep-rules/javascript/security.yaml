@@ -61,3 +61,44 @@ rules:
               - pattern: https.get($URL, ...)
               - pattern: https.request($URL, ...)
           - focus-metavariable: $URL
+
+  - id: scp.javascript.secrets.env-fallback-literal
+    languages: [javascript, typescript]
+    message: >-
+      This secret is read from the environment with a literal fallback. When the variable is
+      not set, the application starts normally with this value, and anyone who can read the
+      code or the deployed files has it. Read the variable without a default so start-up fails
+      when it is missing, then rotate the value.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-798", "CWE-1188"]
+      owasp: ["A07:2021 - Identification and Authentication Failures"]
+      confidence: HIGH
+    # File-name patterns only: the engine matches these against the whole path, so a folder
+    # pattern like **/tests/** would also switch the rule off under a parent folder of that name.
+    paths:
+      exclude: ["**/__tests__/**", "**/__mocks__/**", "*.spec.*", "*.example.*"]
+    patterns:
+      - pattern-either:
+          # Strapi's config helper: env('ADMIN_JWT_SECRET', '...'), env.array('APP_KEYS', [...])
+          - pattern: env($NAME, "$VALUE")
+          - pattern: env.$KIND($NAME, "$VALUE")
+          - pattern: env.array($NAME, [..., "$VALUE", ...])
+          - pattern: process.env.$NAME || "$VALUE"
+          - pattern: process.env.$NAME ?? "$VALUE"
+          - pattern: process.env[$NAME] || "$VALUE"
+          - pattern: process.env[$NAME] ?? "$VALUE"
+          # NestJS ConfigService and similar: config.get('JWT_SECRET', '...')
+          - patterns:
+              - pattern: $CONFIG.get($NAME, "$VALUE")
+              - metavariable-regex:
+                  metavariable: $CONFIG
+                  regex: (?i).*config
+      - metavariable-regex:
+          metavariable: $NAME
+          regex: >-
+            (?i)^["'`]?(?=[A-Z0-9_.-]*?(?:SECRET|SALT|PASSWORD|PASSWD|(?<![A-Z0-9])PASS(?![A-Z0-9])|_PWD(?![A-Z0-9])|PRIVATE_?KEY|API_?KEY|ACCESS_?KEY|ENCRYPTION_?KEY|SIGNING_?KEY|MASTER_?KEY|APP_?KEYS|TOKEN|CREDENTIAL))(?![A-Z0-9_.-]*?_(?:TTL|EXPIRES?|EXPIRES_IN|EXPIRY|EXPIRATION|LIFETIME|MAX_AGE|DURATION|URL|URI|ENDPOINT|HOST|PORT|HEADER|NAME|TYPE|PATH|FILE|DIR|LENGTH|LEN|ALGORITHM|ALG|ISSUER|AUDIENCE|PREFIX|FIELD|COOKIE|ROUNDS|SIZE|ENABLED|REQUIRED|POLICY|REGEX|ID|MIN|MAX|FORMAT|VERSION)["'`]?$)[A-Z0-9_.-]+["'`]?$
+      - metavariable-regex:
+          metavariable: $VALUE
+          regex: ^.+$

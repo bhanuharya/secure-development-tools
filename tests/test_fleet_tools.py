@@ -1318,6 +1318,58 @@ def test_rule_based_advisory_is_deterministic_and_only_concludes_on_strong_signa
     assert manual["confidence"] == "rule-based"
 
 
+def test_fallback_secrets_and_dev_servers_get_their_own_advice_not_the_constant_one(tmp_path):
+    literal = "fallback-" + "q" * 16  # built at runtime: no secret-shaped literal in the source
+    root = _src(tmp_path, "config/admin.js",
+                "module.exports = ({ env }) => ({\n  auth: { secret: env('ADMIN_JWT_SECRET', '" + literal + "') },\n});\n")
+    _src(tmp_path, "Dockerfile", 'CMD ["npm", "run", "develop"]\n')
+    assess = sdt_advisory.assess
+    secret = assess("external_opengrep:scp.javascript.secrets.env-fallback-literal", "config/admin.js", 2, root)
+    # The generic advice calls a constant a false positive; for a fallback the constant is the leak.
+    assert secret["verdict"] == "needs_context" and secret["check"] != sdt_advisory.GENERIC[0]
+    assert "sets the variable" in secret["check"] and "rotate the value" in secret["suggested_fix"]
+    assert literal not in json.dumps(secret)
+    spring = assess("external_opengrep:scp.common.secrets.placeholder-default-literal", "config/admin.js", 2, root)
+    assert spring["check"] == secret["check"]
+    dev = assess("external_opengrep:scp.common.deploy.dev-server-start", "Dockerfile", 1, root)
+    assert dev["verdict"] == "needs_context" and "production server" in dev["suggested_fix"]
+    start = assess("external_opengrep:scp.common.deploy.start-script-dev-server", "Dockerfile", 1, root)
+    assert start["check"] == dev["check"]
+
+
+def test_redaction_withholds_the_literal_default_of_a_secret_lookup():
+    # Built at runtime: no secret-shaped literal in the source.
+    a, b, c, d, e, f, g = (f"lit{n}" + "z" * 12 for n in range(7))
+    code = "\n".join([
+        f"auth: {{ secret: env('ADMIN_JWT_SECRET', '{a}') }},",
+        f"apiToken: {{ salt: env('API_TOKEN_SALT', \"{b}\") }},",
+        f"app: {{ keys: env.array('APP_KEYS', ['{c}', '{d}']) }},",
+        f"const jwt = process.env.JWT_SECRET || '{e}';",
+        f'DB_PASSWORD = os.getenv("DB_PASSWORD") or "{f}"',
+        f"jwt.secret=${{JWT_SECRET:{g}}}",
+        "host: env('DATABASE_HOST', 'db.internal'),",
+        "strict: env('ADMIN_JWT_SECRET', ''),",
+        "placeholder: env('ADMIN_JWT_SECRET', 'changeme'),",
+    ])
+    shown = sdt_advisory.redact(code)
+    assert not [v for v in (a, b, c, d, e, f, g) if v in shown]
+    assert "ADMIN_JWT_SECRET" in shown and "API_TOKEN_SALT" in shown  # names stay readable
+    assert "'db.internal'" in shown and "env('ADMIN_JWT_SECRET', '')" in shown and "'changeme'" in shown
+    # The same through an excerpt where the fallback is a neighbouring line, not the flagged one.
+    excerpt = sdt_advisory.redact_lines({1: code.splitlines()[1], 2: code.splitlines()[0]}, "config/admin.js", {1})
+    assert a not in excerpt[2] and b not in excerpt[1]
+
+
+def test_triage_prompt_does_not_clear_a_literal_fallback_because_the_variable_can_override_it():
+    group = sdt_to_docx.Group("external_opengrep:scp.javascript.secrets.env-fallback-literal", "n", "Finding", "High")
+    occurrence = sdt_to_docx.Occurrence("config/database.js", 9, "m", "OPEN", "")
+    code = "password: env('DATABASE_PASSWORD', '[REDACTED]'),"
+    for second in (False, True):
+        prompt = sdt_triage_codex.build_prompt(group, [("o1", occurrence, code)], second=second)
+        assert "Causes 2 and 4 never clear a hard-coded secret" in prompt
+        assert "${X:...}" in prompt and "not a reason to call the finding a false positive" in prompt
+
+
 def test_secrets_group_by_type_and_file_and_client_keys_are_restricted_not_rotated():
     Row = sdt_to_docx.SecretRow
     rows = [Row("gcp-api-key", "android/app/google-services.json", 23, "aaa", "Current code", "High"),

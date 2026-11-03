@@ -1,0 +1,4 @@
+app:
+  jwt:
+    # Runs with this key whenever JWT_SECRET is not set.
+    secret: ${JWT_SECRET:dev-only-jwt-secret-change-me}

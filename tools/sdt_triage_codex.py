@@ -45,7 +45,7 @@ DEFAULT_MODEL = "gpt-6.1-sol"
 VERDICTS = ("likely_true_positive", "likely_false_positive", "needs_context")
 CONFIDENCE = ("low", "medium", "high")
 CONTEXT_LINES = 64  # lines of surrounding code: enough to see where a flagged value comes from and how it is sanitised
-PROMPT_VERSION = "3"  # part of every remembered verdict: change it when the prompt or context changes
+PROMPT_VERSION = "4"  # part of every remembered verdict: change it when the prompt or context changes
 MAX_REASON = 400
 
 RESPONSE_SCHEMA = {
@@ -252,6 +252,12 @@ For each occurrence, first check these false-positive causes against the code sh
 4. The framework or API used is safe by default for this case, or the risky option is disabled.
 5. The code is unreachable, debug-only, or behind a check that makes the risk impossible.
 6. The rule matched something that only looks like the pattern (a name, a comment, a string).
+
+Causes 2 and 4 never clear a hard-coded secret, key, salt, token, password or address: the
+literal is the problem. A literal default in an environment or configuration lookup
+(env('X', '...'), process.env.X || '...', os.getenv('X', '...'), ${{X:...}}) is what the
+application runs with whenever the variable is not set. That the variable can override it is
+not a reason to call the finding a false positive.
 
 Then decide:
 - likely_false_positive: one of the causes above clearly applies - name the line or call.
