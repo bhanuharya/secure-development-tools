@@ -2009,3 +2009,19 @@ def test_s6299_advisory_clears_sanitised_bindings_and_leaves_raw_ones(tmp_path, 
     monkeypatch.setenv("SDT_SANITISERS", "toTrustedMarkup")
     proj = verdict("Proj.vue", '<div v-html="row.body"/>\n\nconst rows = items.map(x => ({ body: toTrustedMarkup(x.v) }))\n')
     assert proj["verdict"] == "likely_false_positive"
+
+
+def test_report_keeps_two_secrets_that_history_puts_on_one_line(tmp_path):
+    root = _src(tmp_path, "config/admin.js", "module.exports = ({ env }) => ({\n"
+                "  apiToken: { salt: env('API_TOKEN_SALT', 'x') },\n  auth: { secret: env('ADMIN_JWT_SECRET', 'y') },\n});\n")
+
+    def leak(commit, match):
+        return {"category": "secret", "rule": {"id": "generic-api-key"}, "severity": {"canonical": "high"},
+                "scanner": {"adapter": "gitleaks"}, "location": {"path": "config/admin.js", "startLine": 2},
+                "metadata": {"commit": commit}, "evidence": {"text": match}}
+
+    doc = {"findings": [leak("2" * 40, "API_TOKEN_SALT', '[REDACTED]'"), leak("1" * 40, "ADMIN_JWT_SECRET', '[REDACTED]'")]}
+    merged = sdt_to_docx.merge(sdt_to_docx.from_findings(doc, root), None)
+    assert len(merged["secret"]) == 2
+    (group,) = sdt_to_docx.group_secrets(merged["secret"])
+    assert group.count == 2 and len(group.commits) == 2 and group.places == {"Current code"}
