@@ -1,0 +1,66 @@
+# Annotated tests for deploy.yaml. The engine's test mode ignores the rules' path filters,
+# so every file type is exercised from this one plain-text fixture.
+# Dockerfile
+# ruleid: scp.common.deploy.dev-server-start
+CMD ["yarn", "develop"]
+# ruleid: scp.common.deploy.dev-server-start
+CMD ["npm", "run", "develop"]
+# ruleid: scp.common.deploy.dev-server-start
+CMD npm run dev
+# ruleid: scp.common.deploy.dev-server-start
+ENTRYPOINT ["npx", "strapi", "develop"]
+# ruleid: scp.common.deploy.dev-server-start
+CMD ["npx", "vite", "--host", "0.0.0.0"]
+# ruleid: scp.common.deploy.dev-server-start
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+# ok: scp.common.deploy.dev-server-start
+CMD ["yarn", "start"]
+# ok: scp.common.deploy.dev-server-start
+CMD ["sh", "-c", "npm run build && npm run start"]
+# ok: scp.common.deploy.dev-server-start
+RUN npm run dev:css && npx vite build
+# ok: scp.common.deploy.dev-server-start
+CMD ["npx", "vite", "preview"]
+# ok: scp.common.deploy.dev-server-start
+CMD ["gunicorn", "app.wsgi"]
+# Kubernetes / Helm
+# ruleid: scp.common.deploy.dev-server-start
+          command: ["yarn", "develop"]
+# ruleid: scp.common.deploy.dev-server-start
+          command:
+            - yarn
+            - develop
+# ruleid: scp.common.deploy.dev-server-start
+          args:
+            - npm
+            - run
+            - dev
+# ok: scp.common.deploy.dev-server-start
+          command: ["node", "dist/server.js"]
+# ok: scp.common.deploy.dev-server-start
+          args:
+            - --mode
+            - dev
+# PM2 ecosystem file
+# ruleid: scp.common.deploy.dev-server-start
+      args: 'run develop',
+# ruleid: scp.common.deploy.dev-server-start
+      script: 'npm run develop',
+# ok: scp.common.deploy.dev-server-start
+      args: 'run start',
+# Procfile
+# ruleid: scp.common.deploy.dev-server-start
+web: yarn develop
+# ok: scp.common.deploy.dev-server-start
+web: yarn start
+# package.json
+# ruleid: scp.common.deploy.start-script-dev-server
+    "start": "strapi develop",
+# ruleid: scp.common.deploy.start-script-dev-server
+    "start": "next dev -p 3000",
+# ok: scp.common.deploy.start-script-dev-server
+    "develop": "strapi develop",
+# ok: scp.common.deploy.start-script-dev-server
+    "start": "strapi start",
+# ok: scp.common.deploy.start-script-dev-server
+    "start": "react-scripts start",

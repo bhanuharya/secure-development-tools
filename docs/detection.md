@@ -129,3 +129,10 @@ into pages and SQL built from request data, in the application's own files.
 3. `sdt rules verify`, the detection test, and the Benchmark score before and after.
 4. Scan a few real repositories and read the new findings and the scan time before
    the rule ships.
+
+A rule's `paths` filters are matched against the whole path the engine is given,
+including folders above the scanned repository. An exclude such as `**/tests/**`
+switches the rule off for every file when the checkout sits under a folder named
+`tests`. Exclude by file name (`*.spec.*`, `test_*.py`) instead. The engine's test
+mode ignores `paths`, so `sdt rules verify` does not catch this: check it with a real
+scan.

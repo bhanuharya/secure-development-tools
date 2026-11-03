@@ -32,9 +32,18 @@ SECRET_PATTERNS = [
     re.compile(r"\beyJ[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}\b"),
     re.compile(r"\bsqu_[0-9a-f]{20,}\b"),
 ]
-SECRET_WORD = r"password|passwd|pwd|passphrase|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credentials?"
+SECRET_WORD = r"password|passwd|pwd|passphrase|secret|token|salt|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credentials?"
 SECRET_ASSIGNMENT = re.compile(
     rf"""(?i)((?:{SECRET_WORD}|auth)["']?\s*[:=]\s*)(["'])([^"'\s]+)\2""")
+# A literal default of a secret lookup is the value the application runs with when the variable is missing:
+# env('JWT_SECRET', 'x'), env.array('APP_KEYS', ['a', 'b']), os.getenv("DB_PASSWORD", default="x"),
+# process.env.JWT_SECRET || 'x', os.getenv("DB_PASSWORD") or "x", ${JWT_SECRET:x}.
+SECRET_NAME = rf"[\w.-]*(?:{SECRET_WORD}|app[_-]?keys)[\w.-]*"
+LOOKUP_DEFAULT = re.compile(
+    rf"""(?i)(\(\s*(["'`]){SECRET_NAME}\2\s*,\s*(?:default\s*=\s*)?)(\[[^\]\n]*\]|(["'`])[^"'`\n]*\4)""")
+LOOKUP_OR = re.compile(
+    rf"""(?i)(\b(?:env|environ|getenv)\b[^\n|?]{{0,40}}?{SECRET_NAME}["'`\])]{{0,3}}\s*(?:\|\||\?\?|\bor\b)\s*)(["'`])([^"'`\n]+)\2""")
+PLACEHOLDER_DEFAULT = re.compile(rf"""(?i)(\$\{{{SECRET_NAME}:)([^}}\n]+)(\}})""")
 # Values that say "a secret goes here" rather than being one. They stay readable: seeing that the flagged
 # "password" is the word password, changeit or ${DB_PASSWORD} is how a reviewer recognises a false positive.
 PLACEHOLDER = re.compile(r"""(?ix)^(?: pass(?:word|wd)? | pwd | secret | changeit | change[-_ ]?me | admin | root
@@ -127,6 +136,19 @@ def redact(text: str, path: str = "", withheld: set | None = None) -> str:
 
     for pattern in SECRET_PATTERNS:
         text = pattern.sub("[REDACTED]", text)
+
+    def default(m: re.Match) -> str:
+        value = m.group(3)
+        if value.startswith("["):  # an array of defaults: each element is one
+            return m.group(1) + QUOTED.sub(lambda q: hide(q.group(2), q.group(0), f"{q.group(1)}[REDACTED]{q.group(1)}"), value)
+        quote = value[0]
+        if len(value) == 2:  # '' is no default at all
+            return m.group(0)
+        return hide(value[1:-1], m.group(0), f"{m.group(1)}{quote}[REDACTED]{quote}")
+
+    text = LOOKUP_DEFAULT.sub(default, text)
+    text = LOOKUP_OR.sub(lambda m: hide(m.group(3), m.group(0), f"{m.group(1)}{m.group(2)}[REDACTED]{m.group(2)}"), text)
+    text = PLACEHOLDER_DEFAULT.sub(lambda m: hide(m.group(2), m.group(0), f"{m.group(1)}[REDACTED]{m.group(3)}"), text)
     text = SECRET_ASSIGNMENT.sub(
         lambda m: hide(m.group(3), m.group(0), f"{m.group(1)}{m.group(2)}[REDACTED]{m.group(2)}"), text)
     text = PROSE_VALUE.sub(lambda m: hide(m.group(2), m.group(0), f"{m.group(1)}`[REDACTED]`"), text)
@@ -177,6 +199,17 @@ def redact_lines(lines: dict[int, str], path: str = "", flagged: frozenset | set
 
 # rule key pattern -> (what to check to decide, fix if it is real, what to record if it is safe)
 RULE_CHECKS = [
+    # Before the generic advice: "a constant is a false positive" is wrong for these two families.
+    (re.compile(r"env-fallback-literal|placeholder-default-literal"),
+     "Check whether every environment that runs this code sets the variable. Even where it does, the literal is "
+     "readable by anyone with the code or the deployed files, so treat it as exposed.",
+     "Read the variable without a default so start-up fails when it is missing, then rotate the value.",
+     "literal is not a usable credential (the application rejects it at start-up)"),
+    (re.compile(r"dev-server-start|start-script-dev-server"),
+     "Check whether this file, or the start script it runs, is used in a shared or public environment (test, "
+     "staging, production). A development server there is a real issue.",
+     "Build once and start the production server (strapi start, next start, nuxt start, node on the build output).",
+     "file used only for local development"),
     (re.compile(r"S6299|v-html|vue.*escap"),
      "Check the bound value: safe if it is a constant, an i18n string, or a URL that passed your allow-list "
      "validator; a real issue if it carries user or API data into v-html, innerHTML or an href.",
