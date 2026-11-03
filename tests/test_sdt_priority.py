@@ -157,3 +157,40 @@ def test_a_generic_secret_named_as_a_signing_key_or_password_is_p1(match, level)
 def test_a_name_does_not_change_a_client_key():
     assert prio.secret("gcp-api-key", "android/app/google-services.json", client_key=True,
                        names=["password REDACTED"]).level == "P3"
+
+
+@pytest.mark.parametrize("match,level", [
+    ("CONTACT_FORM_RECAPTCHA_SECRET_KEY=[REDACTED]", "P2"), ("HCAPTCHA_SECRET_KEY=[REDACTED]", "P2"),
+    ("TURNSTILE_SECRET_KEY: [REDACTED]", "P2"), ("STRIPE_SECRET_KEY=[REDACTED]", "P1"),
+])
+def test_a_bot_check_secret_key_is_not_raised_as_a_signing_key(match, level):
+    # A reCAPTCHA, hCaptcha or Turnstile secret verifies answers with the provider; it forges nothing.
+    assert prio.secret("generic-api-key", "src/config.ts", names=[match]).level == level
+
+
+@pytest.mark.parametrize("match", [
+    "NUXT_PUBLIC_RECAPTCHA_SITE_KEY=[REDACTED]", "STRIPE_PUBLISHABLE_KEY=[REDACTED]", "SUPABASE_ANON_KEY=[REDACTED]",
+])
+def test_a_generic_secret_named_as_public_by_design_is_one_step_lower(match):
+    p = prio.secret("generic-api-key", "src/config.ts", names=[match])
+    assert p.level == "P3" and "named as a key that is public by design ↓" in p.why
+
+
+def test_a_public_key_beside_a_real_secret_lowers_nothing():
+    names = ["SITE_KEY=[REDACTED]", "DATABASE_PASSWORD=[REDACTED]"]
+    assert prio.secret("generic-api-key", "src/config.ts", names=names).level == "P1"
+    assert prio.secret("generic-api-key", "src/config.ts", names=["SITE_KEY=[REDACTED]", "api_key=[REDACTED]"]).level == "P2"
+
+
+@pytest.mark.parametrize("path,where", [
+    (".env.example", "not shipped"), ("app/.env.sample", "not shipped"), ("config/settings.py.example", "not shipped"),
+    ("example.env", "not shipped"), (".env", "shipped"), ("nginx/default.conf.template", "shipped"),
+])
+def test_example_and_sample_files_are_not_shipped(path, where):
+    assert prio.place(path) == where
+
+
+def test_a_template_env_file_with_a_bot_check_key_is_planned_not_urgent():
+    names = ["NUXT_PUBLIC_CONTACT_FORM_RECAPTCHA_SITE_KEY=[REDACTED]", "CONTACT_FORM_RECAPTCHA_SECRET_KEY=[REDACTED]"]
+    p = prio.secret("generic-api-key", ".env.example", names=names)
+    assert p.level == "P3" and p.why == "generic key or token; test, example or documentation file ↓"

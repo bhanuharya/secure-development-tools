@@ -29,7 +29,7 @@ findings with a Why column.
    | | Raised | Lowered |
    |---|---|---|
    | Code | the review judged it real (not at low confidence) | test, example or documentation file; internal service, for rules an attacker exploits by reaching it (injection, cross-site scripting, server-side request forgery, path traversal, deserialisation, debug and development servers); low criticality |
-   | Secrets | a generic secret named as a signing key or password (JWT secret, salt, `SECRET_KEY`, password); file served to browsers; public repository | test, example or documentation file |
+   | Secrets | a generic secret named as a signing key or password (JWT secret, salt, `SECRET_KEY`, password; not a bot check's secret such as reCAPTCHA's, which forges nothing); file served to browsers; public repository | test, example or documentation file (`.env.example` included); a generic secret named as public by design (site, publishable or anonymous key) |
    | Dependencies | | not imported by any scanned source file; manifest of a test or example; internal service; low criticality |
    | Configuration | | test, example or documentation file; low criticality |
 
@@ -57,7 +57,8 @@ findings with a Why column.
 - A report for an internal service is shorter at the top. One scan of a CMS has 35 P1 and 104 P2 findings with
   the service recorded as internet-facing, and 4 and 37 with it recorded as internal; every secret stays at the top
   either way.
-- Secret values are never read for this: a generic secret's name comes from the scanner's redacted match.
+- Secret values are never read for this: a generic secret's name comes from the scanner's redacted match. A name
+  can mislead (a real secret stored as `SITE_KEY`), so it moves a secret one step and no more.
 - The inventory has to be kept up to date. A label that goes stale hides nothing (two steps at most), but it can
   rank an exposed service too low. Reading exposure from deployment manifests (Ingress, LoadBalancer) once the
   deployment repository is scanned would remove the hand-kept list.

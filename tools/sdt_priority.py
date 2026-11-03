@@ -49,7 +49,8 @@ EXPOSURE_TEXT = {"internet": "reachable from the internet", "internal": "interna
 NOT_SHIPPED = re.compile(
     r"(^|/)(tests?|specs?|__tests__|__mocks__|mocks?|fixtures?|testdata|test-?data|e2e|cypress|playwright|"
     r"integration_test|examples?|samples?|docs?|documentation|stories|\.storybook|benchmarks?)(/|$)"
-    r"|[._-](test|spec|stories)\.[a-z0-9]+$|(^|/)test_[^/]+\.py$|(^|/)conftest\.py$", re.I)
+    r"|[._-](test|spec|stories)\.[a-z0-9]+$|(^|/)test_[^/]+\.py$|(^|/)conftest\.py$"
+    r"|\.(example|sample)$|(^|/)(example|sample)\.env$", re.I)
 # Files a web server hands to every visitor: whatever they hold is public.
 SERVED = re.compile(r"(^|/)(public|static|wwwroot|www|htdocs|dist)/|\.html?$", re.I)
 
@@ -76,6 +77,12 @@ GENERIC_SECRET = re.compile(r"(?i)^(generic|jwt$|jwt-|secret$)")
 SIGNING_OR_PASSWORD_NAME = re.compile(
     r"(?i)(jwt|session|signing|cookie|encryption|master|app)[_.-]?(secret|key)s?|secret[_.-]?key(?![_.-]?(id|name))"
     r"|salt|pass(word|wd)|(^|[^a-z])pwd([^a-z]|$)|private[_.-]?key")
+# A bot check's secret (reCAPTCHA, hCaptcha, Turnstile) only asks the provider whether a visitor passed: it
+# signs and forges nothing, so its SECRET_KEY name does not raise it.
+BOT_CHECK_NAME = re.compile(r"(?i)captcha|turnstile")
+# Keys made to be handed to every visitor: a bot check's site key, a payment form's publishable key, a
+# hosted database's anonymous key.
+PUBLIC_BY_DESIGN_NAME = re.compile(r"(?i)(^|[^a-z])(site|publishable|anon)[_.-]?key")
 
 
 @dataclass(frozen=True)
@@ -181,7 +188,7 @@ def secret(kind: str, paths: list[str] | str, client_key: bool = False, ctx: Con
     else:
         start, base = 0, "working credential by its format"
     raises, lowers = [], []
-    if generic and any(SIGNING_OR_PASSWORD_NAME.search(n or "") for n in names):
+    if generic and any(SIGNING_OR_PASSWORD_NAME.search(n or "") and not BOT_CHECK_NAME.search(n or "") for n in names):
         raises.append("named as a signing key or password")
     if not client_key and any(place(p) == "served" for p in paths):
         raises.append("in a file served to browsers")
@@ -189,6 +196,8 @@ def secret(kind: str, paths: list[str] | str, client_key: bool = False, ctx: Con
         raises.append("public repository")
     if paths and all(place(p) == "not shipped" for p in paths):
         lowers.append("test, example or documentation file")
+    if generic and names and all(PUBLIC_BY_DESIGN_NAME.search(n or "") for n in names):
+        lowers.append("named as a key that is public by design")
     return decide(start, base, raises, lowers)
 
 
@@ -294,8 +303,10 @@ def rules_text(ctx: Context) -> list[str]:
         "certificate checks and cross-site request forgery are not: they work without reaching the service directly.",
         "Secrets: a credential recognisable by its format (private key, cloud or service token, password in a URL) "
         "starts at P1, a generic key or token at P2, a client key that ships in the app at P3. Raised when its name "
-        "says it signs sessions or is a password (a JWT secret, a salt, SECRET_KEY, a password), when the file is "
-        "served to browsers or the repository is public; lowered in test, example or documentation files. The "
+        "says it signs sessions or is a password (a JWT secret, a salt, SECRET_KEY, a password; not a bot check's "
+        "secret such as reCAPTCHA's), when the file is served to browsers or the repository is public. Lowered in "
+        "test, example or documentation files (.env.example included), and when its name says it is public by "
+        "design (a site, publishable or anonymous key). The "
         "service's exposure does not count: everyone who can read the repository has the value.",
         "Dependencies: lowered when no scanned source file imports the package, when the manifest belongs to a test "
         "or an example, and for an internal service.",
