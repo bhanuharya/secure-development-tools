@@ -27,11 +27,12 @@ leaves Needs a Decision, Fix First and the Review Notes.
 | Page | Content |
 |---|---|
 | Cover | Logo (when supplied), scope link, metadata (scanners, totals, coverage gaps), Executive Summary, Findings Summary, Changes Since Previous Scan, contents (a Word TOC field with clickable entries) |
-| Fix First | Ordered to-do list: 1 confirmed real issues, 2 secrets still in the code, 3 other open Critical/High code vulnerabilities, 4 Critical/High packages that have a fix |
+| Fix First | The open findings at priority P1 and P2, most urgent first, each with what moved its priority (Why) and what to do |
 | 1. Code Security | Per rule: severity, type, status, assignee, risk, recommendation, then the findings (see layout below) |
 | 2. Secret Leaks | Grouped by secret type and file (gitleaks and SonarQube reports of the same file collapse); still-in-code first, Firebase/Google client keys last ("restrict, don't rotate") |
 | 3. Dependencies & Configuration | One row per vulnerable package with all its advisories and one **Upgrade To** version (the lowest release that fixes all of them), reachability; Trivy configuration checks |
 | Resolved in SonarQube | Findings already decided there (Safe, False positive, Accepted, Fixed): one compact row each (category, finding, where, status). Kept for the audit trail, but out of the sections above, out of the Total/Needs-a-Decision counts, and not reported as fixed in Changes Since Previous Scan. The section and its contents entry appear only when there are any. |
+| How Priority Is Set | The repository's service exposure and criticality as used, and the rules (see Priority below) |
 | Review Notes | Factual notes, then **Coverage**: what the scan could not cover (e.g. Dart lint skipped) and scanners that did not complete |
 
 Every page after the cover has a header (logo when supplied, project, scope) and a footer with "Page X of Y"; table
@@ -60,6 +61,35 @@ Every piece of text written to the report, code excerpts included, passes throug
 `sdt_advisory.redact()` (private keys, AWS/Google/GitHub/Slack/Stripe/Sonar tokens, JWTs, and
 `password|secret|token|api_key = "..."` assignments). A test builds a full report around a planted key and
 checks it appears nowhere in the file.
+
+## Priority
+
+Every finding gets a priority from **P1** (act now) to **P4** (fix when the code is touched), shown next to its
+severity in every table; each section lists its most urgent findings first. Priority starts from the severity and
+moves one step for each fact known about the finding and the service: a review that judged it real, a test or
+example file, a package no source file imports, a secret named as a signing key or password, a service that is
+only reachable from an internal network. The rules and their guardrails are in
+[ADR 0009](adr/0009-finding-priority.md); the report states them in How Priority Is Set.
+
+What the report knows about the service comes from a repository inventory, a tab-separated file kept outside this
+repository because it names internal services:
+
+```text
+# columns are separated by tabs; lines starting with # are comments
+repository	exposure	criticality	visibility	note
+example/web-cms	internet	high		public CMS behind the CDN
+batch-jobs	internal
+```
+
+* `repository`: `workspace/slug` or the slug alone, matched against `--repository`, case-insensitive.
+* `exposure`: `internet`, `internal` (an internal network or VPN only), `none` (not deployed as a service) or
+  `unknown`. A repository that is missing, or has no exposure, counts as reachable from the internet.
+* `criticality`: `high` (money, personal data, sign-in), `normal` or `low`.
+* `visibility`: `private` or `public`.
+
+`--inventory` (or `SDT_INVENTORY`) points at the file. `--exposure`, `--criticality` and `--visibility` set the
+values for one report and win over the inventory. A value outside its list is reported on stderr and ignored, and
+an inventory that cannot be read is reported and the report is written without it: neither lowers a priority.
 
 ## The advisory
 

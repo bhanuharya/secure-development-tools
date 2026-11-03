@@ -172,7 +172,12 @@ if developers must not see each other's findings.
 Every scan attaches `SAST Report - <repo>.docx` to the build (full description in SDT's `docs/sast-report.md`):
 
 * **Cover**: logo (optional, supplied locally), scanners, totals, coverage gaps, executive summary, changes since the previous scan, contents.
-* **Fix First**: confirmed real issues, secrets still in the code, open Critical/High vulnerabilities, fixable packages.
+* **Fix First**: the open findings at priority P1 and P2, each with why it has that priority and what to do.
+  Priority (P1 to P4) starts from severity and moves with what is known about the service: set
+  `SDT_INVENTORY` to a tab-separated inventory that records each repository's exposure (internet, internal,
+  none) and business criticality, or put it at `$SDT_STATE_DIR/inventory.tsv` (with an image: in the state
+  volume). A repository it does not list counts as reachable from the internet.
+  Format and rules: SDT's `docs/sast-report.md` (Priority) and `docs/adr/0009-finding-priority.md`.
 * **1. Code Security** first: per rule, every finding with file, line, redacted code excerpt and an **Advisory**
   (assessment, evidence, what to check, what to do). Rules with more than 10 findings are laid out file by file.
 * **2. Secret Leaks** grouped by type and file; **3. Dependencies & Configuration** with one upgrade target per package.
