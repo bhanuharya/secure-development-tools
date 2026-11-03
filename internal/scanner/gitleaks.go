@@ -150,6 +150,7 @@ func (a *GitleaksAdapter) Parse(toolVersion string, root string, stdout []byte, 
 		return ParseResult{Health: HealthMalformed, Diagnostics: []string{"gitleaks produced unreadable JSON"}}
 	}
 	var out []*finding.Finding
+	var matches []string // redacted match text per finding, for separateSameLineSecrets
 	for i, it := range items {
 		ruleID, _ := it["RuleID"].(string)
 		rawFile, _ := it["File"].(string)
@@ -192,12 +193,47 @@ func (a *GitleaksAdapter) Parse(toolVersion string, root string, stdout []byte, 
 			f.Message += " (commit " + shortHash(commit) + ")"
 			f.Metadata = map[string]any{"commit": commit}
 		}
-		// B1 identity: --redact uniformizes match text, so the start line is
-		// the stable occurrence key within a file (distinct leaks at distinct
-		// lines never share a fingerprint).
+		// B1 identity: --redact replaces the value in the match text, so the
+		// start line is the stable occurrence key within a file (distinct
+		// leaks at distinct lines never share a fingerprint). Different
+		// secrets on one line are separated after the loop.
 		semCtx := fingerprintCtx(ruleID+"\n"+file, sl)
 		f.Fingerprint = finding.Fingerprint{Algorithm: finding.FingerprintVersion, Value: finding.FingerprintValue(f.Category, "gitleaks", ruleID, file, semCtx)}
 		out = append(out, f)
+		matches = append(matches, snippet)
 	}
+	separateSameLineSecrets(out, matches)
 	return ParseResult{Findings: out, Health: HealthCompleted}
+}
+
+// separateSameLineSecrets keeps different secrets that share a rule, file and
+// line apart. A history scan reports each secret at the line it had in the
+// commit that added it, so two secrets can land on the same line: a later
+// commit inserts a new secret above an old one, or one line holds several
+// keys. The rule/file/line identity would merge them, and the scan's dedup
+// would then drop all but one. Where one identity covers different redacted
+// matches (the key name around the REDACTED value), the match joins the
+// identity. An identity with a single match keeps its fingerprint, so review
+// decisions already recorded against it still apply.
+func separateSameLineSecrets(out []*finding.Finding, matches []string) {
+	distinct := map[string]map[string]bool{}
+	for i, f := range out {
+		key := f.Fingerprint.Value
+		if distinct[key] == nil {
+			distinct[key] = map[string]bool{}
+		}
+		distinct[key][normalizeCtx(matches[i])] = true
+	}
+	for i, f := range out {
+		if len(distinct[f.Fingerprint.Value]) < 2 {
+			continue
+		}
+		file := ""
+		var sl *int
+		if f.Location != nil {
+			file, sl = f.Location.Path, f.Location.StartLine
+		}
+		semCtx := fingerprintCtx(f.Rule.ID+"\n"+file+"\n"+matches[i], sl)
+		f.Fingerprint.Value = finding.FingerprintValue(f.Category, "gitleaks", f.Rule.ID, file, semCtx)
+	}
 }

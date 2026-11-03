@@ -436,7 +436,9 @@ def merge(sonar: dict, sdt: dict | None) -> dict:
                 row.status = check.get((row.check, row.path, row.line), row.status)
     seen, secrets = set(), []
     for row in merged["secret"]:
-        key = (row.path, row.line) if row.path else (row.kind, row.commit, id(row))
+        # The commit is part of the key: a history scan can report two different secrets at one line,
+        # each at the line it had in the commit that added it. SDT already merges a secret found twice.
+        key = (row.path, row.line, row.commit) if row.path else (row.kind, row.commit, id(row))
         if key not in seen:
             seen.add(key)
             secrets.append(row)
