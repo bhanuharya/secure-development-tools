@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-03
+
+- The SAST report gives every finding a priority, P1 (act now) to P4 (fix when the code is touched), next to its
+  severity, and lists each section most urgent first. Priority starts from the severity and moves one step per known
+  fact: the review judged it real, the file is a test or an example, no source file imports the package, a secret is
+  named as a signing key or password, or the service is only reachable from an internal network. Fix First is now
+  the open P1 and P2 findings with a Why column, and a new section, How Priority Is Set, states the rules and the
+  facts used. Service exposure and criticality come from a repository inventory (`SDT_INVENTORY`); a repository it
+  does not list counts as reachable from the internet, so nothing is lowered on a guess. Secrets are never lowered
+  for an internal service.
+
 ## 2026-10-20
 
 - The deterministic advisory now settles Vue/JS HTML-injection hotspots (`S6299`: `v-html`, `innerHTML`, `:href`)

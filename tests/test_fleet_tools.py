@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import sdt_fleet  # noqa: E402
 import sdt_fleet_report  # noqa: E402
 import sdt_repo_manifest  # noqa: E402
+import sdt_priority  # noqa: E402
 import sdt_to_docx  # noqa: E402
 import sdt_sonar_sync  # noqa: E402
 import sdt_rule_precision  # noqa: E402
@@ -2077,3 +2078,84 @@ def test_report_keeps_two_secrets_that_history_puts_on_one_line(tmp_path):
     assert len(merged["secret"]) == 2
     (group,) = sdt_to_docx.group_secrets(merged["secret"])
     assert group.count == 2 and len(group.commits) == 2 and group.places == {"Current code"}
+
+
+# ------------------------------------------------------------- priority (ADR 0009)
+def _priority_report(tmp_path, ctx):
+    """A SQL injection, a weak hash, a private key in history and an unused Critical package."""
+    sqli = sdt_to_docx.Group("javascript:S3649", "Database queries should not be vulnerable to injection attacks",
+                             "Vulnerability", "High")
+    sqli.occurrences = [sdt_to_docx.Occurrence("src/db.js", 3, "tainted query", "Open", "")]
+    hashing = sdt_to_docx.Group("java:S4790", "Using weak hashing algorithms is security-sensitive", "Security Hotspot",
+                                "High")
+    hashing.occurrences = [sdt_to_docx.Occurrence("src/Hash.java", 9, "md5", "To review", "")]
+    key = sdt_to_docx.SecretRow("private-key", "deploy/id_rsa", 1, "abc123", "Git history only", "High")
+    package = sdt_to_docx.DependencyRow("lodash", "4.17.0", "package-lock.json", {"CVE-2026-9": "4.17.21"},
+                                        {"CVE-2026-9": "Critical"}, "No")
+    report = sdt_to_docx.Report("app", "ws/app", "branch main", "", "abc", "SDT", [sqli, hashing], [key], [package], [],
+                                sdt_to_docx.date(2026, 11, 3), context=ctx)
+    out = tmp_path / "priority.docx"
+    sdt_to_docx.write_docx(report, None, out)
+    text = _docx(out)[0]
+    start = text.index("Fix First", text.index("Contents") + len("Contents") + 200)
+    return text, text[start:text.index("1. Code Security", start)]
+
+
+def test_report_ranks_findings_by_priority_and_says_why(tmp_path):
+    text, fix_first = _priority_report(tmp_path, sdt_priority.Context("internal", source="inventory"))
+    # The key is P1 although only in history and the service is internal; the weak hash is not lowered
+    # for an internal service; the injection and the unused package are, and leave Fix First.
+    assert "Secret: private-key (git history only)" in fix_first and "working credential by its format" in fix_first
+    assert fix_first.index("private-key") < fix_first.index("Using weak hashing")
+    assert "Database queries" not in fix_first and "lodash" not in fix_first
+    assert "PriorityP1 1, P2 1, P3 2" in text  # the cover
+    assert "Service ExposureInternal network only, normal business criticality (from the inventory)" in text
+    assert "1.1 Using weak hashing" in text and "1.2 Database queries" in text  # most urgent rule first
+    assert "P3 (High severity; internal service ↓)" in text  # the rule's priority with its reason
+    assert "How Priority Is Set" in text
+    assert "Service exposure: internal network only; business criticality: normal (from the inventory)." in text
+    assert "service exposure is not recorded" not in text
+
+
+def test_report_without_a_recorded_exposure_lowers_nothing_and_asks_for_it(tmp_path):
+    text, fix_first = _priority_report(tmp_path, sdt_priority.Context())
+    assert "Database queries" in fix_first  # High stays P2: an unknown fact never lowers
+    assert "Not recorded, so treated as reachable from the internet" in text
+    assert "This repository's service exposure is not recorded" in text
+
+
+def test_report_takes_the_service_exposure_from_the_inventory(tmp_path, monkeypatch, capsys):
+    (tmp_path / "findings.json").write_text(json.dumps({"findings": [
+        {"scanner": {"adapter": "opengrep"}, "category": "sast", "rule": {"id": "tainted-sql-string"},
+         "severity": {"canonical": "high"}, "message": "tainted query", "location": {"path": "src/db.js", "startLine": 3}}]}))
+    inventory = tmp_path / "inventory.tsv"
+    inventory.write_text("repository\texposure\tcriticality\nws/app\tinternal\n")
+
+    def report(*extra):
+        monkeypatch.setattr(sys, "argv", ["sdt_to_docx.py", "--findings", str(tmp_path / "findings.json"),
+                                          "--repository", "ws/app", "--out", str(tmp_path / "r.docx"), *extra])
+        assert sdt_to_docx.main() == 0
+        return _docx(tmp_path / "r.docx")[0]
+
+    assert "Internal network only, normal business criticality (from the inventory)" in report("--inventory", str(inventory))
+    monkeypatch.setenv("SDT_INVENTORY", str(inventory))
+    assert "Internal network only" in report()
+    assert "Reachable from the internet, normal business criticality (from the command line and inventory)" in \
+        report("--exposure", "internet")
+    # An inventory that cannot be read is reported, and the report is still written with nothing lowered.
+    assert "Not recorded, so treated as reachable" in report("--inventory", str(tmp_path / "missing.tsv"))
+    assert "inventory not used" in capsys.readouterr().err
+
+
+def test_report_puts_a_signing_secret_found_as_a_generic_key_at_p1(tmp_path):
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "admin.js").write_text("module.exports = ({ env }) => ({\n  auth: {\n"
+                                                  "    secret: env('ADMIN_JWT_SECRET', 'not-a-real-secret'),\n  },\n});\n")
+    leak = {"category": "secret", "rule": {"id": "generic-api-key"}, "severity": {"canonical": "high"},
+            "scanner": {"adapter": "gitleaks"}, "location": {"path": "config/admin.js", "startLine": 3},
+            "metadata": {"commit": "1" * 40}, "evidence": {"text": "ADMIN_JWT_SECRET', '[REDACTED]'"}}
+    found = sdt_to_docx.merge(sdt_to_docx.from_findings({"findings": [leak]}, tmp_path), None)
+    (group,) = sdt_to_docx.group_secrets(found["secret"])
+    assert group.priority.level == "P1" and "named as a signing key or password" in group.priority.why
+    text, _, _, _ = _write_report(tmp_path, found, src_root=tmp_path)
+    assert "not-a-real-secret" not in text and "Secret: generic-api-key (current code)" in text
