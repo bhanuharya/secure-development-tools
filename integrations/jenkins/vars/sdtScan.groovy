@@ -48,6 +48,8 @@ def call(Map args = [:]) {
     sonarUrl        : args.sonarUrl ?: env.SDT_SONAR_URL ?: error('sdtScan: set sonarUrl or SDT_SONAR_URL'),
     sonarCredentials: args.sonarCredentials ?: env.SDT_SONAR_CREDENTIALS ?: 'sdt-sonar-token',
     gitCredentials  : args.gitCredentials ?: env.SDT_GIT_CREDENTIALS ?: 'sdt-bitbucket-ssh',
+    // Bitbucket Cloud serves git over SSH at ssh.bitbucket.org (bitbucket.org stops on 12 Nov 2026).
+    sshHost         : args.sshHost ?: env.SDT_BITBUCKET_SSH_HOST ?: 'ssh.bitbucket.org',
     image           : args.containsKey('image') ? args.image : (env.SDT_IMAGE ?: ''),
     agentLabel      : args.agentLabel ?: env.SDT_AGENT_LABEL ?: '',
     cloneMinutes    : (args.cloneMinutes ?: env.SDT_CLONE_MINUTES ?: '30') as int,
@@ -74,7 +76,7 @@ def call(Map args = [:]) {
     try {
       stage('checkout') {
         dir('source') {
-          def remote = [url: "git@bitbucket.org:${cfg.workspace}/${cfg.repo}.git"]
+          def remote = [url: "git@${cfg.sshHost}:${cfg.workspace}/${cfg.repo}.git"]
           if (cfg.gitCredentials != 'none') { remote.credentialsId = cfg.gitCredentials }
           checkout([$class: 'GitSCM', branches: [[name: ref]],
                     userRemoteConfigs: [remote],
@@ -115,7 +117,7 @@ def call(Map args = [:]) {
       def environment = ["SRC=${pwd()}/source", "OUT=${pwd()}/out", "REPO_SLUG=${cfg.repo}",
                          "SDT_SCAN_BRANCH=${cfg.branch}", "SDT_SCAN_PR_ID=${cfg.prId}",
                          "SDT_SCAN_PR_BRANCH=${cfg.prBranch}", "SDT_SCAN_PR_BASE=${cfg.prBase}",
-                         "WORKSPACE_NAME=${cfg.workspace}",
+                         "WORKSPACE_NAME=${cfg.workspace}", "SDT_BITBUCKET_SSH_HOST=${cfg.sshHost}",
                          "SONAR_HOST_URL=${cfg.sonarUrl}", "SCOPE_URL=${scopeUrl}",
                          "FLEET_DATABASE=${cfg.fleetDatabase}", "QUALITY_GATE_ENFORCE=${cfg.enforceGate}",
                          "BITBUCKET_USER=${cfg.prCommentUser}", "SDT_REPORTS_REPO=${cfg.reportsRepo}",

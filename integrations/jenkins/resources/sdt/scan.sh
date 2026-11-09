@@ -176,7 +176,7 @@ timing sbom
 # ------------------------------------------------------- 3. Dart / Flutter lint
 # Private git dependencies (pubspec.yaml) are declared as https URLs but resolve over the
 # SSH key Jenkins forwards. GIT_CONFIG_* applies the rewrite to this process tree only.
-export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.git@bitbucket.org:${WORKSPACE_NAME}/.insteadOf" \
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.git@${SDT_BITBUCKET_SSH_HOST:-ssh.bitbucket.org}:${WORKSPACE_NAME}/.insteadOf" \
        GIT_CONFIG_VALUE_0="https://bitbucket.org/${WORKSPACE_NAME}/"
 DART_REPORT="$OUT/dart-analyze.txt"; : > "$DART_REPORT"
 : > "$OUT/coverage.txt"  # what this scan could not cover; shown in the report

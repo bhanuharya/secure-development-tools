@@ -427,15 +427,22 @@ def test_repo_list_skips_comments_and_rejects_bad_slugs(tmp_path):
     reject("../../etc/passwd\n")
 
 
+def test_ssh_host_can_be_overridden(monkeypatch):
+    monkeypatch.setenv("SDT_BITBUCKET_SSH_HOST", "git.example.com")
+    assert sdt_fleet.repository_url("ssh", "example", "app") == "git@git.example.com:example/app.git"
+    monkeypatch.delenv("SDT_BITBUCKET_SSH_HOST")
+    assert sdt_fleet.repository_url("ssh", "example", "app") == "git@ssh.bitbucket.org:example/app.git"
+
+
 def test_clone_request_differs_by_transport():
     assert sdt_fleet.repository_url("token", "example", "app") == "https://bitbucket.org/example/app.git"
-    assert sdt_fleet.repository_url("ssh", "example", "app") == "git@bitbucket.org:example/app.git"
+    assert sdt_fleet.repository_url("ssh", "example", "app") == "git@ssh.bitbucket.org:example/app.git"
     pinned = sdt_fleet.clone_arguments("token", "example", "app", "main", Path("/tmp/source"))
     assert pinned[pinned.index("--branch") + 1] == "main"
     assert pinned[-2:] == ["https://bitbucket.org/example/app.git", "/tmp/source"]
     default_branch = sdt_fleet.clone_arguments("ssh", "example", "app", "", Path("/tmp/source"))
     assert "--branch" not in default_branch
-    assert default_branch[-2:] == ["git@bitbucket.org:example/app.git", "/tmp/source"]
+    assert default_branch[-2:] == ["git@ssh.bitbucket.org:example/app.git", "/tmp/source"]
 
 
 def test_ssh_environment_never_carries_the_token(tmp_path, monkeypatch):
@@ -585,7 +592,7 @@ def test_repo_list_scan_follows_and_records_the_remote_default_branch(tmp_path, 
     assert record["branch"] == "main"
     assert record["commit"] == "abc123"
     clone, clone_env = calls[0]
-    assert "--branch" not in clone and clone[-2] == "git@bitbucket.org:example/app.git"
+    assert "--branch" not in clone and clone[-2] == "git@ssh.bitbucket.org:example/app.git"
     assert clone_env["GIT_SSH_COMMAND"] == f"ssh -i {key} -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
     resolved = [command for command, _ in calls if command[:3] == ["git", "rev-parse", "--abbrev-ref"]]
     assert resolved and resolved[0][-1] == "HEAD"

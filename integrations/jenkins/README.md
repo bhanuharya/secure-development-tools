@@ -84,6 +84,7 @@ and set `SDT_HOME` (and `FLUTTER_HOME`) in the agent's environment.
    | `SDT_IMAGE` | `<registry>/appsec/sdt-scanner:<version>` |
    | `SDT_AGENT_LABEL` | `docker` (or empty) |
    | `SDT_FLEET_DATABASE` | `postgresql+psycopg://sdt@db/sdt` (optional: review history) |
+   | `SDT_BITBUCKET_SSH_HOST` | `ssh.bitbucket.org` (the default; the agent's `known_hosts` must hold its key, see `https://bitbucket.org/site/ssh`) |
 4. Global Pipeline Libraries: name `sdt-pipeline`, the secure-development-tools repository,
    **Library Path** `integrations/jenkins/`, default version a tag (for example `v1.0.0`).
 5. Jobs: *Pipeline script from SCM* → the secure-development-tools repository → script path:
