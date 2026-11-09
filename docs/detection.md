@@ -6,10 +6,11 @@ every change to the rule pack.
 
 ## The two yardsticks
 
-**Planted weaknesses** (`testdata/detection`). 34 small files in Go, Java, Node, PHP
-and Python, each with one well-known weakness: injection, request forgery, path
-traversal, unsafe deserialisation, XML entities, weak cryptography, TLS checks switched
-off, hard-coded keys. `expected.tsv` lists for each file the CWE numbers a correct
+**Planted weaknesses** (`testdata/detection`). 62 small files in Go, Java, Node, PHP,
+Python and deployment configuration, each with one well-known weakness: injection,
+request forgery, path traversal, unsafe deserialisation, XML entities, weak cryptography,
+TLS checks switched off, hard-coded keys, and the access-control mistakes (open security
+chains, no-op checks, unauthenticated WebSockets, exposed management endpoints). `expected.tsv` lists for each file the CWE numbers a correct
 report may carry and who must find it. `go test ./internal/scanner -run
 TestRulePackFindsThePlantedWeaknesses` fails when a sample the rule pack is responsible
 for is not reported by a rule of the right weakness class. A sample flagged for some
@@ -46,6 +47,12 @@ scripts/owasp_benchmark_score.py ../BenchmarkJava/expectedresults-1.2.csv ../ben
 Before wave 3 a single rule fired on the whole Benchmark, and there were no PHP rules
 at all. The 34th sample is a hard-coded password in Java: in the Jenkins pipeline
 SonarQube's own analyser reports those, so no rule duplicates it.
+
+Since then the access-control, configuration and trust-boundary rules added 28 planted
+weaknesses and the 4 safe look-alikes. On 2026-11-09 the rule pack finds 61 of the 61 it
+is responsible for (the hard-coded password is still SonarQube's) and reports none of the
+look-alikes. The OWASP Benchmark has not been run again since wave 3, so its figures above
+predate those rules.
 
 Per category with wave 3:
 

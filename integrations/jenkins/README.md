@@ -192,8 +192,9 @@ After changing the report tool, rebuild reports from finished builds without res
 
 When the `codex` CLI is on the agent (or `SDT_CODEX_BIN` points to it) and is logged in, every scan adds
 an **advisory** review of the code-security findings to the SAST report: per occurrence, "likely real",
-"likely false positive" or "needs context", with a reason that cites the code. It never changes a SonarQube
-status or an SDT verdict, and secret findings and secret-looking values are never sent.
+"likely false positive" or "needs context", with a reason that cites the code. It never changes an SDT verdict,
+changes a SonarQube status only when `SDT_AI_AUTOCLOSE=1` (below), and never sends secret findings or
+secret-looking values.
 
 | Setting | Default | Meaning |
 |---|---|---|

@@ -21,19 +21,42 @@ request that developers trust and security can defend. `sdt` is built for that:
 - **Fails closed.** A scanner that is missing, crashes or times out produces exit
   `3`, never a green build. Every run writes a manifest with engine versions,
   rule digests and native exit codes, so a result can be audited later.
-- **Low noise by design.** Rules are curated and versioned with per-rule tests and
-  hash checks in CI, and a precision report tells you which rules to keep,
-  demote or disable based on how reviewers actually decided.
+- **Low noise by design, and measured.** Rules are curated and versioned with
+  per-rule tests and hash checks in CI, and a precision report tells you which
+  rules to keep, demote or disable based on how reviewers actually decided. A
+  detection test plants 62 known weaknesses and 4 safe look-alikes: the rule pack
+  finds all 61 it is responsible for (the last is left to SonarQube) and reports
+  none of the look-alikes ([`docs/detection.md`](docs/detection.md)).
+- **Rules for how services actually get breached.** Besides injection, request
+  forgery and weak cryptography, first-party rules flag the access-control and
+  configuration mistakes pattern scanners usually miss in Spring services:
+  `permitAll()` on wildcard or internal paths, security chains with no default
+  deny, roles taken from the client, gateway access policies left at a template
+  value, actuator endpoints exposed in production config, CORS that allows any
+  origin with credentials, key stores and passwords in the repository, secrets
+  written to logs, caller-chosen file names reaching the disk, SQL built from
+  request data, access checks with an empty body, and WebSocket endpoints that
+  skip the HTTP security chain.
 - **Mobile is covered.** Dart and Flutter rules ship alongside Go, Java, Kotlin,
-  JavaScript/TypeScript, Python, YAML and Terraform, a gap most open-source
-  SAST setups leave open.
+  JavaScript/TypeScript, Python, PHP, C, Rust, YAML, JSON and Terraform, a gap
+  most open-source SAST setups leave open. 542 rules in all: 69 first-party,
+  the rest vendored from pinned upstream revisions.
 - **Fits the tools you have.** SARIF for GitHub/GitLab code scanning, an import
   into SonarQube (with a companion plugin for native Dart issues), CI templates
   for GitHub, GitLab, Bitbucket and Jenkins, and a Word report developers can act
-  on: code first, each finding with its excerpt, a fixed advisory and a link to
-  the exact line in the scanned commit.
-- **Nothing leaves your machine.** No service, no account, no telemetry. Secrets
-  are redacted from evidence and reports, and a test plants a key to prove it.
+  on: code first, each finding with its excerpt, a fixed advisory, a priority
+  from P1 to P4 set by severity and the service's exposure, and a link to the
+  exact line in the scanned commit.
+- **Optional AI review.** In the Jenkins pipeline, a logged-in Codex CLI adds an
+  advisory verdict to each code finding (likely real, likely false positive or
+  needs context, with the reason) and, when switched on, a read of each pull
+  request's changed lines for the logic mistakes rules do not describe: an
+  endpoint without a permission check, a record fetched without checking its
+  owner. It never blocks a build.
+- **Nothing leaves your machine** unless you turn on the AI review. No service,
+  no account, no telemetry. Secrets are redacted from evidence and reports, and a
+  test plants a key to prove it. The AI review sends code excerpts to the model
+  provider, never secret findings; `SDT_AI_TRIAGE=0` keeps everything local.
 - **Scales past one repo.** Fleet mode scans a whole Bitbucket workspace on a
   schedule, keeps history in a local store, and syncs review decisions back from
   SonarQube.
@@ -41,7 +64,8 @@ request that developers trust and security can defend. `sdt` is built for that:
 **Status: pre-release** (`sdt 0.1.0-dev`, schema `secure-dev/v1alpha1`).
 Runs on Linux in a Jenkins pipeline ([`integrations/jenkins/`](integrations/jenkins/README.md))
 that scans a Bitbucket workspace of mobile and web repositories, and against this repository and its bundled vulnerable
-fixture in CI. The schema is not frozen yet.
+fixture in CI. The schema is not frozen yet. Bitbucket clones go over `ssh.bitbucket.org`, Bitbucket's git-over-SSH
+host from 12 November 2026; the agent's `known_hosts` needs its key, and `SDT_BITBUCKET_SSH_HOST` overrides it.
 
 ## What you would use it for
 
@@ -159,6 +183,11 @@ The full list with reproduction steps is in
   not a guarantee about your own CI logs.
 - **`fix`, `reachability`, `publish`, `explain` and the `sbom`/`vex` formats are
   implemented and unit-tested, with no record of use outside tests.**
+- **Data flow stops at the file.** The code engine follows data inside one file.
+  A flow from a controller through a service to a repository class is not seen.
+- **Rules do not prove authorization.** They catch the patterns listed above, not
+  whether every endpoint checks that the caller may see the record it returns.
+  The AI change review reads for that, and it is advice, not a gate.
 - **A full self-scan of this repository exits `1` by design**, because the tree
   ships fixtures that exist to be detected.
 
@@ -184,6 +213,7 @@ for the fleet runner's settings.
 - [`docs/known-limits.md`](docs/known-limits.md) — reproducible rough edges
 - [`docs/security-posture.md`](docs/security-posture.md) — what each control does and does not cover
 - [`docs/rule-precision.md`](docs/rule-precision.md) — rule governance
+- [`docs/detection.md`](docs/detection.md) — what the code rules find and how that is measured: planted weaknesses, safe look-alikes, OWASP Benchmark
 - [`docs/false-positives.md`](docs/false-positives.md) — secret-scanning defaults, dependency reachability, and how to check a finding locally
 - [`docs/local-hook.md`](docs/local-hook.md) — the pre-commit check on the developer's machine: set-up, what it covers, how long it takes
 - [`docs/fleet-scanning.md`](docs/fleet-scanning.md) — scheduled workspace scans, SonarQube import, fleet store, review sync
