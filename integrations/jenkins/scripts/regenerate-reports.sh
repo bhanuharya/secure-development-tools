@@ -38,7 +38,7 @@ for n in "$@"; do
   : > "$W/coverage.txt"
   printf '%s' "$console" | grep -q "pub get failed" && \
     echo "Dart lint skipped: dependencies did not resolve with the scanner's Flutter SDK; security rules still ran." > "$W/coverage.txt"
-  git clone -q --no-checkout "git@bitbucket.org:$WORKSPACE_NAME/$repo.git" "$W/src" && git -C "$W/src" checkout -q "$commit" \
+  git clone -q --no-checkout "git@${SDT_BITBUCKET_SSH_HOST:-ssh.bitbucket.org}:$WORKSPACE_NAME/$repo.git" "$W/src" && git -C "$W/src" checkout -q "$commit" \
     || { echo "#$n $repo: checkout failed"; continue; }
   key="sdt_$(printf '%s' "${WORKSPACE_NAME}_$repo" | tr '.-' '__' | cut -c1-160)_$(printf '%s' "$WORKSPACE_NAME/$repo" | sha256sum | cut -c1-10)"
   args=(--sonar-url "$SONAR_HOST_URL" --project-key "$key" --branch "$branch" --findings "$W/findings.json"

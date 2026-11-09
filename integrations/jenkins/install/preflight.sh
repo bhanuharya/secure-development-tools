@@ -73,10 +73,11 @@ else
 fi
 
 echo "== Bitbucket"
-if ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -T git@bitbucket.org 2>&1 | grep -qi 'authenticated\|logged in'; then ok "SSH key is accepted by bitbucket.org"
-else fail "bitbucket.org does not accept this user's SSH key (or no ssh-agent is forwarded)"; fi
+BB_SSH_HOST="${SDT_BITBUCKET_SSH_HOST:-ssh.bitbucket.org}"
+if ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -T "git@$BB_SSH_HOST" 2>&1 | grep -qi 'authenticated\|logged in'; then ok "SSH key is accepted by $BB_SSH_HOST"
+else fail "$BB_SSH_HOST does not accept this user's SSH key (or no ssh-agent is forwarded)"; fi
 if [ -n "${BITBUCKET_REPO:-}" ]; then
-  git ls-remote --heads "git@bitbucket.org:$BITBUCKET_REPO.git" >/dev/null 2>&1 && ok "can read $BITBUCKET_REPO" || fail "cannot read $BITBUCKET_REPO"
+  git ls-remote --heads "git@$BB_SSH_HOST:$BITBUCKET_REPO.git" >/dev/null 2>&1 && ok "can read $BITBUCKET_REPO" || fail "cannot read $BITBUCKET_REPO"
 fi
 
 echo "== state kept between scans"
