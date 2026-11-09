@@ -98,7 +98,7 @@ else
   if [ -z "$memory" ]; then warn "no SDT_STATE_DIR: AI verdicts are remembered in the home directory, which a container loses"
   elif writable "$memory"; then ok "AI verdict memory: $memory"; else fail "AI verdict memory is not writable: $memory"; fi
   [ "${SDT_AI_AUTOCLOSE:-0}" = 1 ] && warn "SDT_AI_AUTOCLOSE=1: clear false positives are marked Safe without a person"
-  [ "${SDT_AI_DIFF_REVIEW:-0}" = 1 ] && ok "pull requests get an AI change review"
+  [ "${SDT_AI_DIFF_REVIEW:-0}" = 1 ] && ok "pull requests get an AI change review (reasoning ${SDT_AI_DIFF_REASONING:-${SDT_CODEX_REASONING:-medium}})"
 fi
 
 echo

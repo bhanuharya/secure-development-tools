@@ -141,6 +141,8 @@ validation removed, a secret logged, a setting weakened. The result is `ai-chang
 to the report. Every item points at a line the change added and says what to verify; it never blocks the build
 and never enters SonarQube. Tests, lock files and non-code files are not sent, secret values are redacted, and
 files beyond the per-review limit are named as unread rather than silently skipped.
+`SDT_AI_DIFF_REASONING` sets the change review's reasoning depth on its own (for example `low` for a
+faster, cheaper read of every pull request); unset, it uses `SDT_CODEX_REASONING` like the triage.
 
 Once reviewers decide findings in SonarQube, the cover shows "Advisory accuracy so far: agreed with X of Y".
 
