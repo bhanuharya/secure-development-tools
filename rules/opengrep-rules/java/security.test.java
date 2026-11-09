@@ -2,6 +2,7 @@ import java.io.InputStream;
 import java.net.URL;
 import java.security.MessageDigest;
 import javax.servlet.http.HttpServletRequest;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.client.RestTemplate;
 
@@ -29,6 +30,19 @@ public class SecurityTest {
         // ruleid: scp.java.ssrf.request-controlled-url
         return rest.getForObject(target, String.class);
     }
+
+    public org.springframework.http.ResponseEntity<Object> create(@RequestBody Object dto) throws Exception {
+        Object result = save(dto);
+        // ok: scp.java.ssrf.request-controlled-url
+        return org.springframework.http.ResponseEntity.created(new java.net.URI("/api/items/" + result.hashCode())).body(result);
+    }
+
+    public java.net.URI relative(@RequestParam("id") String id) throws Exception {
+        // ok: scp.java.ssrf.request-controlled-url
+        return new java.net.URI("/api/items/" + id + "/history");
+    }
+
+    private Object save(Object dto) { return dto; }
 
     public String fetchFixedAddress(HttpServletRequest request, RestTemplate rest) throws Exception {
         String id = request.getParameter("id");

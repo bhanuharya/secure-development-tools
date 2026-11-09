@@ -1,0 +1,209 @@
+# Trust boundaries: a sensitive operation exists, but the expected check never happens. File
+# operations on caller-chosen paths, SQL text built from request data, security checks that do
+# nothing, and WebSocket endpoints that skip the HTTP security chain.
+rules:
+  - id: scp.java.path.request-path-to-file-operation
+    languages: [java]
+    message: >-
+      A file name or path chosen by the caller (an upload's original file name, a request
+      parameter or header) reaches a file write, read, move or delete. "../" or an absolute path
+      lets the caller overwrite, read or delete files the service can reach, and two uploads with
+      the same name overwrite each other. Generate the stored name on the server (a UUID), keep
+      only an allow-listed extension, and resolve it under a fixed directory with a
+      normalize-and-startsWith check.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-22", "CWE-73"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: HIGH
+    paths:
+      exclude: ["**/src/test/**"]
+    mode: taint
+    pattern-sources:
+      - pattern: (MultipartFile $UPLOAD).getOriginalFilename()
+      - pattern: (Part $PART).getSubmittedFileName()
+      - pattern: (HttpServletRequest $REQ).getParameter(...)
+      - pattern: (HttpServletRequest $REQ).getHeader(...)
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  $RET $METHOD(..., @$ANNOTATION(...) String $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @$ANNOTATION String $ARG, ...) { ... }
+          - metavariable-regex:
+              metavariable: $ANNOTATION
+              regex: ^(RequestParam|PathVariable|RequestHeader)$
+          - focus-metavariable: $ARG
+    pattern-sanitizers:
+      # Directory parts removed: what is left cannot leave the target directory.
+      - pattern: FilenameUtils.getName(...)
+      - pattern: org.apache.commons.io.FilenameUtils.getName(...)
+      - pattern: (Path $P).getFileName()
+      # A temp file gets a random name in the given directory; separators in the suffix are rejected.
+      - pattern: File.createTempFile(...)
+      - pattern: java.io.File.createTempFile(...)
+      - pattern: Files.createTempFile(...)
+    pattern-sinks:
+      # The operation, not the construction: a File, Path or URI that is only used for a header
+      # or a log line is not a sink.
+      - pattern: new FileOutputStream(...)
+      - pattern: new java.io.FileOutputStream(...)
+      - pattern: new FileWriter(...)
+      - pattern: new FileInputStream(...)
+      - pattern: new java.io.FileInputStream(...)
+      - pattern: new FileReader(...)
+      - pattern: new RandomAccessFile(...)
+      - patterns:
+          - pattern: Files.$OP(...)
+          - metavariable-regex:
+              metavariable: $OP
+              regex: ^(write|writeString|copy|move|delete|deleteIfExists|newOutputStream|newBufferedWriter|newInputStream|newBufferedReader|readAllBytes|readAllLines|readString|lines|createFile)$
+      - patterns:
+          - pattern: FileUtils.$OP(...)
+          - metavariable-regex:
+              metavariable: $OP
+              regex: ^(writeByteArrayToFile|writeStringToFile|copyInputStreamToFile|copyFile|moveFile|forceDelete|deleteQuietly|readFileToByteArray|readFileToString|openOutputStream|openInputStream)$
+      - patterns:
+          - pattern: $FILE.$OP(...)
+          - metavariable-regex:
+              metavariable: $OP
+              regex: ^(delete|deleteOnExit|renameTo|createNewFile)$
+          - focus-metavariable: $FILE
+      - patterns:
+          - pattern: (MultipartFile $M).transferTo($DEST)
+          - focus-metavariable: $DEST
+
+  - id: scp.java.injection.sql-string-from-request
+    languages: [java]
+    message: >-
+      SQL text is built from request data and run through JDBC or JPA. The caller can change the
+      query (read other customers' rows, skip a WHERE clause). Keep the SQL text constant and
+      pass values as bind parameters (?, :name, setParameter).
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021 - Injection"]
+      confidence: HIGH
+    paths:
+      exclude: ["**/src/test/**"]
+    mode: taint
+    pattern-sources:
+      - pattern: (HttpServletRequest $REQ).getParameter(...)
+      - pattern: (HttpServletRequest $REQ).getHeader(...)
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  $RET $METHOD(..., @$ANNOTATION(...) $TYPE $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @$ANNOTATION $TYPE $ARG, ...) { ... }
+          - metavariable-regex:
+              metavariable: $ANNOTATION
+              regex: ^(RequestParam|PathVariable|RequestHeader|RequestBody)$
+          - focus-metavariable: $ARG
+    pattern-sanitizers:
+      - pattern: Integer.parseInt(...)
+      - pattern: Long.parseLong(...)
+      - pattern: UUID.fromString(...)
+    pattern-sinks:
+      # Only the SQL text argument: values passed as bind parameters are the safe way.
+      - patterns:
+          - pattern-either:
+              - pattern: (JdbcTemplate $J).$M($SQL, ...)
+              - pattern: (NamedParameterJdbcTemplate $J).$M($SQL, ...)
+          - metavariable-regex:
+              metavariable: $M
+              regex: ^(query|queryForObject|queryForList|queryForMap|queryForRowSet|queryForStream|update|batchUpdate|execute)$
+          - focus-metavariable: $SQL
+      - patterns:
+          - pattern-either:
+              - pattern: (EntityManager $E).createQuery($SQL, ...)
+              - pattern: (EntityManager $E).createNativeQuery($SQL, ...)
+              - pattern: (Statement $S).executeQuery($SQL)
+              - pattern: (Statement $S).executeUpdate($SQL)
+              - pattern: (Statement $S).execute($SQL)
+              - pattern: (Statement $S).addBatch($SQL)
+              - pattern: (Connection $C).prepareStatement($SQL, ...)
+          - focus-metavariable: $SQL
+
+  - id: scp.java.authz.noop-security-check
+    languages: [java]
+    message: >-
+      A method named like an access, ownership or permission check has an empty body or always
+      allows. Every caller that relies on it runs without the check. Implement it (compare the
+      identity from the verified token with the record's owner, or check the role) or delete it so
+      nobody relies on it. Review where it is called: a caller that then reads or changes customer
+      records is the finding to fix first.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-862", "CWE-285"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/src/test/**"]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $RET $M(...) { }
+          - pattern: |
+              boolean $M(...) { return true; }
+          - pattern: |
+              Boolean $M(...) { return true; }
+          - pattern: |
+              Boolean $M(...) { return Boolean.TRUE; }
+      # Declarations without a body (interfaces, abstract methods) are not implementations.
+      - pattern-not-inside: |
+          interface $I { ... }
+      - pattern-not: |
+          abstract $RET $M(...);
+      - metavariable-regex:
+          metavariable: $M
+          regex: (?i)^(validate|check|verify|ensure|assert|enforce|require|authori[sz]e|can|has|is)\w*?(access|permission|privilege|owner|ownership|authori[sz]|role|scope|entitle)\w*$
+
+  - id: scp.java.websocket.handler-without-interceptor
+    languages: [java]
+    message: >-
+      This WebSocket handler is registered without a handshake interceptor. Unless the HTTP
+      security chain covers this path, the connection opens without an identity check, and the
+      handler then acts on the customer or employee id sent in the message. Confirm which verified
+      identity reaches the handler (Spring Security on the upgrade request, or an interceptor that
+      validates the token and sets the principal) and that every record is checked against it.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-306", "CWE-862"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: LOW
+    paths:
+      exclude: ["**/src/test/**"]
+    patterns:
+      - pattern-inside: |
+          $RET registerWebSocketHandlers(WebSocketHandlerRegistry $REG) { ... }
+      - pattern: $REG.addHandler(...)
+      - pattern-not-inside: $CHAIN.addInterceptors(...)
+
+  - id: scp.java.websocket.any-origin
+    languages: [java]
+    message: >-
+      This WebSocket endpoint accepts a connection from any website. When the browser sends the
+      user's cookies or a remembered session, any page the user opens can open the socket as that
+      user (cross-site WebSocket hijacking). List the front-end origins instead of "*".
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-1385", "CWE-346"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/src/test/**"]
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              $RET registerWebSocketHandlers(WebSocketHandlerRegistry $REG) { ... }
+          - pattern-inside: |
+              $RET registerStompEndpoints(StompEndpointRegistry $REG) { ... }
+      - pattern-either:
+          - pattern: $H.setAllowedOrigins(..., "*", ...)
+          - pattern: $H.setAllowedOriginPatterns(..., "*", ...)

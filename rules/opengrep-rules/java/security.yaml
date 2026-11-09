@@ -64,4 +64,12 @@ rules:
               - pattern: (RestTemplate $T).postForObject($URL, ...)
               - pattern: (RestTemplate $T).postForEntity($URL, ...)
               - pattern: (RestTemplate $T).exchange($URL, ...)
+          # A URI built for a Location header, or a relative path, never makes the server connect.
+          - pattern-not-inside: ResponseEntity.created(...)
+          - pattern-not-inside: $HEADERS.setLocation(...)
+          - pattern-not-inside: $BUILDER.location(...)
+          - pattern-not: new URI("=~/^\//" + $REST)
+          - pattern-not: new URI("=~/^\//" + $A + $B)
+          - pattern-not: URI.create("=~/^\//" + $REST)
+          - pattern-not: URI.create("=~/^\//" + $A + $B)
           - focus-metavariable: $URL
