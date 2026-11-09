@@ -53,3 +53,10 @@ java/keystore/application-prod.yml	key store opened with a default password	798,
 java/logging/application-prod.yml	DEBUG logging in the production profile	532	rules
 node/basic-auth.js	fixed Basic credential in front-end code	798	rules
 node/frontend.env	secret in a public build variable	798,200	rules
+java/gateway/application-prod.yml	gateway access policy left at the template entry	284,862	rules
+java/keystore-repo/application-prod.yml	key store loaded from the repository	321,798	rules
+java/prod-password/application-prod.yml	literal password in the production profile	798,260	rules
+java/actuator/application.yml	sensitive actuator endpoints exposed	200,215	rules
+java/PaymentCallback.java	secret passed to a log call	532	rules
+java/SalesSearch.java	search query syntax controlled by the caller	943	rules
+node/login-console.js	password written to the browser console	532	rules

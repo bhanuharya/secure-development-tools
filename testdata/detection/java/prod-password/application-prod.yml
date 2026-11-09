@@ -1,0 +1,6 @@
+# A short literal password that secret scanners skip.
+spring:
+  mail:
+    host: smtp.example.com
+    username: notifications@example.com
+    password: example-pass

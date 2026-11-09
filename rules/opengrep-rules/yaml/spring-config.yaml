@@ -58,3 +58,94 @@ rules:
       - pattern-regex: (?m)^[ \t]+(?:ROOT|root|[a-z][\w-]*(?:\.[\w-]+)+)[ \t]*:[ \t]*["']?(?:DEBUG|TRACE)["']?[ \t]*$
       - pattern-regex: (?m)^logging\.level\.[\w.]+[ \t]*=[ \t]*(?:DEBUG|TRACE)[ \t]*$
       - pattern-regex: <logger[^>]+level="(?:DEBUG|TRACE)"
+
+  - id: scp.yaml.spring.gateway-placeholder-access-policy
+    languages: [generic]
+    message: >-
+      The gateway's access-control policy (authorized-microservices-endpoints) still holds the
+      generator's template entry "app1". No service is called app1, so the policy restricts
+      nothing and the gateway forwards every path of every service, including internal and
+      administrative APIs. List each routed service with only the paths that are meant to be
+      public.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-284", "CWE-862"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: HIGH
+    paths:
+      include: ["application.yml", "application.yaml", "application-prod*.yml", "application-prod*.yaml", "bootstrap-prod*.yml", "bootstrap-prod*.yaml"]
+      exclude: ["**/src/test/**"]
+    pattern-regex: |-
+      (?m)^[ \t]*authorized-microservices-endpoints[ \t]*:[^\n]*\n(?:[ \t]*(?:#[^\n]*)?\n)*[ \t]+app1[ \t]*:
+
+  - id: scp.yaml.spring.keystore-in-repository
+    languages: [generic]
+    message: >-
+      The application loads a key store from a file inside the repository or the application
+      package. Everyone who can read the repository or the image holds the private key; for a
+      token signer that means they can mint valid tokens. Load the key store from a secret
+      manager or a mounted secret, remove the file from the repository and rotate the key.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-321", "CWE-798"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      confidence: MEDIUM
+    paths:
+      include: ["application.yml", "application.yaml", "application-prod*.yml", "application-prod*.yaml", "application.properties", "application-prod*.properties", "bootstrap*.yml", "bootstrap*.yaml"]
+      exclude: ["**/src/test/**", "application-dev*", "bootstrap-dev*"]
+    pattern-either:
+      - pattern-regex: |-
+          (?im)^[ \t]*key-?store(?:-file|-path|-location)?[ \t]*:[ \t]*["']?(?:classpath:|file:)?(?:\./)?(?:config|src|conf|certs?|tls|ssl|keys?)/[^\s"'#]*\.(?:p12|pfx|jks|jceks|keystore)["']?[ \t]*$
+      - pattern-regex: |-
+          (?im)^[ \t]*key-?store:[ \t]*\n(?:[ \t]+[^\n]*\n){0,4}?[ \t]+(?:name|path|file|location)[ \t]*:[ \t]*["']?(?!file:/)(?!/)(?:classpath:)?(?:\./)?[\w.-]+/[^\s"'#]*\.(?:p12|pfx|jks|jceks|keystore)["']?
+      - pattern-regex: |-
+          (?im)^[^#\n]*key-?store(?:\.name|\.path|\.file|\.location)?[ \t]*=[ \t]*(?:classpath:)?(?:\./)?(?:config|src|conf|certs?|tls|ssl|keys?)/\S*\.(?:p12|pfx|jks|jceks|keystore)[ \t]*$
+
+  - id: scp.yaml.spring.prod-literal-password
+    languages: [generic]
+    message: >-
+      A production profile sets a password as a literal value. Everyone who can read the
+      repository or the image has it, and secret scanners miss short or word-like values.
+      Read it from an environment variable or a secret manager (${DB_PASSWORD}) and rotate it.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-798", "CWE-260"]
+      owasp: ["A07:2021 - Identification and Authentication Failures"]
+      confidence: MEDIUM
+    paths:
+      include: ["application-prod*.yml", "application-prod*.yaml", "application-prod*.properties", "bootstrap-prod*.yml", "bootstrap-prod*.yaml"]
+      exclude: ["**/src/test/**"]
+    pattern-either:
+      - pattern-regex: |-
+          (?im)^[ \t]*[\w.-]*password[ \t]*:[ \t]*(?!["']?\$\{)(?!["']?ENC\()(?!["']?<)(?!["']?(?:true|false|null|~|\d+)["']?[ \t]*(?:#[^\n]*)?$)["']?[^\s"'#{}\[\]][^\s"'#]{2,}["']?[ \t]*(?:#[^\n]*)?$
+      - pattern-regex: |-
+          (?im)^[^#\n]*password[ \t]*=[ \t]*(?!\$\{)(?!ENC\()(?!(?:true|false|\d+)[ \t]*$)\S{3,}[ \t]*$
+
+  - id: scp.yaml.spring.actuator-sensitive-endpoints
+    languages: [generic]
+    message: >-
+      Actuator endpoints that reveal configuration, secrets or memory are exposed over HTTP (env,
+      configprops, logfile, heapdump, threaddump, ...). env and configprops show environment
+      values and the URLs of internal services, logfile shows tokens and personal data, heapdump
+      and threaddump show memory. Anyone who reaches /management with a valid or stolen session
+      reads them. Expose only health, info and prometheus, on a management port that is not
+      routed from the internet.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-200", "CWE-215"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      confidence: HIGH
+    paths:
+      include: ["application.yml", "application.yaml", "application-prod*.yml", "application-prod*.yaml", "application.properties", "application-prod*.properties", "bootstrap*.yml", "bootstrap*.yaml"]
+      exclude: ["**/src/test/**", "application-dev*", "bootstrap-dev*"]
+    pattern-either:
+      - pattern-regex: |-
+          (?im)^[ \t]*exposure[ \t]*:[ \t]*\n(?:[^\n]*\n){0,3}?[ \t]+include[ \t]*:[ \t]*(?:\[[^\]\n]*["'\s,\[](?:env|configprops|logfile|heapdump|threaddump|beans|mappings|jolokia|shutdown|httptrace|sessions|gateway|\*)["'\s,\]][^\]\n]*\]|["']?\*["']?|["']?[^\n#\[]*\b(?:env|configprops|logfile|heapdump|threaddump|jolokia|shutdown|httptrace)\b)
+      - pattern-regex: |-
+          (?im)^[ \t]*exposure[ \t]*:[ \t]*\n(?:[^\n]*\n){0,3}?[ \t]+include[ \t]*:[ \t]*\n(?:[ \t]*-[^\n]*\n){0,20}?[ \t]*-[ \t]*["']?(?:env|configprops|logfile|heapdump|threaddump|jolokia|shutdown|httptrace|\*)["']?[ \t]*$
+      - pattern-regex: |-
+          (?im)^[^#\n]*management\.endpoints\.web\.exposure\.include[ \t]*[=:][ \t]*["']?(?:\*|[^\n#]*\b(?:env|configprops|logfile|heapdump|threaddump|jolokia|shutdown|httptrace)\b)

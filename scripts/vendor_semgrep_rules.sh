@@ -60,6 +60,9 @@ SPECS="${SPECS:-$WAVE12 $WAVE3}"
 #   express-check-csurf-...        reports every Express file once
 #   no-direct-write-to-response... reports every w.Write in a Go handler
 #   django ... query-set-extra     reports a query built from a constant, against its own test
+#   java spring-actuator-*         four rules that flag every exposed endpoint except health,
+#                                  at medium; yaml/spring-config.yaml actuator-sensitive-endpoints
+#                                  reports only env, logfile, heapdump and the like, at high
 SKIP_DEFAULT="javascript/lang/security/detect-eval-with-expression.yaml"
 for name in detect-non-literal-regexp detect-non-literal-require detect-non-literal-fs-filename detect-redos \
             incomplete-sanitization unknown-value-with-script-tag unsafe-dynamic-method unsafe-formatstring \
@@ -70,6 +73,10 @@ SKIP_DEFAULT="$SKIP_DEFAULT javascript/express/security/injection/raw-html-forma
 SKIP_DEFAULT="$SKIP_DEFAULT javascript/express/security/audit/express-check-csurf-middleware-usage.yaml"
 SKIP_DEFAULT="$SKIP_DEFAULT go/lang/security/audit/xss/no-direct-write-to-responsewriter.yaml"
 SKIP_DEFAULT="$SKIP_DEFAULT python/django/security/audit/query-set-extra.yaml"
+for name in spring-actuator-fully-enabled spring-actuator-fully-enabled-yaml \
+            spring-actuator-non-health-enabled spring-actuator-non-health-enabled-yaml; do
+  SKIP_DEFAULT="$SKIP_DEFAULT java/spring/security/audit/$name.yaml"
+done
 SKIP="${SKIP:-$SKIP_DEFAULT}"
 
 echo "vendoring from $SRC @ $REV"

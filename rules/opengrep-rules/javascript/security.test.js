@@ -91,3 +91,14 @@ const header = { Authorization: `Basic ${Buffer.from('notify-client:example-pass
 const fromUser = 'Basic ' + btoa(`${username}:${password}`);
 // ok: scp.javascript.secrets.literal-basic-credential
 const label = btoa('hello world');
+// secret-in-console
+function handleSubmit(username, password, rememberMe) {
+  // ruleid: scp.javascript.logging.secret-in-console
+  console.log('in handle submit: ' + username + ':' + password + ':' + rememberMe);
+  // ruleid: scp.javascript.logging.secret-in-console
+  console.debug('token', this.props.accessToken);
+  // ok: scp.javascript.logging.secret-in-console
+  console.log('in handle submit: ' + username);
+  // ok: scp.javascript.logging.secret-in-console
+  console.error('could not refresh tokens', error);
+}

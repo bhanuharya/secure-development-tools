@@ -1,0 +1,5 @@
+# The gateway's access policy still holds the generator's template entry, so it restricts nothing.
+jhipster:
+  gateway:
+    authorized-microservices-endpoints: # Access Control Policy, if left empty for a route, all endpoints will be accessible
+      app1: /api,/v2/api-docs
