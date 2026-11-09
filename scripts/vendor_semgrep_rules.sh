@@ -63,6 +63,12 @@ SPECS="${SPECS:-$WAVE12 $WAVE3}"
 #   java spring-actuator-*         four rules that flag every exposed endpoint except health,
 #                                  at medium; yaml/spring-config.yaml actuator-sensitive-endpoints
 #                                  reports only env, logfile, heapdump and the like, at high
+#   java tainted-file-path         flags building a File or Paths.get() from request data wherever it
+#                                  is used (a download header included); java/boundary.yaml
+#                                  request-path-to-file-operation follows it to the write, read or delete
+#   java spring-sqli               treats every String parameter of every public method as tainted, so
+#                                  generic helpers with bind parameters are reported; java/boundary.yaml
+#                                  sql-string-from-request follows request data to the SQL text
 SKIP_DEFAULT="javascript/lang/security/detect-eval-with-expression.yaml"
 for name in detect-non-literal-regexp detect-non-literal-require detect-non-literal-fs-filename detect-redos \
             incomplete-sanitization unknown-value-with-script-tag unsafe-dynamic-method unsafe-formatstring \
@@ -77,6 +83,8 @@ for name in spring-actuator-fully-enabled spring-actuator-fully-enabled-yaml \
             spring-actuator-non-health-enabled spring-actuator-non-health-enabled-yaml; do
   SKIP_DEFAULT="$SKIP_DEFAULT java/spring/security/audit/$name.yaml"
 done
+SKIP_DEFAULT="$SKIP_DEFAULT java/spring/security/injection/tainted-file-path.yaml"
+SKIP_DEFAULT="$SKIP_DEFAULT java/spring/security/audit/spring-sqli.yaml"
 SKIP="${SKIP:-$SKIP_DEFAULT}"
 
 echo "vendoring from $SRC @ $REV"

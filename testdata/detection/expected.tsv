@@ -1,6 +1,7 @@
 # Planted weaknesses for internal/scanner/detection_test.go: one small file per weakness.
 # cwe: the CWE numbers a correct report may carry. by: rules = the shipped rule pack must report it;
-# sonarqube = left to SonarQube's own analyser in the pipeline, not checked by the test.
+# sonarqube = left to SonarQube's own analyser in the pipeline, not checked by the test;
+# none = a safe look-alike (lookalike/): the rule pack must NOT report it under any of these CWEs.
 path	weakness	cwe	by
 go/cmd.go	command injection	78	rules
 go/crypto.go	weak hash and predictable random numbers	327,328,338,330	rules
@@ -60,3 +61,11 @@ java/actuator/application.yml	sensitive actuator endpoints exposed	200,215	rules
 java/PaymentCallback.java	secret passed to a log call	532	rules
 java/SalesSearch.java	search query syntax controlled by the caller	943	rules
 node/login-console.js	password written to the browser console	532	rules
+java/UploadToDisk.java	upload file name used as the written and deleted path	22,73	rules
+java/SpringSqlSearch.java	SQL text built from a Spring request parameter	89	rules
+java/NoopAccessCheck.java	access check with an empty body	862,285	rules
+java/WebSocketRegistration.java	WebSocket without a handshake check, any origin	306,862,1385,346	rules
+java/lookalike/LocationHeader.java	URI only for the Location header (not SSRF)	918	none
+java/lookalike/DownloadHeader.java	file name only for a download header (not path traversal)	22,73	none
+java/lookalike/PemParsing.java	PEM delimiters stripped from a runtime key (not a committed key)	798,321	none
+java/lookalike/BatchHelper.java	batch helper with bound values (not SQL injection)	89	none

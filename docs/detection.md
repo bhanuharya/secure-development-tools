@@ -15,6 +15,13 @@ TestRulePackFindsThePlantedWeaknesses` fails when a sample the rule pack is resp
 for is not reported by a rule of the right weakness class. A sample flagged for some
 other reason does not count.
 
+**Safe look-alikes** (`testdata/detection/java/lookalike`, `by` = `none`). Code that
+resembles a weakness but is safe: a URI built only for a `Location` header, a file name
+used only for a download header, PEM delimiters stripped from a key loaded at run time, a
+batch helper whose values are bound. The same test fails when the rule pack reports one of
+them under a listed CWE, so precision is measured next to recall: a rule change that
+brings back a known false positive is caught before it ships.
+
 **OWASP Benchmark for Java** (v1.2). 2,740 servlets, each with a weakness that is real
 or a safe look-alike, and the list of which is which. The score per category is the
 share of real weaknesses reported minus the share of safe ones reported:

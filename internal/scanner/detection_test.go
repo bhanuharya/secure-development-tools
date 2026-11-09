@@ -50,8 +50,8 @@ func detectionCases(t *testing.T, table string) []detectionCase {
 			}
 			c.cwes[n] = true
 		}
-		if c.by != "rules" && c.by != "sonarqube" {
-			t.Fatalf("%s: %s is found by %q, want rules or sonarqube", table, c.path, c.by)
+		if c.by != "rules" && c.by != "sonarqube" && c.by != "none" {
+			t.Fatalf("%s: %s is found by %q, want rules, sonarqube or none", table, c.path, c.by)
 		}
 		cases = append(cases, c)
 	}
@@ -112,10 +112,27 @@ func TestRulePackFindsThePlantedWeaknesses(t *testing.T) {
 			}
 		}
 	}
-	required, found := 0, 0
+	required, found, lookalikes, clean := 0, 0, 0, 0
 	for _, c := range cases {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(c.path))); err != nil {
 			t.Errorf("%s is in the table but not in testdata/detection", c.path)
+			continue
+		}
+		if c.by == "none" {
+			// A look-alike: code that resembles the weakness but is safe. Reporting it under
+			// one of its CWEs is the false positive this row guards against.
+			lookalikes++
+			wrong := []int{}
+			for cwe := range c.cwes {
+				if reported[c.path][cwe] {
+					wrong = append(wrong, cwe)
+				}
+			}
+			if len(wrong) == 0 {
+				clean++
+			} else {
+				t.Errorf("%s (%s) is reported as CWE %v, but it is a safe look-alike", c.path, c.weakness, wrong)
+			}
 			continue
 		}
 		if c.by != "rules" {
@@ -132,5 +149,6 @@ func TestRulePackFindsThePlantedWeaknesses(t *testing.T) {
 			t.Errorf("%s (%s) is not reported by a rule of its weakness class", c.path, c.weakness)
 		}
 	}
-	t.Logf("%d of %d planted weaknesses the rule pack is responsible for are found; %d more are left to SonarQube", found, required, len(cases)-required)
+	t.Logf("%d of %d planted weaknesses the rule pack is responsible for are found; %d more are left to SonarQube; %d of %d safe look-alikes are not reported",
+		found, required, len(cases)-required-lookalikes, clean, lookalikes)
 }
