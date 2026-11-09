@@ -1,0 +1,41 @@
+# Annotated tests for spring-config.yaml. The engine's test mode ignores the rules' path
+# filters, so the production-profile cases are exercised from this one file.
+jhipster:
+  cors:
+    # ruleid: scp.yaml.spring.cors-any-origin-with-credentials
+    allowed-origins: "*"
+    allowed-methods: "*"
+    allowed-headers: "*"
+    exposed-headers: "Authorization,Link,X-Total-Count"
+    allow-credentials: true
+    max-age: 1800
+gateway:
+  cors:
+    # ok: scp.yaml.spring.cors-any-origin-with-credentials
+    allowed-origins: "https://app.example.com"
+    allow-credentials: true
+public-api:
+  cors:
+    # ok: scp.yaml.spring.cors-any-origin-with-credentials
+    allowed-origins: "*"
+    allowed-methods: "GET"
+    allow-credentials: false
+uaa:
+  # ruleid: scp.yaml.spring.prod-keystore-default-password
+  key-store:
+    name: config/tls/keystore.p12
+    password: password
+    alias: selfsigned
+signing:
+  # ok: scp.yaml.spring.prod-keystore-default-password
+  key-store:
+    name: file:/var/run/secrets/signing.p12
+    password: ${SIGNING_KEYSTORE_PASSWORD}
+logging:
+  level:
+    # ruleid: scp.yaml.spring.prod-debug-logging
+    ROOT: DEBUG
+    # ruleid: scp.yaml.spring.prod-debug-logging
+    com.example.app: DEBUG
+    # ok: scp.yaml.spring.prod-debug-logging
+    io.github.jhipster: INFO

@@ -102,3 +102,27 @@ rules:
       - metavariable-regex:
           metavariable: $VALUE
           regex: ^.+$
+
+  - id: scp.javascript.secrets.literal-basic-credential
+    languages: [javascript, typescript]
+    message: >-
+      A fixed user:password pair is encoded as an HTTP Basic credential in front-end code. Base64
+      is an encoding, so every visitor who downloads the bundle can read the credential and call
+      the backend directly. Authenticate the user to a backend, which holds the service
+      credential, and rotate this one.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-798"]
+      owasp: ["A07:2021 - Identification and Authentication Failures"]
+      confidence: HIGH
+    paths:
+      exclude: ["**/__tests__/**", "**/__mocks__/**", "*.spec.*", "*.test.*", "*.min.js"]
+    patterns:
+      - pattern-either:
+          - pattern: btoa("$CRED")
+          - pattern: Buffer.from("$CRED").toString(...)
+          - pattern: Buffer.from("$CRED", ...).toString(...)
+      - metavariable-regex:
+          metavariable: $CRED
+          regex: ^[^:\s]{2,}:[^\s]{4,}$

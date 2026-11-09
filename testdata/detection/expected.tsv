@@ -40,3 +40,16 @@ node/env-fallback.js	secret read from the environment with a literal fallback	79
 python/env_fallback.py	secret read from the environment with a literal fallback	798,1188	rules
 java/application.yml	secret placeholder with a literal default	798,1188	rules
 deploy/Dockerfile	development server started by the container image	489,552	rules
+java/InternalApiOpen.java	internal service endpoints open to anonymous callers	306,862	rules
+java/NoDefaultRule.java	security chain without a default rule	276,862	rules
+java/ScopedChain.java	security chain limited to a hand-written path list	862	rules
+java/CommentedRule.java	authorization rule commented out	862	rules
+java/StaffRegistration.java	roles and activation taken from the request	915,269	rules
+java/CorsAnyOrigin.java	CORS any origin with credentials	942	rules
+java/UserDto.java	password printed by toString	532,312	rules
+java/TestEndpoint.java	test endpoint in production code	489	rules
+java/cors/application.yml	CORS any origin with credentials in configuration	942	rules
+java/keystore/application-prod.yml	key store opened with a default password	798,321	rules
+java/logging/application-prod.yml	DEBUG logging in the production profile	532	rules
+node/basic-auth.js	fixed Basic credential in front-end code	798	rules
+node/frontend.env	secret in a public build variable	798,200	rules

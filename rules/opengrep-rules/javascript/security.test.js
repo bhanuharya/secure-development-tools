@@ -82,3 +82,12 @@ class AuthModule {
     return cache.get('JWT_SECRET', 'x');
   }
 }
+// literal-basic-credential
+// ruleid: scp.javascript.secrets.literal-basic-credential
+const auth = 'Basic ' + btoa('notify-client:example-not-a-real-pass');
+// ruleid: scp.javascript.secrets.literal-basic-credential
+const header = { Authorization: `Basic ${Buffer.from('notify-client:example-pass').toString('base64')}` };
+// ok: scp.javascript.secrets.literal-basic-credential
+const fromUser = 'Basic ' + btoa(`${username}:${password}`);
+// ok: scp.javascript.secrets.literal-basic-credential
+const label = btoa('hello world');

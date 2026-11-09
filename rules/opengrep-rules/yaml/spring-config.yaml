@@ -1,0 +1,60 @@
+# Spring Boot and JHipster configuration files: CORS, key stores and production log levels.
+# Generic matching, because the weakness is in the combination of keys, not in one value.
+rules:
+  - id: scp.yaml.spring.cors-any-origin-with-credentials
+    languages: [generic]
+    message: >-
+      CORS settings allow every origin ("*") together with allow-credentials: true. Any website a
+      user opens can read the API's responses through the user's browser, including hosts that
+      only an office network can reach. List the real front-end origins, and leave credentials
+      off when tokens travel in the Authorization header.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-942"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      confidence: HIGH
+    paths:
+      include: ["application*.yml", "application*.yaml", "bootstrap*.yml", "bootstrap*.yaml", "application*.properties"]
+    pattern-either:
+      - pattern-regex: (?m)^[ \t]*allowed-origin(?:-pattern)?s:[ \t]*["']?\*["']?[ \t]*(?:#[^\n]*)?\n(?:[ \t]+[^\n]*\n){0,6}?[ \t]*allow-credentials:[ \t]*true
+      - pattern-regex: (?m)^[^#\n]*cors\.allowed-origin(?:-pattern)?s[ \t]*=[ \t]*\*[ \t]*\n(?:[^\n]*\n){0,6}?[^#\n]*cors\.allow-credentials[ \t]*=[ \t]*true
+
+  - id: scp.yaml.spring.prod-keystore-default-password
+    languages: [generic]
+    message: >-
+      A production profile opens a key store with a default password (password, changeit,
+      secret, admin). A committed key store with a default password means anyone who can read the
+      repository or the image holds the key, which for a token signer means they can mint tokens.
+      Load the key and its password from a secret manager and rotate the key.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-798", "CWE-321"]
+      owasp: ["A07:2021 - Identification and Authentication Failures"]
+      confidence: HIGH
+    paths:
+      include: ["application-prod*.yml", "application-prod*.yaml", "application-prod*.properties", "bootstrap-prod*.yml", "bootstrap-prod*.yaml"]
+    pattern-either:
+      - pattern-regex: (?im)^[ \t]*(?:key-?store|trust-?store)[\w-]*:[ \t]*\n(?:[ \t]+[^\n]*\n){0,4}?[ \t]+(?:key-?store-)?password:[ \t]*["']?(?:password|changeit|secret|admin|123456)["']?[ \t]*$
+      - pattern-regex: (?im)^[ \t]*(?:key-?store-password|trust-?store-password)[ \t]*[:=][ \t]*["']?(?:password|changeit|secret|admin|123456)["']?[ \t]*$
+      - pattern-regex: (?im)^[^#\n]*\.(?:key-?store|trust-?store)[\w.-]*password[ \t]*=[ \t]*(?:password|changeit|secret|admin|123456)[ \t]*$
+
+  - id: scp.yaml.spring.prod-debug-logging
+    languages: [generic]
+    message: >-
+      A production profile sets DEBUG or TRACE logging. Request bodies, HTTP headers
+      (Authorization) and SQL parameters then reach the central log store, where anyone with log
+      access can replay tokens or read passwords. Use INFO or higher in production.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-532"]
+      owasp: ["A09:2021 - Security Logging and Monitoring Failures"]
+      confidence: HIGH
+    paths:
+      include: ["application-prod*.yml", "application-prod*.yaml", "application-prod*.properties", "logback-prod*.xml"]
+    pattern-either:
+      - pattern-regex: (?m)^[ \t]+(?:ROOT|root|[a-z][\w-]*(?:\.[\w-]+)+)[ \t]*:[ \t]*["']?(?:DEBUG|TRACE)["']?[ \t]*$
+      - pattern-regex: (?m)^logging\.level\.[\w.]+[ \t]*=[ \t]*(?:DEBUG|TRACE)[ \t]*$
+      - pattern-regex: <logger[^>]+level="(?:DEBUG|TRACE)"
