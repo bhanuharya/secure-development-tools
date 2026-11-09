@@ -102,3 +102,52 @@ rules:
       - metavariable-regex:
           metavariable: $VALUE
           regex: ^.+$
+
+  - id: scp.javascript.secrets.literal-basic-credential
+    languages: [javascript, typescript]
+    message: >-
+      A fixed user:password pair is encoded as an HTTP Basic credential in front-end code. Base64
+      is an encoding, so every visitor who downloads the bundle can read the credential and call
+      the backend directly. Authenticate the user to a backend, which holds the service
+      credential, and rotate this one.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-798"]
+      owasp: ["A07:2021 - Identification and Authentication Failures"]
+      confidence: HIGH
+    paths:
+      exclude: ["**/__tests__/**", "**/__mocks__/**", "*.spec.*", "*.test.*", "*.min.js"]
+    patterns:
+      - pattern-either:
+          - pattern: btoa("$CRED")
+          - pattern: Buffer.from("$CRED").toString(...)
+          - pattern: Buffer.from("$CRED", ...).toString(...)
+      - metavariable-regex:
+          metavariable: $CRED
+          regex: ^[^:\s]{2,}:[^\s]{4,}$
+
+  - id: scp.javascript.logging.secret-in-console
+    languages: [javascript, typescript]
+    message: >-
+      A password, token, OTP or other secret is written to the browser console. Anyone at the
+      screen, in a screen share, or any browser extension or error-reporting script that reads the
+      console can collect it. Remove the log call or log a masked value.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-532"]
+      owasp: ["A09:2021 - Security Logging and Monitoring Failures"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/__tests__/**", "**/__mocks__/**", "*.spec.*", "*.test.*", "*.min.js"]
+    patterns:
+      - pattern-either:
+          - pattern: console.$M(..., $X, ...)
+          - pattern: console.$M(..., <... $X ...>, ...)
+      - metavariable-regex:
+          metavariable: $M
+          regex: ^(log|info|debug|warn|error|trace)$
+      - metavariable-regex:
+          metavariable: $X
+          regex: ^(?:(?:[A-Za-z_$][\w$]*\.)*(?:(?i:[a-z0-9_$]*(?:password|passwd|pwd|secret|apikey|api_key|otp))|token|[a-z][A-Za-z0-9]*Token))$

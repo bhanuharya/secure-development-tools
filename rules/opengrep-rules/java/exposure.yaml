@@ -1,0 +1,69 @@
+# Data exposure that data-flow rules do not report: secrets handed to a logger, and search
+# queries whose syntax the caller controls.
+rules:
+  - id: scp.java.logging.secret-in-log-call
+    languages: [java]
+    message: >-
+      A password, token, PIN, OTP or other secret is passed to a log call. Log lines reach
+      files, log platforms and support staff, and the actuator logfile endpoint; anyone who reads
+      them can replay the token or use the password. Log an identifier or a masked value instead.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-532"]
+      owasp: ["A09:2021 - Security Logging and Monitoring Failures"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/src/test/**"]
+    patterns:
+      # The secret itself as an argument, or concatenated into one. A value that is only
+      # measured (token.length()), masked (mask(token)) or tested (otp != null) does not match.
+      - pattern-either:
+          - pattern: $LOG.$M(..., $X, ...)
+          - pattern: $LOG.$M(..., <... $A + $X ...>, ...)
+          - pattern: $LOG.$M(..., <... $X + $B ...>, ...)
+      - metavariable-regex:
+          metavariable: $LOG
+          regex: (?i)^_?(log|logger)$
+      - metavariable-regex:
+          metavariable: $M
+          regex: ^(trace|debug|info|warn|error)$
+      - metavariable-regex:
+          metavariable: $X
+          # Secret-named variables, fields and getters. All-caps constants (URL paths such as
+          # VERIFY_PASSWORD) and push-notification device tokens are left out.
+          regex: ^(?![A-Z0-9_.]+$)(?!.*(?i:fcm|push|device))(?:(?:[A-Za-z_][\w]*\.)*(?:(?i:[a-z0-9_]*(?:password|passwd|pwd|secret|apikey|api_key|otp))|token|[a-z][A-Za-z0-9]*Token|pin|[a-z][A-Za-z0-9]*Pin)|[\w.]+\.get(?:Password|Passwd|Pin|Otp|Token|AccessToken|RefreshToken|Secret|ClientSecret|ApiKey)\(\))$
+
+  - id: scp.java.search.user-controlled-query-string
+    languages: [java]
+    message: >-
+      A search query is built from a value the caller supplies. query_string queries, and Spring
+      Data Elasticsearch derived Contains/Like queries, accept Lucene syntax: the caller can search
+      any field (_exists_:password, *:*), use wildcards and, with a large page size, read the whole
+      index. Use a match or term query on the intended fields, escape the value
+      (QueryParserUtil.escape) and cap the page size.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-943"]
+      owasp: ["A03:2021 - Injection"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/src/test/**"]
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern: QueryBuilders.queryStringQuery($Q)
+              - pattern: queryStringQuery($Q)
+              - pattern: new QueryStringQueryBuilder($Q)
+          - pattern-not: QueryBuilders.queryStringQuery("...")
+          - pattern-not: queryStringQuery("...")
+          - pattern-not: new QueryStringQueryBuilder("...")
+      - patterns:
+          - pattern: $REPO.$FIND(..., $V, ...)
+          - metavariable-regex:
+              metavariable: $REPO
+              regex: (?i)^[a-z0-9_]*searchrepository$
+          - metavariable-regex:
+              metavariable: $FIND
+              regex: ^find\w*(?:Contains|Containing|Like|StartingWith|EndingWith)$

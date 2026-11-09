@@ -1,0 +1,204 @@
+# Access-control configuration in Spring services: rules for controls that are missing or too
+# wide, which data-flow rules cannot see. Each of them leaves endpoints open even when the rest of
+# the security chain works.
+rules:
+  - id: scp.java.authz.permitall-wildcard-prefix
+    languages: [java]
+    message: >-
+      permitAll() covers a whole API prefix ("$P"). Every handler added under it later is
+      anonymous without anyone deciding so. List the exact public paths, and give everything
+      else an explicit rule (anyRequest().authenticated() or denyAll()).
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-862"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: $X.antMatchers(..., "$P", ...).permitAll()
+          - pattern: $X.mvcMatchers(..., "$P", ...).permitAll()
+          - pattern: $X.requestMatchers(..., "$P", ...).permitAll()
+      - metavariable-regex:
+          metavariable: $P
+          regex: ^/(api|services)/.*\*\*?$
+      - focus-metavariable: $P
+
+  - id: scp.java.authz.permitall-internal-path
+    languages: [java]
+    message: >-
+      permitAll() opens a path that names an internal, administrative, registration or test
+      surface ("$P"). Service-to-service callers still need an identity: require a client
+      token (for example #oauth2.isClient() or a scope) and keep the path off the public gateway.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-306", "CWE-862"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: $X.antMatchers(..., "$P", ...).permitAll()
+          - pattern: $X.mvcMatchers(..., "$P", ...).permitAll()
+          - pattern: $X.requestMatchers(..., "$P", ...).permitAll()
+      - metavariable-regex:
+          metavariable: $P
+          regex: (?i).*(feign|internal|/management/(?!health(/\*\*)?$|info$|prometheus$)|/admin|back-?office|/bo(/|$)|/register/\*|/users/init|/actuator/(?!health|info)|/(?:test|debug)(?:[-_/*]|$))
+      - focus-metavariable: $P
+
+  - id: scp.java.authz.security-chain-without-default
+    languages: [java]
+    message: >-
+      This HttpSecurity chain lists path rules but has no anyRequest() rule. With
+      authorizeRequests(), a request that matches no rule is let through, so each new controller
+      is public until someone adds a rule for it. End the chain with
+      .anyRequest().authenticated() or .anyRequest().denyAll().
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-276", "CWE-862"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    patterns:
+      - pattern-inside: |
+          $RET $M(HttpSecurity $H) throws $E { ... }
+      - pattern-not-inside: $Y.anyRequest().$A(...)
+      - pattern: $X.authorizeRequests()
+
+  - id: scp.java.authz.security-chain-scoped-to-list
+    languages: [java]
+    message: >-
+      requestMatcher(...) limits this security chain to a hand-written set of paths. Requests
+      outside the set skip Spring Security entirely, so anyRequest() inside the chain does not
+      protect them. Drop the scoping and mark public paths with explicit permitAll() rules.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-862"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: HIGH
+    pattern-either:
+      - pattern: $H.requestMatcher(this::$M)
+      - pattern: $H.requestMatcher(new OrRequestMatcher(...))
+      - pattern: $H.requestMatcher((HttpServletRequest $R) -> $BODY)
+
+  - id: scp.java.authz.commented-out-rule
+    languages: [generic]
+    message: >-
+      An authorization rule is commented out. Commenting out a line such as
+      .antMatchers("/api/**").authenticated() usually opens every path it covered. Delete the
+      line and add the narrower rule that was intended, or restore it.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-862"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    paths:
+      include: ["*.java", "*.kt"]
+    pattern-regex: (?m)^[ \t]*//[ \t]*\.?(?:antMatchers|mvcMatchers|requestMatchers|anyRequest)\([^\n]*\)[ \t]*\.[ \t]*(?:authenticated|fullyAuthenticated|hasAuthority|hasAnyAuthority|hasRole|hasAnyRole|denyAll|access)\(
+
+  - id: scp.java.authz.client-supplied-authorities
+    languages: [java]
+    message: >-
+      Roles or the activation flag are copied from a request object into a user record. If a
+      caller who is not an administrator can reach this code, that caller can grant itself any
+      role or activate its own account. Set roles and activation on the server, from an
+      allow-list, behind an administrator check.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-915", "CWE-269"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    mode: taint
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: $DTO.getAuthorities()
+              - pattern: $DTO.getRoles()
+              - pattern: $DTO.isActivated()
+              - pattern: $DTO.getActivated()
+          - metavariable-regex:
+              metavariable: $DTO
+              regex: (?i).*(dto|vm|request|req|body|form|param)s?$
+    pattern-sinks:
+      - pattern: $U.setAuthorities(...)
+      - pattern: $U.setRoles(...)
+      - pattern: $U.setActivated(...)
+
+  - id: scp.java.cors.any-origin-with-credentials
+    languages: [java]
+    message: >-
+      CORS allows every origin and also allows credentials. Any website a user opens can read
+      these responses through the user's browser, including hosts that only an office network
+      can reach. Allow a fixed list of front-end origins.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-942"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      confidence: HIGH
+    pattern-either:
+      - patterns:
+          - pattern-inside: |
+              $RET $M(...) { ... $C.setAllowCredentials(true); ... }
+          - pattern-either:
+              - pattern: $C.addAllowedOrigin("*")
+              - pattern: $C.addAllowedOriginPattern("*")
+              - pattern: $C.setAllowedOriginPatterns(<... "*" ...>)
+              - pattern: $C.setAllowedOrigins(<... "*" ...>)
+      # @CrossOrigin allows every origin unless it lists them.
+      - patterns:
+          - pattern: |
+              @CrossOrigin(..., allowCredentials = "true", ...)
+          - pattern-not: |
+              @CrossOrigin(..., origins = $O, ...)
+          - pattern-not: |
+              @CrossOrigin(..., originPatterns = $O, ...)
+          - pattern-not: |
+              @CrossOrigin(..., value = $O, ...)
+      - pattern: |
+          @CrossOrigin(..., origins = "*", ..., allowCredentials = "true", ...)
+      - pattern: |
+          @CrossOrigin(..., allowCredentials = "true", ..., origins = "*", ...)
+      - pattern: |
+          @CrossOrigin(..., originPatterns = "*", ..., allowCredentials = "true", ...)
+      - pattern: |
+          @CrossOrigin(..., allowCredentials = "true", ..., originPatterns = "*", ...)
+      - pattern: $R.allowedOriginPatterns("*").$F(...).allowCredentials(true)
+      - pattern: $R.allowedOriginPatterns("*").allowCredentials(true)
+      - pattern: $R.allowedOrigins("*").allowCredentials(true)
+
+  - id: scp.java.debug.test-endpoint
+    languages: [generic]
+    message: >-
+      A controller maps a test or debug endpoint. Test helpers that call third parties, reset
+      state or echo tokens are reachable in production unless the build removes them. Delete
+      them or limit them to a non-production profile.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-489"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      confidence: MEDIUM
+    paths:
+      include: ["*.java", "*.kt"]
+      exclude: ["**/src/test/**"]
+    pattern-regex: (?i)@(?:Get|Post|Put|Delete|Patch|Request)Mapping\(\s*(?:value\s*=\s*|path\s*=\s*)?\{?\s*"[^"]*(?:/test(?:[-_/"]|[A-Z])|/debug|/dummy)[^"]*"
+
+  - id: scp.java.logging.tostring-prints-secret
+    languages: [generic]
+    message: >-
+      toString() prints a credential field. Any log line, error message or trace that prints
+      this object writes the secret in clear text to the log store. Leave password, PIN, OTP,
+      token and secret fields out of toString().
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-532", "CWE-312"]
+      owasp: ["A09:2021 - Security Logging and Monitoring Failures"]
+      confidence: MEDIUM
+    paths:
+      include: ["*.java", "*.kt"]
+    pattern-regex: (?i)"[^"\n]*\b(?:password|passwd|pwd|pin|otp|secret|client_?secret|access_?token|refresh_?token)\b\s*[=:]\s*'?"\s*\+\s*(?:get|this\.)?(?:password|passwd|pwd|pin|otp|secret|clientsecret|accesstoken|refreshtoken)\b

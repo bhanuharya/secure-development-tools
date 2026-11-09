@@ -1,0 +1,5 @@
+uaa:
+  key-store:
+    name: config/tls/keystore.p12
+    password: password
+    alias: selfsigned

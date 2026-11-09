@@ -17,7 +17,7 @@ sources:
       - yaml
       - dart
       - flutter
-    expected_rule_count: 43
+    expected_rule_count: 64
   - id: aikido
     repository: https://github.com/AikidoSec/opengrep-rules
     license: MIT
@@ -80,8 +80,8 @@ sources:
     profile: high-signal
     path_prefixes:
       - vendor/semgrep/java
-    expected_rule_count: 105
-    bundle_sha256: 2d5cabd34b6b6e5ad1a82a2d79a95097bfd66af4da89bfd1b3fd65d3041c117a
+    expected_rule_count: 101
+    bundle_sha256: 60b80cea34ac34db020a12ca41511ae5c8edf988a7f47ebf335e78517108de50
   - id: semgrep-yaml
     repository: https://github.com/semgrep/semgrep-rules
     license: Semgrep-Rules-License-1.0

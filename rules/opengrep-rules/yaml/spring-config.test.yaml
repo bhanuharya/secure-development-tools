@@ -1,0 +1,116 @@
+# Annotated tests for spring-config.yaml. The engine's test mode ignores the rules' path
+# filters, so the production-profile cases are exercised from this one file.
+jhipster:
+  cors:
+    # ruleid: scp.yaml.spring.cors-any-origin-with-credentials
+    allowed-origins: "*"
+    allowed-methods: "*"
+    allowed-headers: "*"
+    exposed-headers: "Authorization,Link,X-Total-Count"
+    allow-credentials: true
+    max-age: 1800
+gateway:
+  cors:
+    # ok: scp.yaml.spring.cors-any-origin-with-credentials
+    allowed-origins: "https://app.example.com"
+    allow-credentials: true
+public-api:
+  cors:
+    # ok: scp.yaml.spring.cors-any-origin-with-credentials
+    allowed-origins: "*"
+    allowed-methods: "GET"
+    allow-credentials: false
+uaa:
+  # ruleid: scp.yaml.spring.prod-keystore-default-password, scp.yaml.spring.keystore-in-repository
+  key-store:
+    name: config/tls/keystore.p12
+    # ruleid: scp.yaml.spring.prod-literal-password
+    password: password
+    alias: selfsigned
+signing:
+  # ok: scp.yaml.spring.prod-keystore-default-password
+  key-store:
+    name: file:/var/run/secrets/signing.p12
+    password: ${SIGNING_KEYSTORE_PASSWORD}
+logging:
+  level:
+    # ruleid: scp.yaml.spring.prod-debug-logging
+    ROOT: DEBUG
+    # ruleid: scp.yaml.spring.prod-debug-logging
+    com.example.app: DEBUG
+    # ok: scp.yaml.spring.prod-debug-logging
+    io.github.jhipster: INFO
+gateway-template:
+  gateway:
+    # ruleid: scp.yaml.spring.gateway-placeholder-access-policy
+    authorized-microservices-endpoints: # Access Control Policy, if left empty for a route, all endpoints will be accessible
+      app1: /api,/v2/api-docs # recommended dev configuration
+gateway-listed:
+  gateway:
+    # ok: scp.yaml.spring.gateway-placeholder-access-policy
+    authorized-microservices-endpoints:
+      clientservice: /api/v1/investors/profile,/api/v1/authenticate
+uaa-packaged:
+  # ruleid: scp.yaml.spring.keystore-in-repository
+  key-store:
+    name: config/tls/signing.p12
+    password: ${UAA_KEYSTORE_PASSWORD}
+server:
+  ssl:
+    # ruleid: scp.yaml.spring.keystore-in-repository
+    key-store: classpath:config/tls/keystore.p12
+    # ok: scp.yaml.spring.keystore-in-repository
+    trust-store: classpath:config/tls/truststore.p12
+mounted:
+  # ok: scp.yaml.spring.keystore-in-repository
+  key-store:
+    path: /var/run/secrets/tls/keystore.p12
+spring:
+  datasource:
+    # ok: scp.yaml.spring.prod-literal-password
+    password: ${DB_PASSWORD}
+  mail:
+    # ruleid: scp.yaml.spring.prod-literal-password
+    password: example-not-a-real-mail-pass
+registry:
+  # ruleid: scp.yaml.spring.prod-literal-password
+  password: admin
+jasypt:
+  # ok: scp.yaml.spring.prod-literal-password
+  password: ENC(example-encrypted-value)
+reset:
+  # ok: scp.yaml.spring.prod-literal-password
+  password-reset-url: https://app.example.com/reset
+  # ok: scp.yaml.spring.prod-literal-password
+  password:
+management:
+  endpoints:
+    web:
+      base-path: /management
+      # ruleid: scp.yaml.spring.actuator-sensitive-endpoints
+      exposure:
+        include: ["configprops", "env", "health", "info", "threaddump", "logfile"]
+monitoring:
+  endpoints:
+    web:
+      # ok: scp.yaml.spring.actuator-sensitive-endpoints
+      exposure:
+        include: ["health", "info", "prometheus"]
+listed:
+  endpoints:
+    web:
+      # ruleid: scp.yaml.spring.actuator-sensitive-endpoints
+      exposure:
+        include:
+          - health
+          - heapdump
+everything:
+  endpoints:
+    web:
+      # ruleid: scp.yaml.spring.actuator-sensitive-endpoints
+      exposure:
+        include: "*"
+# ruleid: scp.yaml.spring.actuator-sensitive-endpoints
+management.endpoints.web.exposure.include=health,info,env
+# ok: scp.yaml.spring.actuator-sensitive-endpoints
+management.endpoints.web.exposure.include=health,info
