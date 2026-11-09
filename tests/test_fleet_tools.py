@@ -1926,6 +1926,19 @@ def test_change_review_keeps_only_findings_on_added_lines():
     assert "## 1. Owner check removed" in text and "`routes/report.js:11`" in text and "3 changed files were not sent" in text
 
 
+def test_change_review_has_its_own_reasoning_depth():
+    import sdt_review_diff
+    env = {"SDT_CODEX_REASONING": "medium", "SDT_AI_DIFF_REASONING": "Low"}
+    assert sdt_review_diff.apply_diff_reasoning(env) == "low" and env["SDT_CODEX_REASONING"] == "low"
+    env = {"SDT_CODEX_REASONING": "high"}
+    assert sdt_review_diff.apply_diff_reasoning(env) == "high"
+    env = {"SDT_AI_DIFF_REASONING": "fast"}
+    assert sdt_review_diff.apply_diff_reasoning(env) == "medium" and "SDT_CODEX_REASONING" not in env
+    report = {"model": "gpt-6.1-sol", "reasoning": "low", "files_reviewed": [], "findings": [], "files_partial": [],
+              "stopped": "", "calls": 0, "failed_calls": 0}
+    assert "Model `gpt-6.1-sol` (reasoning low) read 0 changed files" in sdt_review_diff.markdown(report, "origin/main", 0)
+
+
 def test_change_review_never_sends_secret_values():
     import sdt_review_diff
     secret = "sk_" + "live_" + "0123456789abcdefghij"
