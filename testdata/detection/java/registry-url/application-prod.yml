@@ -1,0 +1,5 @@
+# The registry address carries the password: actuator env and configprops show it in clear.
+eureka:
+  client:
+    service-url:
+      defaultZone: http://admin:${registry.password}@service-registry:8761/eureka/

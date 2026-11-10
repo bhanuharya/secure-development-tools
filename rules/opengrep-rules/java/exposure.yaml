@@ -22,6 +22,15 @@ rules:
           - pattern: $LOG.$M(..., $X, ...)
           - pattern: $LOG.$M(..., <... $A + $X ...>, ...)
           - pattern: $LOG.$M(..., <... $X + $B ...>, ...)
+          # Encoded, encrypted or hashed is not masked: the stored form of a password is as good
+          # as the password when the encoding is reversible or the hash can be looked up.
+          - patterns:
+              - pattern-either:
+                  - pattern: $LOG.$M(..., $W.$ENC(..., $X, ...), ...)
+                  - pattern: $LOG.$M(..., $ENC(..., $X, ...), ...)
+              - metavariable-regex:
+                  metavariable: $ENC
+                  regex: (?i)^(encode|encrypt|encipher|hash|digest|md5|sha\d*|base64|toHex|hex)\w*$
       - metavariable-regex:
           metavariable: $LOG
           regex: (?i)^_?(log|logger)$

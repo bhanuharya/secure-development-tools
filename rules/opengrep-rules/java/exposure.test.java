@@ -26,6 +26,13 @@ public class ExposureTest {
         log.info("login attempt for {}", username);
     }
 
+    public void changed(String userId, LoginDTO dto, String pin) {
+        // ruleid: scp.java.logging.secret-in-log-call
+        log.info("update user {}, pass {}", userId, PasswordCodec.encode(dto.getPassword()));
+        // ruleid: scp.java.logging.secret-in-log-call
+        log.info("update user {}, pin {}", userId, sha256Hex(pin));
+    }
+
     public void measured(String token, String authToken, String removedOtp, String fcmToken, String hotsUrl) {
         // ok: scp.java.logging.secret-in-log-call
         log.debug("url={}, tokenLength={}", hotsUrl, token.length());
@@ -86,5 +93,6 @@ public class ExposureTest {
     static class LoginDTO {
         String getLogin() { return ""; }
         String getOtp() { return ""; }
+        String getPassword() { return ""; }
     }
 }

@@ -114,3 +114,59 @@ everything:
 management.endpoints.web.exposure.include=health,info,env
 # ok: scp.yaml.spring.actuator-sensitive-endpoints
 management.endpoints.web.exposure.include=health,info
+oauth:
+  client-authorization:
+    client-id: internal
+    # ruleid: scp.yaml.spring.known-default-secret
+    client-secret: internal
+  web-client-configuration:
+    # ruleid: scp.yaml.spring.known-default-secret
+    secret: changeit
+  jwt:
+    # ruleid: scp.yaml.spring.known-default-secret
+    base64-secret: bXktc2VjcmV0LWtleS13aGljaC1zaG91bGQtYmUtY2hhbmdlZC1pbi1wcm9kdWN0aW9uLWFuZC1iZS1iYXNlNjQtZW5jb2RlZAo=
+    # ok: scp.yaml.spring.known-default-secret, scp.yaml.spring.prod-literal-secret
+    secret: ${JWT_SECRET}
+partner:
+  # ruleid: scp.yaml.spring.prod-literal-secret
+  api-key: 4f9d2c7a81b34e5fa0c6d7e8
+  # ruleid: scp.yaml.spring.prod-literal-secret
+  client-secret: Zx81-example-not-a-default
+  # ok: scp.yaml.spring.prod-literal-secret
+  token-validity-in-seconds: 86400
+  # ok: scp.yaml.spring.prod-literal-secret
+  secret-key: ${PARTNER_SECRET_KEY}
+discovery-client:
+  service-url:
+    # ruleid: scp.yaml.spring.service-url-embedded-credentials
+    defaultZone: http://admin:${registry.password}@service-registry:8761/eureka/
+    # ruleid: scp.yaml.spring.service-url-literal-credentials
+    backupZone: http://admin:Example-Pass-1@service-registry:8761/eureka/
+    # ok: scp.yaml.spring.service-url-embedded-credentials, scp.yaml.spring.service-url-literal-credentials
+    plainZone: http://service-registry:8761/eureka/
+    # ok: scp.yaml.spring.service-url-embedded-credentials
+    localZone: http://admin:${registry.password}@localhost:8761/eureka/
+  datasource:
+    # ok: scp.yaml.spring.service-url-embedded-credentials, scp.yaml.spring.service-url-literal-credentials
+    url: jdbc:oracle:thin:@10.0.0.10:1521:ORCL
+edge:
+  gateway:
+    discovery:
+      # ruleid: scp.yaml.spring.gateway-routes-every-service
+      locator:
+        enabled: true
+        lower-case-service-id: true
+tracing:
+  zipkin:
+    # ok: scp.yaml.spring.gateway-routes-every-service
+    locator:
+      discovery:
+        enabled: true
+explicit:
+  gateway:
+    discovery:
+      # ok: scp.yaml.spring.gateway-routes-every-service
+      locator:
+        enabled: false
+# ruleid: scp.yaml.spring.gateway-routes-every-service
+spring.cloud.gateway.discovery.locator.enabled=true

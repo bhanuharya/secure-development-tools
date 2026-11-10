@@ -1,0 +1,184 @@
+# Identity and credentials: who may obtain an administrator token, who may change another
+# person's password or e-mail, which endpoints let anyone test a password, and whether a stored
+# password can be turned back into clear text.
+rules:
+  - id: scp.java.oauth.admin-client-credentials
+    languages: [java]
+    message: >-
+      An OAuth client is registered with an administrator role and the client_credentials grant.
+      Whoever knows the client id and secret gets an administrator token without any user
+      account, from wherever the token endpoint is reachable. Give service clients a role of
+      their own with only the scopes they need, keep the secret out of the repository, and do
+      not route the client_credentials grant from the internet.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-269", "CWE-798"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: HIGH
+    paths:
+      exclude: ["**/src/test/**"]
+    patterns:
+      - pattern-either:
+          - pattern: $C.withClient(...). ... .authorities(..., "$ROLE", ...). ... .authorizedGrantTypes(..., "client_credentials", ...)
+          - pattern: $C.withClient(...). ... .authorizedGrantTypes(..., "client_credentials", ...). ... .authorities(..., "$ROLE", ...)
+      - metavariable-regex:
+          metavariable: $ROLE
+          regex: (?i)^(ROLE_)?(SUPER_?)?(ADMIN|ADMINISTRATOR|ROOT|SUPERUSER)$
+
+  - id: scp.java.authz.credential-change-by-request-id
+    languages: [java]
+    message: >-
+      This endpoint changes or resets a password, PIN, e-mail or phone number for the account
+      named in the URL, and nothing in the method ties that account to the caller: no current
+      user, no role check. Any caller who reaches it with any valid token can take over any
+      account by changing its password or e-mail. Take the account from the verified token, or
+      require an administrator role, and ask for the old password or a one-time code before the
+      change.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-639", "CWE-620"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/src/test/**"]
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              @$MAP($PATH)
+              $RET $METHOD(..., @PathVariable(...) $T $ID, ...) { ... }
+          - pattern-inside: |
+              @$MAP($PATH)
+              $RET $METHOD(..., @PathVariable $T $ID, ...) { ... }
+          - pattern-inside: |
+              @$MAP(value = $PATH, ...)
+              $RET $METHOD(..., @PathVariable(...) $T $ID, ...) { ... }
+          - pattern-inside: |
+              @$MAP(path = $PATH, ...)
+              $RET $METHOD(..., @PathVariable(...) $T $ID, ...) { ... }
+      - metavariable-regex:
+          metavariable: $MAP
+          regex: ^(Put|Post|Patch|Delete|Request)Mapping$
+      - metavariable-regex:
+          metavariable: $PATH
+          regex: (?i).*((reset|change|update|set|new)[-_/]?(password|passwd|pwd|pin|e?-?mail|mobile|phone)|(password|passwd|pwd|pin|e?-?mail|mobile|phone)[-_/](reset|change|update)).*\{\w+\}
+      # A method that looks at the caller, or is limited to a role, has made a decision.
+      - pattern-not-inside: |
+          @PreAuthorize(...)
+          $RET $METHOD(...) { ... }
+      - pattern-not-inside: |
+          @Secured(...)
+          $RET $METHOD(...) { ... }
+      - pattern-not-inside: |
+          @RolesAllowed(...)
+          $RET $METHOD(...) { ... }
+      - pattern-not-inside: |
+          $RET $METHOD(..., Principal $P, ...) { ... }
+      - pattern-not-inside: |
+          $RET $METHOD(..., Authentication $P, ...) { ... }
+      - pattern-not-inside: |
+          $RET $METHOD(..., @AuthenticationPrincipal $PT $P, ...) { ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... $V = <... SecurityUtils.$F(...) ...>; ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... $VT $V = <... SecurityUtils.$F(...) ...>; ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... if (<... SecurityUtils.$F(...) ...>) { ... } ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... return <... SecurityUtils.$F(...) ...>; ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... $V = <... SecurityContextHolder.getContext() ...>; ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... $VT $V = <... SecurityContextHolder.getContext() ...>; ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... if (<... SecurityContextHolder.getContext() ...>) { ... } ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... return <... SecurityContextHolder.getContext() ...>; ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... $V = <... $REQ.getUserPrincipal() ...>; ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... $VT $V = <... $REQ.getUserPrincipal() ...>; ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... if (<... $REQ.getUserPrincipal() ...>) { ... } ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... return <... $REQ.getUserPrincipal() ...>; ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... $V = <... $SVC.getCurrentUser(...) ...>; ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... $VT $V = <... $SVC.getCurrentUser(...) ...>; ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... if (<... $SVC.getCurrentUser(...) ...>) { ... } ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... return <... $SVC.getCurrentUser(...) ...>; ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... $V = <... $SVC.getUserWithAuthorities(...) ...>; ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... $VT $V = <... $SVC.getUserWithAuthorities(...) ...>; ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... if (<... $SVC.getUserWithAuthorities(...) ...>) { ... } ... }
+      - pattern-not-inside: |
+          $RET $METHOD(...) { ... return <... $SVC.getUserWithAuthorities(...) ...>; ... }
+      - focus-metavariable: $ID
+
+  - id: scp.java.authz.permitall-credential-check
+    languages: [java]
+    message: >-
+      An endpoint that checks a password or PIN is open without login. It answers
+      "right" or "wrong" for any account to anyone, as often as they ask, so passwords and PINs
+      can be guessed. Require the caller's own session, limit attempts per account and per
+      address, and lock the account after repeated failures.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-307", "CWE-306"]
+      owasp: ["A07:2021 - Identification and Authentication Failures"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/src/test/**"]
+    patterns:
+      - pattern-either:
+          - pattern: $X.antMatchers(..., "$P", ...).permitAll()
+          - pattern: $X.mvcMatchers(..., "$P", ...).permitAll()
+          - pattern: $X.requestMatchers(..., "$P", ...).permitAll()
+          - pattern: $X.pathMatchers(..., "$P", ...).permitAll()
+      - metavariable-regex:
+          metavariable: $P
+          regex: (?i).*(verify|validate|check|match)[-_/]?(password|passwd|pwd|pin)|(password|passwd|pwd|pin)[-_/](verify|validate|check)
+      - focus-metavariable: $P
+
+  - id: scp.java.crypto.recoverable-password
+    languages: [java]
+    message: >-
+      A stored password or PIN is decrypted or decoded back to clear text. Passwords kept in a
+      reversible form are all exposed at once when the database and the key (often in the code)
+      leak, and every log line or dump that carries the stored value is as good as the password.
+      Store a salted one-way hash (bcrypt, scrypt, Argon2) and compare hashes.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-257", "CWE-916"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/src/test/**"]
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern: $E.$DEC(<... $O.$GET(...) ...>)
+                  - pattern: $DEC(<... $O.$GET(...) ...>)
+              - metavariable-regex:
+                  metavariable: $GET
+                  regex: (?i)^get(user)?(password|passwd|pwd|pin|pinvalue)\w*$
+          - patterns:
+              - pattern: $E.$DEC($V)
+              - metavariable-regex:
+                  metavariable: $V
+                  regex: (?i)^(encrypted|stored|encoded|current|db|saved)(password|passwd|pwd|pin)$
+      - metavariable-regex:
+          metavariable: $DEC
+          regex: (?i)^(decode|decrypt|decipher|unprotect)\w*$
+      - pattern-not: Base64.$DEC(...)
+      - pattern-not: $B.getDecoder().$DEC(...)
+      - pattern-not: URLDecoder.$DEC(...)

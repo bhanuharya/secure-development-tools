@@ -69,3 +69,17 @@ java/lookalike/LocationHeader.java	URI only for the Location header (not SSRF)	9
 java/lookalike/DownloadHeader.java	file name only for a download header (not path traversal)	22,73	none
 java/lookalike/PemParsing.java	PEM delimiters stripped from a runtime key (not a committed key)	798,321	none
 java/lookalike/BatchHelper.java	batch helper with bound values (not SQL injection)	89	none
+java/AdminServiceClient.java	service client with an administrator role and client_credentials	269,798	rules
+java/CredentialChangeById.java	password and e-mail change for the account named in the URL	639,620	rules
+java/PasswordCheckOpen.java	password and PIN check open without login	307,306	rules
+java/RecoverablePassword.java	stored PIN decoded back to clear text	257,916	rules
+java/PasswordChangeLog.java	encoded password passed to a log call	532	rules
+java/default-secret/application-prod.yml	client secret left at the generator's default	1392,798	rules
+java/prod-secret/application-prod.yml	signing key and API key as literals in the production profile	798,321	rules
+java/registry-url/application-prod.yml	registry address built with the password inside	522,200	rules
+java/registry-url-literal/application-prod.yml	registry address with a literal password	798,522	rules
+java/gateway-locator/application.yml	gateway routes every registered service	441,284	rules
+java/lookalike/OwnPasswordChange.java	password change limited to the caller's own account (not an IDOR)	639,620	none
+java/lookalike/DocumentDecode.java	Base64 document and one-way password match (not a recoverable password)	257,916	none
+java/lookalike/ServiceClient.java	service client with its own role (not an administrator client)	269	none
+java/lookalike/registry-url/application-prod.yml	registry address without credentials, secrets from the environment	522,200,798	none
