@@ -19,6 +19,7 @@ rules:
           - pattern: $X.antMatchers(..., "$P", ...).permitAll()
           - pattern: $X.mvcMatchers(..., "$P", ...).permitAll()
           - pattern: $X.requestMatchers(..., "$P", ...).permitAll()
+          - pattern: $X.pathMatchers(..., "$P", ...).permitAll()
       - metavariable-regex:
           metavariable: $P
           regex: ^/(api|services)/.*\*\*?$
@@ -41,6 +42,7 @@ rules:
           - pattern: $X.antMatchers(..., "$P", ...).permitAll()
           - pattern: $X.mvcMatchers(..., "$P", ...).permitAll()
           - pattern: $X.requestMatchers(..., "$P", ...).permitAll()
+          - pattern: $X.pathMatchers(..., "$P", ...).permitAll()
       - metavariable-regex:
           metavariable: $P
           regex: (?i).*(feign|internal|/management/(?!health(/\*\*)?$|info$|prometheus$)|/admin|back-?office|/bo(/|$)|/register/\*|/users/init|/actuator/(?!health|info)|/(?:test|debug)(?:[-_/*]|$))
@@ -96,7 +98,7 @@ rules:
       confidence: MEDIUM
     paths:
       include: ["*.java", "*.kt"]
-    pattern-regex: (?m)^[ \t]*//[ \t]*\.?(?:antMatchers|mvcMatchers|requestMatchers|anyRequest)\([^\n]*\)[ \t]*\.[ \t]*(?:authenticated|fullyAuthenticated|hasAuthority|hasAnyAuthority|hasRole|hasAnyRole|denyAll|access)\(
+    pattern-regex: (?m)^[ \t]*//[ \t]*\.?(?:antMatchers|mvcMatchers|requestMatchers|pathMatchers|anyRequest|anyExchange)\([^\n]*\)[ \t]*\.[ \t]*(?:authenticated|fullyAuthenticated|hasAuthority|hasAnyAuthority|hasRole|hasAnyRole|denyAll|access)\(
 
   - id: scp.java.authz.client-supplied-authorities
     languages: [java]

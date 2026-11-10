@@ -195,6 +195,19 @@ public class AuthzTest {
 
     static class Authority {}
 
+    // ---- WebFlux gateways use pathMatchers
+    public SecurityWebFilterChain gatewayChain(ServerHttpSecurity http) {
+        http.authorizeExchange()
+            // ruleid: scp.java.authz.permitall-wildcard-prefix
+            .pathMatchers("/services/accounts/api/v1/content/**").permitAll()
+            // ruleid: scp.java.authz.permitall-internal-path
+            .pathMatchers("/internal/sync").permitAll()
+            // ok: scp.java.authz.permitall-wildcard-prefix, scp.java.authz.permitall-internal-path
+            .pathMatchers("/api/authenticate").permitAll()
+            .pathMatchers("/services/**").authenticated();
+        return http.build();
+    }
+
     private Authority findAuthority(String name) { return new Authority(); }
 
     private Set<Authority> defaultCustomerAuthorities() { return null; }

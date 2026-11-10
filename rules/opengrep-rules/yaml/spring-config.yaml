@@ -149,3 +149,106 @@ rules:
           (?im)^[ \t]*exposure[ \t]*:[ \t]*\n(?:[^\n]*\n){0,3}?[ \t]+include[ \t]*:[ \t]*\n(?:[ \t]*-[^\n]*\n){0,20}?[ \t]*-[ \t]*["']?(?:env|configprops|logfile|heapdump|threaddump|jolokia|shutdown|httptrace|\*)["']?[ \t]*$
       - pattern-regex: |-
           (?im)^[^#\n]*management\.endpoints\.web\.exposure\.include[ \t]*[=:][ \t]*["']?(?:\*|[^\n#]*\b(?:env|configprops|logfile|heapdump|threaddump|jolokia|shutdown|httptrace)\b)
+
+  - id: scp.yaml.spring.known-default-secret
+    languages: [generic]
+    message: >-
+      A secret still has the value the project generator or the framework ships with. That value
+      is public: anyone can sign a token with a default JWT key or get a token for a client whose
+      secret is the default, without stealing anything. Generate a long random value, read it
+      from an environment variable or a secret manager, and rotate what was signed or issued
+      with the default.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-1392", "CWE-798"]
+      owasp: ["A07:2021 - Identification and Authentication Failures"]
+      confidence: HIGH
+    paths:
+      include: ["application*.yml", "application*.yaml", "application*.properties", "bootstrap*.yml", "bootstrap*.yaml"]
+      exclude: ["**/src/test/**", "application-dev*", "bootstrap-dev*", "application-test*", "application-local*"]
+    pattern-regex: |-
+      (?im)^[ \t]*[\w.-]*secret(?:-?key)?[ \t]*[:=][ \t]*["']?(?:internal|changeit|changeme|change-me|secret|my-secret-token-to-change-in-production|my-secret-key-which-should-be-changed-in-production-and-be-base64-encoded|bXktc2VjcmV0LWtleS13aGljaC1zaG91bGQt[A-Za-z0-9+/=]*)["']?[ \t]*(?:#[^\n]*)?$
+
+  - id: scp.yaml.spring.prod-literal-secret
+    languages: [generic]
+    message: >-
+      A production profile sets a client secret, signing key, API key or token as a literal
+      value. Everyone who can read the repository or the image has it, and it cannot be rotated
+      without a release. Read it from an environment variable or a secret manager
+      (${JWT_SECRET}) and rotate it.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-798", "CWE-321"]
+      owasp: ["A07:2021 - Identification and Authentication Failures"]
+      confidence: MEDIUM
+    paths:
+      include: ["application-prod*.yml", "application-prod*.yaml", "application-prod*.properties", "bootstrap-prod*.yml", "bootstrap-prod*.yaml"]
+      exclude: ["**/src/test/**"]
+    pattern-regex: |-
+      (?im)^[ \t]*[\w.-]*(?:secret|secret-?key|api-?key|access-?key|private-?key|token)[ \t]*[:=][ \t]*(?!["']?\$\{)(?!["']?ENC\()(?!["']?<)(?!["']?(?:true|false|null|~|\d+)["']?[ \t]*(?:#[^\n]*)?$)(?!["']?(?:internal|changeit|changeme|change-me|secret|my-secret-token-to-change-in-production|my-secret-key-which-should-be-changed-in-production-and-be-base64-encoded|bXktc2VjcmV0LWtleS13aGljaC1zaG91bGQt[A-Za-z0-9+/=]*)["']?[ \t]*(?:#[^\n]*)?$)["']?[^\s"'#{}\[\]][^\s"'#]{2,}["']?[ \t]*(?:#[^\n]*)?$
+
+  - id: scp.yaml.spring.service-url-literal-credentials
+    languages: [generic]
+    message: >-
+      A service address in the configuration carries a user name and a literal password
+      (scheme://user:password@host). Everyone who can read the repository has the password, and
+      the address is printed in logs, error messages and the actuator endpoints without masking.
+      Configure the credentials separately from a secret, and rotate the password.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-798", "CWE-522"]
+      owasp: ["A07:2021 - Identification and Authentication Failures"]
+      confidence: HIGH
+    paths:
+      include: ["application*.yml", "application*.yaml", "application*.properties", "bootstrap*.yml", "bootstrap*.yaml"]
+      exclude: ["**/src/test/**", "application-dev*", "bootstrap-dev*", "application-test*", "application-local*"]
+    pattern-regex: |-
+      (?im)^[^#\n]*[:=][ \t]*["']?[a-z][a-z0-9+.-]*://[^\s/:@"'$]+:(?!\$\{)[^\s/@"']{3,}@[\w.$-]
+
+  - id: scp.yaml.spring.service-url-embedded-credentials
+    languages: [generic]
+    message: >-
+      A service address is built with the password inside it (scheme://user:${PASSWORD}@host).
+      The framework masks values by key name, and the key of an address (defaultZone, uri, url)
+      is not one it masks: the resolved address, password included, is shown in clear by the
+      actuator env and configprops endpoints and appears in logs and error messages. Whoever
+      reads one service's configuration gets the registry or broker password. Pass credentials
+      in their own properties (or use mutual TLS) so the address carries none. Addresses on
+      localhost are not reported.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-522", "CWE-200"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      confidence: HIGH
+    paths:
+      include: ["application*.yml", "application*.yaml", "application*.properties", "bootstrap*.yml", "bootstrap*.yaml"]
+      exclude: ["**/src/test/**", "application-dev*", "bootstrap-dev*", "application-test*", "application-local*"]
+    pattern-regex: |-
+      (?im)^[^#\n]*[:=][ \t]*["']?[a-z][a-z0-9+.-]*://[^\s/:@"']+:\$\{[^}\n]+\}@(?!localhost\b|127\.0\.0\.1\b)[\w.$-]
+
+  - id: scp.yaml.spring.gateway-routes-every-service
+    languages: [generic]
+    message: >-
+      The gateway creates a route for every service in the registry (discovery locator). Every
+      internal and administrative service becomes reachable at /services/<name>/**, and so does
+      anything that registers itself: with write access to the registry, an attacker points the
+      public gateway at internal hosts. Turn the locator off and define a route for each service
+      that is meant to be reached, with only its public paths.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-441", "CWE-284"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    paths:
+      include: ["application.yml", "application.yaml", "application-prod*.yml", "application-prod*.yaml", "application.properties", "application-prod*.properties", "bootstrap.yml", "bootstrap-prod*.yml"]
+      exclude: ["**/src/test/**"]
+    pattern-either:
+      - pattern-regex: |-
+          (?m)^[ \t]*locator[ \t]*:[ \t]*\n(?:[ \t]*#[^\n]*\n)*[ \t]+enabled[ \t]*:[ \t]*true\b
+      - pattern-regex: |-
+          (?im)^[ \t]*spring\.cloud\.gateway\.discovery\.locator\.enabled[ \t]*=[ \t]*true\b

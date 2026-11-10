@@ -1,0 +1,5 @@
+# The registry password is written into the address.
+eureka:
+  client:
+    service-url:
+      defaultZone: http://admin:Example-Pass-1@service-registry:8761/eureka/
