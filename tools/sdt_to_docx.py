@@ -12,6 +12,8 @@ One report per repository scan (a branch or a pull request), by kind of finding,
 Every finding has a priority, P1 to P4 (tools/sdt_priority.py, ADR 0009): its severity, moved
 by what is known about it and about the service (--inventory / SDT_INVENTORY, --exposure).
 Each section lists the most urgent first; Fix First lists the open P1 and P2 findings.
+When the scan wrote an endpoints.json next to findings.json, an Endpoints section
+follows the summary with the protection counts and the routes worth a look.
 
 Code findings and review states come from SonarQube (--sonar-url); secrets and dependencies
 from the SDT findings.json (--findings), which knows commits, versions and reachability.
@@ -54,6 +56,14 @@ HOTSPOT_STATUS = {("TO_REVIEW", ""): "To review", ("REVIEWED", "FIXED"): "Fixed"
 ISSUE_STATUS = {"OPEN": "Open", "CONFIRMED": "Confirmed", "REOPENED": "Open", "ACCEPTED": "Accepted",
                 "FALSE_POSITIVE": "False positive", "FIXED": "Fixed", "RESOLVED": "Resolved"}
 TEST_PATH = re.compile(r"(^|/)(test|tests|spec|__tests__|integration_test)(/|$)|[._-](test|spec)\.[a-z]+$", re.I)
+# The default sensitive path list of internal/endpoints/analyze.go (SPEC §7). endpoints.json does
+# not record configured extra paths, so the report applies the default list.
+ENDPOINT_SENSITIVE_PATH = re.compile(
+    r"(?i)/(admin|management|backoffice|back-office|internal|feign|actuator|registry|eureka|debug|test)(/|$)"
+    r"|register/bo|update-cif|/roles?(/|$)|authorit|disburs|transfer|withdraw|inject|approve|reject"
+    r"|reset-password|change-password|update-password|update-email|bank-account|/users/init")
+ENDPOINT_STATE_CHANGING = {"POST", "PUT", "PATCH", "DELETE", "ANY"}
+ENDPOINT_PROTECTIONS = ["public", "authenticated", "role", "denied", "unknown"]
 # Reference-list entries ("OWASP - Top 10 2021 Category A3", "CWE - CWE-79 ...") are citations, not steps.
 REFERENCE = re.compile(r"^(OWASP|CWE|MITRE|SANS|NIST|PCI|STIG|CERT|ASVS|MASVS)\b[\s:-]", re.I)
 # Link titles from a rule's resources ("Vue.js - Security - Injecting HTML") are not steps either.
@@ -199,6 +209,27 @@ class ConfigRow:
 
 
 @dataclass
+class EndpointRoute:
+    method: str
+    path: str
+    protection: str
+    file: str
+    line: int
+
+
+@dataclass
+class EndpointsInventory:
+    summary: dict[str, int]
+    routes: list[EndpointRoute]
+
+    def public_state_changing(self) -> list[EndpointRoute]:
+        return [r for r in self.routes if r.protection == "public" and r.method in ENDPOINT_STATE_CHANGING]
+
+    def sensitive(self) -> list[EndpointRoute]:
+        return [r for r in self.routes if ENDPOINT_SENSITIVE_PATH.search(r.path)]
+
+
+@dataclass
 class Report:
     project: str
     repository: str
@@ -219,6 +250,7 @@ class Report:
     link_to: str = "bitbucket"  # "bitbucket" (default) or "sonar" for file links
     resolved: dict | None = None  # findings decided in SonarQube (Safe / False positive / Accepted / Fixed): kept for the audit appendix, out of the sections and counts
     context: sdt_priority.Context = field(default_factory=sdt_priority.Context)  # service exposure and criticality
+    endpoints: EndpointsInventory | None = None  # route inventory from the endpoints adapter (endpoints.json)
 
 
 # ------------------------------------------------------------------ categorising
@@ -1102,6 +1134,52 @@ def fix_first(report: Report) -> list[list]:
     return [row for _, row in sorted(items, key=lambda item: item[0])]
 
 
+# --------------------------------------------------------------------- endpoints
+def load_endpoints(path: Path) -> EndpointsInventory:
+    """Read endpoints.json; an unexpected document is an error, not a partial inventory."""
+    doc = json.loads(path.read_text())
+    if doc.get("schema") != "sdt-endpoints/v1":
+        raise ValueError(f"not an sdt-endpoints/v1 inventory: {path}")
+    routes = [EndpointRoute(str(r.get("method") or ""), str(r.get("path") or ""),
+                            str(r.get("protection") or ""), str(r.get("file") or ""), int(r.get("line") or 0))
+              for r in doc.get("routes") or []]
+    summary = {str(k): int(v) for k, v in (doc.get("summary") or {}).items()}
+    if not summary:
+        summary = dict(Counter(r.protection for r in routes))
+    return EndpointsInventory(summary, routes)
+
+
+def protection_rows(inv: EndpointsInventory) -> list[list]:
+    """Counts in a fixed order, so two reports can be compared line by line."""
+    rows = [[name.capitalize(), inv.summary.get(name, 0)] for name in ENDPOINT_PROTECTIONS]
+    return rows + [["TOTAL", sum(inv.summary.values())]]
+
+
+def endpoint_rows(routes: list[EndpointRoute]) -> list[list]:
+    return [[r.method, r.path, r.protection, f"{r.file}:{r.line}"] for r in routes]
+
+
+def endpoints_section(inv: EndpointsInventory) -> list[str]:
+    """The Endpoints section: counts, then the routes that deserve a look despite their protection."""
+    parts = [section_heading("Endpoints", 1, "sec_endpoints"),
+             para(run("The route inventory from the endpoints adapter, with the protection each route "
+                      "effectively has. Unknown routes are counted but never reported as findings."))]
+    parts.append(para(run("Routes per protection", bold=True), before=140))
+    parts.append(data_table([("Protection", 6000), ("Routes", 4080)], protection_rows(inv)))
+    public = inv.public_state_changing()
+    parts.append(para(run("Public state-changing routes", bold=True), before=160))
+    parts.append(para(run("POST, PUT, PATCH, DELETE and ANY routes that need no authentication."), before=0))
+    parts.append(data_table([("Method", 1000), ("Path", 3380), ("Protection", 1400), ("File", 4300)],
+                            endpoint_rows(public)) if public else para(run("None.")))
+    sensitive = inv.sensitive()
+    parts.append(para(run("Sensitive routes", bold=True), before=160))
+    parts.append(para(run("Routes whose path matches the default sensitive list (administration, internal, "
+                          "roles, money movement, credentials), whatever their method or protection."), before=0))
+    parts.append(data_table([("Method", 1000), ("Path", 3380), ("Protection", 1400), ("File", 4300)],
+                            endpoint_rows(sensitive)) if sensitive else para(run("None.")))
+    return parts
+
+
 # --------------------------------------------------------------------- the body
 def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Links]:
     """document.xml body markup, and the external links it uses. `logo` is a ready picture run."""
@@ -1150,6 +1228,9 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
                              ("Highest Priority", 1500), ("Needs Decision", 1500)], rows, severity_col=3,
                             priority_col=4, total=["", "TOTAL", total, "", "", sum(n for _, _, n in counts.values())]))
 
+    if report.endpoints:
+        parts += endpoints_section(report.endpoints)
+
     if report.trend:
         parts.append(section_heading("Changes Since Previous Scan", 1, "sec_trend"))
         parts.append(para(run(f"Compared with the scan of {report.previous}, finding by finding: the same rule on the "
@@ -1164,6 +1245,8 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
     parts.append(section_heading("Contents", 1, "sec_contents"))
     parts.append('<w:p><w:r><w:fldChar w:fldCharType="begin" w:dirty="true"/></w:r><w:r><w:instrText xml:space="preserve">'
                  ' TOC \\o "1-2" \\h \\z \\u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r></w:p>')
+    if report.endpoints:
+        parts.append(internal_link("Endpoints", "sec_endpoints"))
     parts.append(internal_link("Fix First", "sec_fix_first"))
     parts.append(internal_link("1. Code Security", "sec_code"))
     parts += [internal_link(f"1.{n} {g.name} [{rule_ref(g.rule)}] ({len(g.occurrences)})", f"sec_code_{n}", indent=360)
@@ -1645,6 +1728,8 @@ def main() -> int:
     ap.add_argument("--pull-request", default="")
     ap.add_argument("--findings", type=Path,
                     help="SDT findings.json: secrets and dependencies come from it (with --sonar-url), or everything")
+    ap.add_argument("--endpoints", type=Path,
+                    help="endpoints.json from the same scan (default: next to --findings, when present)")
     ap.add_argument("--src-root", type=Path, help="checkout to quote code excerpts from")
     ap.add_argument("--repository", default="", help="e.g. workspace/repo")
     ap.add_argument("--scope-url", default="", help="link to the branch or pull request")
@@ -1729,10 +1814,18 @@ def main() -> int:
         except (OSError, ValueError) as exc:  # without it every priority is still sound, only none is lowered
             print(f"sdt_to_docx: inventory not used ({exc}); service exposure counts as not recorded", file=sys.stderr)
     ctx = sdt_priority.context(inventory, args.repository or name, args.exposure, args.criticality, args.visibility)
+    endpoints_path = args.endpoints or (args.findings.parent / "endpoints.json" if args.findings else None)
+    endpoints = None
+    if endpoints_path and endpoints_path.is_file():
+        try:
+            endpoints = load_endpoints(endpoints_path)
+        except (OSError, ValueError) as exc:  # a report without the section is better than no report
+            print(f"sdt_to_docx: endpoints not used ({exc}); report without the Endpoints section", file=sys.stderr)
     report = Report(project, args.repository or name, scope, args.scope_url, args.commit, source,
                     found["code"], found["secret"], found["dependency"], found["config"], date.today(), ai,
                     None, "", coverage_gaps(args.coverage, args.findings),
-                    args.source_url or bitbucket_base(args.repository, args.commit), args.link_to, resolved, ctx)
+                    args.source_url or bitbucket_base(args.repository, args.commit), args.link_to, resolved, ctx,
+                    endpoints)
     state = report_state(report, args.src_root)
     if args.previous_state and args.previous_state.is_file():
         try:

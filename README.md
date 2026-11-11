@@ -24,6 +24,8 @@ request that developers trust and security can defend. `sdt` is built for that:
 - **Low noise by design.** Rules are curated and versioned with per-rule tests and
   hash checks in CI, and a precision report tells you which rules to keep,
   demote or disable based on how reviewers actually decided.
+- **Routes, not only rules.** An endpoint inventory lists every HTTP route with
+  its effective protection, and reports those that skip the gate their neighbours use.
 - **Mobile is covered.** Dart and Flutter rules ship alongside Go, Java, Kotlin,
   JavaScript/TypeScript, Python, YAML and Terraform, a gap most open-source
   SAST setups leave open.
@@ -188,6 +190,7 @@ for the fleet runner's settings.
 - [`docs/local-hook.md`](docs/local-hook.md) — the pre-commit check on the developer's machine: set-up, what it covers, how long it takes
 - [`docs/fleet-scanning.md`](docs/fleet-scanning.md) — scheduled workspace scans, SonarQube import, fleet store, review sync
 - [`docs/sast-report.md`](docs/sast-report.md) — the per-scan SAST report (.docx) developers receive
+- [`docs/endpoints.md`](docs/endpoints.md) — the route inventory: effective protection per endpoint, convention findings, limits
 - [`SECURITY.md`](SECURITY.md) — reporting a vulnerability
 - [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [`rules/NOTICE`](rules/NOTICE) — licenses, including the vendored Semgrep rules
 - [`integrations/jenkins/`](integrations/jenkins/README.md) — Jenkins shared library, scanner image and SonarQube setup for per-PR, on-demand and nightly fleet scans
