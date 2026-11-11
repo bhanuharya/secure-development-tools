@@ -117,3 +117,12 @@ go/secret_constant.go	hard-coded secret constant in Go code	798,321	rules
 go/lookalike/secret_constant_names.go	field, header and placeholder names (not hard-coded secrets)	798,321	none
 python/secret_constant.py	hard-coded secret constant in Python code	798,321	rules
 python/lookalike/secret_constant_names.py	field, header and placeholder names (not hard-coded secrets)	798,321	none
+infra/k8s-service-public-lb.yaml	internal service registry published through a public load balancer	668	rules
+infra/k8s-ingress-actuator.yaml	ingress for the actuator management endpoints	668	rules
+infra/consul-acl-disabled.hcl	Consul agent with ACLs disabled and default allow	306	rules
+infra/consul-compose.yaml	Consul client on every interface with the UI and port published	668	rules
+infra/actuator-exposure.env	sensitive actuator endpoints exposed through an environment file	200	rules
+infra/firewall-open.tf	internet firewall open to infrastructure ports	284	rules
+infra/lookalike/internal-load-balancer.yaml	internal load balancer and restricted source ranges (not public)	668	none
+infra/lookalike/clusterip-acls.yaml	ClusterIP service and Consul ACLs enabled (not exposed)	306,668	none
+infra/dev/consul-agent-dev.yaml	Consul development agent under a dev path (not a deployment)	306	none

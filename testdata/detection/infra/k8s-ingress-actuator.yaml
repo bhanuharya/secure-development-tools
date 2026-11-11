@@ -1,0 +1,17 @@
+# An ingress that forwards the management endpoints of an application.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: platform
+spec:
+  rules:
+    - host: example.com
+      http:
+        paths:
+          - path: /actuator
+            pathType: Prefix
+            backend:
+              service:
+                name: accounts
+                port:
+                  number: 8080

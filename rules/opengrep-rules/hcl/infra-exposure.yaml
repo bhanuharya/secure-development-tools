@@ -1,0 +1,20 @@
+# Terraform firewall rules that publish internal infrastructure ports to the whole internet.
+rules:
+  - id: scp.hcl.gcp.firewall-open-internal-port
+    languages: [generic]
+    message: >-
+      A google_compute_firewall allows 0.0.0.0/0 to reach an infrastructure port (service
+      registry, Consul, search, object store, broker, database or metrics). The resource is
+      in a public VPC, so every host on the internet can open a connection to the registry,
+      the database or the broker. Limit source_ranges to the office, the cluster or the
+      private network, and keep these ports on an internal load balancer.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-284"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      confidence: HIGH
+    paths:
+      include: ["*.tf", "*.hcl"]
+    pattern-regex: |-
+      (?ms)^[ \t]*resource[ \t]+"google_compute_firewall"[ \t]+"[^"]+"[ \t]*\{(?=(?:(?!\n\})[\s\S])*?source_ranges[ \t]*=[ \t]*\[[^\]]*"0\.0\.0\.0/0")(?=(?:(?!\n\})[\s\S])*?allow[ \t]*\{(?:(?!\n[ \t]*\})[\s\S])*?ports[ \t]*=[ \t]*\[[^\]]*(?<![\d])(?:8500|8761|9200|9300|5601|9000|6379|27017|5432|3306|9092|2181)(?![\d]))

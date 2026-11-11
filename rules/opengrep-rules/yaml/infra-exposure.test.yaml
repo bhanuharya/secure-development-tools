@@ -1,0 +1,191 @@
+# Annotated tests for infra-exposure.yaml. The engine's test mode ignores the rules' path
+# filters, so the dev-path exclusions for the Consul agent are exercised from this one file
+# only for the command line that is not a development start.
+# ruleid: scp.yaml.k8s.internal-service-public-lb
+kind: Service
+metadata:
+  name: consul
+spec:
+  type: LoadBalancer
+  selector:
+    app: consul
+  ports:
+    - name: http
+      port: 8500
+# ruleid: scp.yaml.k8s.internal-service-public-lb
+kind: Service
+metadata:
+  name: kafka
+spec:
+  type: NodePort
+  ports:
+    - port: 9092
+# ok: scp.yaml.k8s.internal-service-public-lb
+kind: Service
+metadata:
+  name: consul
+  annotations:
+    networking.gke.io/load-balancer-type: "Internal"
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 8500
+# ok: scp.yaml.k8s.internal-service-public-lb
+kind: Service
+metadata:
+  name: elasticsearch
+spec:
+  type: NodePort
+  loadBalancerSourceRanges:
+    - 10.0.0.0/8
+  ports:
+    - port: 9200
+# ok: scp.yaml.k8s.internal-service-public-lb
+kind: Service
+metadata:
+  name: redis
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+# ok: scp.yaml.k8s.internal-service-public-lb
+kind: Service
+metadata:
+  name: frontend
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+# ruleid: scp.yaml.k8s.internal-service-ingress
+kind: Ingress
+metadata:
+  name: platform
+spec:
+  rules:
+    - host: example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              serviceName: eureka
+              servicePort: 8761
+# ruleid: scp.yaml.k8s.internal-service-ingress
+kind: Ingress
+metadata:
+  name: actuator
+spec:
+  rules:
+    - host: example.com
+      http:
+        paths:
+          - path: /actuator
+            pathType: Prefix
+            backend:
+              service:
+                name: accounts
+                port:
+                  number: 8080
+# ok: scp.yaml.k8s.internal-service-ingress
+kind: Ingress
+metadata:
+  name: public-api
+spec:
+  rules:
+    - host: example.com
+      http:
+        paths:
+          - path: /api/v1/orders
+            pathType: Prefix
+            backend:
+              serviceName: orders
+              servicePort: 8080
+# ok: scp.yaml.k8s.internal-service-ingress
+kind: Ingress
+metadata:
+  name: public-accounts
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /accounts
+            pathType: Prefix
+            backend:
+              service:
+                name: accounts
+                port:
+                  number: 8080
+# ok: scp.yaml.k8s.internal-service-ingress
+kind: Ingress
+metadata:
+  name: public-web
+spec:
+  rules:
+    - host: example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
+# ruleid: scp.yaml.consul.acl-disabled
+acl {
+  enabled = false
+}
+# ruleid: scp.yaml.consul.acl-disabled
+"acl": {"enabled": false, "default_policy": "deny"}
+# ruleid: scp.yaml.consul.acl-disabled
+global.acls.manageSystemACLs: false
+# ruleid: scp.yaml.consul.acl-disabled
+command: ["consul", "agent", "-dev", "-client", "127.0.0.1"]
+# ok: scp.yaml.consul.acl-disabled
+acl {
+  enabled = true
+  default_policy = "deny"
+}
+# ok: scp.yaml.consul.acl-disabled
+"acl": {"enabled": true, "default_policy": "deny"}
+# ok: scp.yaml.consul.acl-disabled
+global.acls.manageSystemACLs: true
+# ok: scp.yaml.consul.acl-disabled
+command: ["consul", "agent", "-server", "-client", "127.0.0.1"]
+# ok: scp.yaml.consul.api-on-all-interfaces
+command: ["agent", "-client", "0.0.0.0", "-ui"]
+ports:
+  - "8600:8600"
+# ruleid: scp.yaml.consul.api-on-all-interfaces
+client_addr = "0.0.0.0"
+ui = true
+# ruleid: scp.yaml.consul.api-on-all-interfaces
+"client_addr": "0.0.0.0", "ui": true
+# ruleid: scp.yaml.consul.api-on-all-interfaces
+command: ["agent", "-client", "0.0.0.0", "-ui"]
+ports:
+  - "8500:8500"
+# ok: scp.yaml.consul.api-on-all-interfaces
+client_addr = "127.0.0.1"
+ui = true
+# ok: scp.yaml.consul.api-on-all-interfaces
+"client_addr": "10.0.0.5", "ui": true
+# ok: scp.yaml.consul.api-on-all-interfaces
+command: ["agent", "-client", "127.0.0.1", "-ui"]
+ports:
+  - "8500:8500"
+env:
+  # ruleid: scp.yaml.spring.actuator-exposure-env
+  - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+    value: "*"
+# ruleid: scp.yaml.spring.actuator-exposure-env
+management.endpoints.web.exposure.include: "env,info"
+# ok: scp.yaml.spring.actuator-exposure-env
+MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,info
+# ok: scp.yaml.spring.actuator-exposure-env
+env:
+  # ok: scp.yaml.spring.actuator-exposure-env
+  - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+    value: "health,info,prometheus"
+# ok: scp.yaml.spring.actuator-exposure-env
+management.endpoints.web.exposure.include: "health,info"
