@@ -1,54 +1,237 @@
-# Fact rules for Go HTTP routers (T02: gin flat routes; groups/Use in T03).
+# Fact rules for Go HTTP routers: gin, echo, fiber, chi and net/http.
 #
 # Fact rules are ordinary Opengrep rules whose id starts with "fact." and whose
 # metadata.fact names the kind. They are NOT part of the scan rule pack: they
 # live here so they never become scan findings and rules/manifest.yaml stays
 # untouched. `sdt endpoints` runs only this directory.
 #
-# Every rule matches "any receiver" ($R): the inventory does not require the
-# router variable to be named r/engine/router.
+# Every route/group/use rule matches any receiver ($R/$BASE): the inventory
+# does not require the router variable to be named r/engine/router.
+#
+# Route calls carry one rule per arity. Opengrep binds a metavariable once per
+# call, so "..., $MW, ..." cannot enumerate the arguments between path and
+# handler; exact arities keep every middleware argument visible. The resolver
+# reads the argument positions per framework (gin: middleware before the
+# handler, echo/fiber: after it).
 rules:
-  - id: fact.go.route
+  - id: fact.go.import
     languages: [go]
     severity: INFO
-    message: Go route registration
+    message: Go import
+    metadata:
+      fact: import
+    pattern: import "$IMPORT"
+
+  # Engine/router constructors: a route receiver that is neither a group nor an
+  # engine was created in another file (SPEC §5 same-file rule).
+  - id: fact.go.engine
+    languages: [go]
+    severity: INFO
+    message: Go HTTP engine constructor
+    metadata:
+      fact: engine
+    pattern-either:
+      - pattern: $R := gin.Default()
+      - pattern: $R := gin.New()
+      - pattern: $R := echo.New()
+      - pattern: $R := fiber.New(...)
+      - pattern: $R := chi.NewRouter()
+      - pattern: $R := http.NewServeMux()
+      - pattern: var $R = gin.Default()
+      - pattern: var $R = gin.New()
+      - pattern: var $R = echo.New()
+      - pattern: var $R = fiber.New(...)
+      - pattern: var $R = chi.NewRouter()
+      - pattern: var $R = http.NewServeMux()
+
+  - id: fact.go.route1
+    languages: [go]
+    severity: INFO
+    message: Go route registration ($R.$METHOD(path, handler))
     metadata:
       fact: route
     patterns:
-      - pattern: $R.$METHOD("$PATH", ..., $HANDLER)
+      - pattern: $R.$METHOD("$PATH", $A1)
       - metavariable-regex:
           metavariable: $METHOD
-          regex: ^(GET|POST|PUT|PATCH|DELETE|Any)$
+          regex: ^(GET|POST|PUT|PATCH|DELETE|Any|All|Get|Post|Put|Patch|Delete)$
 
-  # gin's Handle takes the HTTP verb as its first argument, so it needs its own
-  # shape: $R.Handle("GET", "/path", ..., handler).
-  - id: fact.go.route_handle
+  - id: fact.go.route2
     languages: [go]
     severity: INFO
-    message: Go route registration via Handle
+    message: Go route registration ($R.$METHOD(path, a1, a2))
     metadata:
       fact: route
-    pattern: $R.Handle($VERB, "$PATH", ..., $HANDLER)
-
-  # One fact per middleware call argument between the path and the handler.
-  # The fact carries the route's line, which is how the resolver ties it back
-  # to the route it guards.
-  - id: fact.go.route_middleware
-    languages: [go]
-    severity: INFO
-    message: Middleware on a Go route registration
-    metadata:
-      fact: route_middleware
     patterns:
-      - pattern: $R.$METHOD("$PATH", ..., $MW(...), ..., $HANDLER)
+      - pattern: $R.$METHOD("$PATH", $A1, $A2)
       - metavariable-regex:
           metavariable: $METHOD
-          regex: ^(GET|POST|PUT|PATCH|DELETE|Any)$
+          regex: ^(GET|POST|PUT|PATCH|DELETE|Any|All|Get|Post|Put|Patch|Delete)$
 
-  - id: fact.go.route_handle_middleware
+  - id: fact.go.route3
     languages: [go]
     severity: INFO
-    message: Middleware on a Go route registration via Handle
+    message: Go route registration ($R.$METHOD(path, a1..a3))
     metadata:
-      fact: route_middleware
-    pattern: $R.Handle($VERB, "$PATH", ..., $MW(...), ..., $HANDLER)
+      fact: route
+    patterns:
+      - pattern: $R.$METHOD("$PATH", $A1, $A2, $A3)
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: ^(GET|POST|PUT|PATCH|DELETE|Any|All|Get|Post|Put|Patch|Delete)$
+
+  - id: fact.go.route4
+    languages: [go]
+    severity: INFO
+    message: Go route registration ($R.$METHOD(path, a1..a4))
+    metadata:
+      fact: route
+    patterns:
+      - pattern: $R.$METHOD("$PATH", $A1, $A2, $A3, $A4)
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: ^(GET|POST|PUT|PATCH|DELETE|Any|All|Get|Post|Put|Patch|Delete)$
+
+  - id: fact.go.route5
+    languages: [go]
+    severity: INFO
+    message: Go route registration ($R.$METHOD(path, a1..a5))
+    metadata:
+      fact: route
+    patterns:
+      - pattern: $R.$METHOD("$PATH", $A1, $A2, $A3, $A4, $A5)
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: ^(GET|POST|PUT|PATCH|DELETE|Any|All|Get|Post|Put|Patch|Delete)$
+
+  # gin's Handle carries the verb as its first argument (T02).
+  - id: fact.go.handle_verb1
+    languages: [go]
+    severity: INFO
+    message: Go route registration via Handle(verb, path, handler)
+    metadata:
+      fact: route
+    pattern: $R.Handle($VERB, "$PATH", $A1)
+
+  - id: fact.go.handle_verb2
+    languages: [go]
+    severity: INFO
+    message: Go route registration via Handle(verb, path, a1, a2)
+    metadata:
+      fact: route
+    pattern: $R.Handle($VERB, "$PATH", $A1, $A2)
+
+  - id: fact.go.handle_verb3
+    languages: [go]
+    severity: INFO
+    message: Go route registration via Handle(verb, path, a1..a3)
+    metadata:
+      fact: route
+    pattern: $R.Handle($VERB, "$PATH", $A1, $A2, $A3)
+
+  # net/http and chi: Handle(path, handler). No verb, so the resolver records
+  # the route as ANY.
+  - id: fact.go.handle_path
+    languages: [go]
+    severity: INFO
+    message: Go route registration via Handle(path, handler)
+    metadata:
+      fact: route
+    pattern: $R.Handle("$PATH", $H)
+
+  - id: fact.go.handlefunc_path
+    languages: [go]
+    severity: INFO
+    message: Go route registration via HandleFunc(path, handler)
+    metadata:
+      fact: route
+    pattern: $R.HandleFunc("$PATH", $H)
+
+  # Group creation, with and without middleware arguments. Both := and = forms
+  # occur; = is used when the group variable was declared earlier.
+  - id: fact.go.group1
+    languages: [go]
+    severity: INFO
+    message: Go router group without middleware
+    metadata:
+      fact: group
+    pattern-either:
+      - pattern: $G := $BASE.Group("$PREFIX")
+      - pattern: $G = $BASE.Group("$PREFIX")
+
+  - id: fact.go.group2
+    languages: [go]
+    severity: INFO
+    message: Go router group with one middleware
+    metadata:
+      fact: group
+    pattern-either:
+      - pattern: $G := $BASE.Group("$PREFIX", $A1)
+      - pattern: $G = $BASE.Group("$PREFIX", $A1)
+
+  - id: fact.go.group3
+    languages: [go]
+    severity: INFO
+    message: Go router group with two middleware
+    metadata:
+      fact: group
+    pattern-either:
+      - pattern: $G := $BASE.Group("$PREFIX", $A1, $A2)
+      - pattern: $G = $BASE.Group("$PREFIX", $A1, $A2)
+
+  - id: fact.go.group4
+    languages: [go]
+    severity: INFO
+    message: Go router group with three middleware
+    metadata:
+      fact: group
+    pattern-either:
+      - pattern: $G := $BASE.Group("$PREFIX", $A1, $A2, $A3)
+      - pattern: $G = $BASE.Group("$PREFIX", $A1, $A2, $A3)
+
+  # Use on an engine (global) or on a group; the resolver tells them apart by
+  # the receiver's scope. Surrounding every argument with "..." would bind only
+  # one metavariable, hence one rule per arity.
+  - id: fact.go.use1
+    languages: [go]
+    severity: INFO
+    message: Go middleware Use
+    metadata:
+      fact: use
+    pattern: $R.Use($A1)
+
+  - id: fact.go.use2
+    languages: [go]
+    severity: INFO
+    message: Go middleware Use (two)
+    metadata:
+      fact: use
+    pattern: $R.Use($A1, $A2)
+
+  - id: fact.go.use3
+    languages: [go]
+    severity: INFO
+    message: Go middleware Use (three)
+    metadata:
+      fact: use
+    pattern: $R.Use($A1, $A2, $A3)
+
+  # chi subrouters: the closure parameter is a group scoped to the closure, so
+  # the fact carries both lines for the resolver's scope lookup.
+  - id: fact.go.chi_route
+    languages: [go]
+    severity: INFO
+    message: chi Route subrouter
+    metadata:
+      fact: chi_route
+    pattern: |
+      $R.Route("$PREFIX", func($P $TYPE) { ... })
+
+  - id: fact.go.chi_group
+    languages: [go]
+    severity: INFO
+    message: chi Group subrouter
+    metadata:
+      fact: chi_route
+    pattern: |
+      $R.Group(func($P $TYPE) { ... })

@@ -20,7 +20,7 @@ const (
 // Route is one registered endpoint and what protects it.
 type Route struct {
 	Service    string     `json:"service"`   // dir of the nearest module file, relative; "." for the root
-	Framework  string     `json:"framework"` // gin, echo, ... (T02: gin only)
+	Framework  string     `json:"framework"` // gin, echo, fiber, chi, nethttp, ...
 	Method     string     `json:"method"`    // GET POST PUT PATCH DELETE ANY
 	Path       string     `json:"path"`      // full path, params as {name}
 	Handler    string     `json:"handler"`   // as written: handler.CreateOrder

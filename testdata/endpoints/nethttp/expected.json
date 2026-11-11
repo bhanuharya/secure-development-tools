@@ -1,0 +1,66 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "nethttp",
+      "method": "ANY",
+      "path": "/health",
+      "handler": "health",
+      "file": "main.go",
+      "line": 7,
+      "protection": "public",
+      "evidence": [
+        "main.go:7 no gate middleware on the route"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "nethttp",
+      "method": "ANY",
+      "path": "/metrics",
+      "handler": "metrics",
+      "file": "main.go",
+      "line": 10,
+      "protection": "public",
+      "evidence": [
+        "main.go:10 no gate middleware on the route"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "nethttp",
+      "method": "ANY",
+      "path": "/orders",
+      "handler": "authWrap(listOrders)",
+      "file": "main.go",
+      "line": 8,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:8 handler authWrap(listOrders) wraps the route handler"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "nethttp",
+      "method": "ANY",
+      "path": "/public",
+      "handler": "status",
+      "file": "main.go",
+      "line": 9,
+      "protection": "public",
+      "evidence": [
+        "main.go:9 no gate middleware on the route"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 1,
+    "public": 3
+  }
+}

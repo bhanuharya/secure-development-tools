@@ -1,0 +1,94 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "DELETE",
+      "path": "/api/admin/orders/{id}",
+      "handler": "deleteOrder",
+      "file": "main.go",
+      "line": 11,
+      "protection": "role",
+      "roles": [
+        "admin"
+      ],
+      "evidence": [
+        "main.go:10 middleware RequireRole(\"admin\") on group /admin",
+        "main.go:8 middleware AuthMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/admin/users",
+      "handler": "createUser",
+      "file": "main.go",
+      "line": 18,
+      "protection": "role",
+      "roles": [
+        "admin"
+      ],
+      "evidence": [
+        "main.go:10 middleware RequireRole(\"admin\") on group /admin",
+        "main.go:8 middleware AuthMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "GET",
+      "path": "/api/orders",
+      "handler": "listOrders",
+      "file": "main.go",
+      "line": 9,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:8 middleware AuthMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "GET",
+      "path": "/public/status",
+      "handler": "status",
+      "file": "main.go",
+      "line": 14,
+      "protection": "public",
+      "evidence": [
+        "main.go:14 no gate middleware on the route",
+        "main.go:7 middleware Logger on router (does not match the gate list)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "GET",
+      "path": "/reports",
+      "handler": "listReports",
+      "file": "admin.go",
+      "line": 8,
+      "protection": "unknown",
+      "evidence": [
+        "admin.go:8 router r is not created or mounted in this file"
+      ],
+      "confidence": "low"
+    }
+  ],
+  "summary": {
+    "authenticated": 1,
+    "public": 1,
+    "role": 2,
+    "unknown": 1
+  },
+  "unresolved": [
+    "admin.go router r is created or mounted in another file; protection unknown"
+  ]
+}
