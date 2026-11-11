@@ -1,4 +1,7 @@
-package rules
+// Annotated rule tests: read by opengrep, not compiled (types are stubs).
+//go:build ignore
+
+package security_test
 
 import (
 	"fmt"
