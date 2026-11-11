@@ -75,10 +75,13 @@ func opengrepBinary() string {
 	return ""
 }
 
-// factExcludes keeps generated trees and test files out of the inventory:
-// fixtures and tests register routes too, but they are not the service's API.
+// factExcludes keeps generated trees, frontend assets and test files out of
+// the inventory: fixtures and tests register routes too, but they are not the
+// service's API. The resolver repeats the JS path half for facts it is handed
+// directly (jsFileExcluded).
 var factExcludes = []string{
 	".git/*", "node_modules/*", "vendor/*", "dist/*", "build/*",
+	"*.jsx", "*.tsx", "**/src/main/webapp/**", "**/public/**", "**/static/**",
 	"**/test/**", "**/tests/**", "**/__tests__/**",
 	"*_test.go", "*.spec.*", "*.test.*",
 }

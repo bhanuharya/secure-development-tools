@@ -1,4 +1,5 @@
 // Annotated tests for the Express facts in rules/endpoint-facts/javascript.yaml.
+// ruleid: fact.js.express_import
 const express = require('express');
 
 // ruleid: fact.js.engine
@@ -48,3 +49,21 @@ app.use('/api', open);
 
 // ruleid: fact.js.use3
 app.use('/api', verifyJwt, open);
+
+// ruleid: fact.js.express_import, fact.js.router
+const legacy = require('express').Router();
+
+// ruleid: fact.js.express_import
+const { Router } = require('express');
+
+// ruleid: fact.js.router, fact.js.router_fn
+const accounts = Router();
+
+// ruleid: fact.js.frontend_import
+const React = require('react');
+
+// ruleid: fact.js.frontend_import
+import Vue from 'vue';
+
+// ruleid: fact.js.frontend_import
+import { Component } from '@angular/core';

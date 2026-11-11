@@ -15,6 +15,8 @@ import (
 
 // resolveJS sends each JavaScript/TypeScript file to the matching resolver.
 // NestJS and Express never share a file: the controller fact decides.
+// Frontend, test and asset files register calls too, but they are not a
+// service's server routes (T15, SPEC §5).
 func resolveJS(facts []Fact, root string) ([]Route, []string) {
 	byFile := map[string][]Fact{}
 	var files []string
@@ -33,12 +35,42 @@ func resolveJS(facts []Fact, root string) ([]Route, []string) {
 	var routes []Route
 	var unresolved []string
 	for _, file := range files {
-		js := newJSResolver(file, byFile[file], root)
+		fileFacts := byFile[file]
+		if jsFileExcluded(file) || hasFact(fileFacts, "frontend_import") {
+			continue
+		}
+		js := newJSResolver(file, fileFacts, root)
 		fileRoutes, fileUnresolved := js.resolve(global)
 		routes = append(routes, fileRoutes...)
 		unresolved = append(unresolved, fileUnresolved...)
 	}
 	return routes, unresolved
+}
+
+// jsFileExcluded is the path half of the frontend/test skip; the fact rules
+// see the imports. The engine also excludes these paths (factExcludes), so
+// this keeps facts supplied by another caller honest.
+func jsFileExcluded(file string) bool {
+	if strings.HasSuffix(file, ".jsx") || strings.HasSuffix(file, ".tsx") {
+		return true
+	}
+	slash := "/" + strings.TrimPrefix(file, "/")
+	for _, dir := range []string{"/src/main/webapp/", "/public/", "/static/", "/test/", "/tests/", "/__tests__/"} {
+		if strings.Contains(slash, dir) {
+			return true
+		}
+	}
+	base := slash[strings.LastIndex(slash, "/")+1:]
+	return strings.Contains(base, ".test.") || strings.Contains(base, ".spec.")
+}
+
+func hasFact(facts []Fact, kind string) bool {
+	for _, f := range facts {
+		if f.Kind == kind {
+			return true
+		}
+	}
+	return false
 }
 
 func isJSFile(file string) bool {
@@ -95,12 +127,15 @@ type jsState struct {
 }
 
 type jsResolver struct {
-	file, root string
-	engines    map[string]bool
-	routers    map[string]bool
-	uses       []jsUse
-	routes     []Fact
-	nest       bool
+	file, root  string
+	engines     map[string]bool
+	routers     map[string]bool
+	routerCalls map[string]bool
+	uses        []jsUse
+	routes      []Fact
+	nest        bool
+
+	expressImport bool
 
 	controllers  map[string]string
 	classGates   map[string][]jsFactValue
@@ -116,7 +151,7 @@ type jsResolver struct {
 func newJSResolver(file string, facts []Fact, root string) *jsResolver {
 	js := &jsResolver{
 		file: file, root: root,
-		engines: map[string]bool{}, routers: map[string]bool{},
+		engines: map[string]bool{}, routers: map[string]bool{}, routerCalls: map[string]bool{},
 		controllers:  map[string]string{},
 		classGates:   map[string][]jsFactValue{},
 		methodGates:  map[string][]jsFactValue{},
@@ -127,10 +162,14 @@ func newJSResolver(file string, facts []Fact, root string) *jsResolver {
 	}
 	for _, f := range facts {
 		switch f.Kind {
+		case "express_import":
+			js.expressImport = true
 		case "engine":
 			js.engines[f.Metavars["$R"]] = true
 		case "router":
 			js.routers[f.Metavars["$R"]] = true
+		case "router_fn":
+			js.routerCalls[f.Metavars["$R"]] = true
 		case "use":
 			js.uses = append(js.uses, jsUse{receiver: f.Metavars["$R"], args: factArgs(f), line: f.Line})
 		case "route":
@@ -158,6 +197,11 @@ func newJSResolver(file string, facts []Fact, root string) *jsResolver {
 		case "method_public":
 			js.nest = true
 			js.methodPublic[jsMethodKey(f)] = f.Line
+		}
+	}
+	if js.expressImport {
+		for name := range js.routerCalls {
+			js.routers[name] = true
 		}
 	}
 	sort.Slice(js.routes, func(i, j int) bool { return js.routes[i].Line < js.routes[j].Line })
@@ -188,11 +232,15 @@ func (js *jsResolver) resolve(global map[string]bool) ([]Route, []string) {
 	return js.resolveExpress()
 }
 
-// resolveExpress turns every route fact into a route. A router that is not
-// created or mounted in this file yields unknown plus an Unresolved sentence.
+// resolveExpress turns every route fact of a server receiver into a route. A
+// router that is not created or mounted in this file yields unknown plus an
+// Unresolved sentence. Client calls in the same file are dropped silently.
 func (js *jsResolver) resolveExpress() ([]Route, []string) {
 	var routes []Route
 	for _, f := range js.routes {
+		if !js.serverReceiver(f.Metavars["$R"]) {
+			continue
+		}
 		route, err := js.expressRoute(f)
 		if err != nil {
 			js.unresolved = append(js.unresolved, fmt.Sprintf("%s:%d %v", js.file, f.Line, err))
@@ -203,12 +251,55 @@ func (js *jsResolver) resolveExpress() ([]Route, []string) {
 	return routes, js.unresolved
 }
 
-func (js *jsResolver) expressRoute(f Fact) (Route, error) {
-	rawPath := f.Metavars["$PATH"]
-	receiver := f.Metavars["$R"]
-	if rawPath == "" || receiver == "" {
-		return Route{}, fmt.Errorf("route path or receiver could not be resolved")
+// jsClientReceivers are HTTP clients, not servers: their .get/.post calls
+// look exactly like Express routes to a single-file rule.
+var jsClientReceivers = map[string]bool{
+	"axios": true, "http": true, "https": true, "request": true,
+	"supertest": true, "superagent": true, "got": true, "fetch": true,
+	"ky": true, "needle": true, "$fetch": true,
+}
+
+// serverReceiver keeps a route only when the receiver looks like an Express
+// application or router: created here, imported here, a conventional name, or
+// ending in Router. Everything else (axios, http, request(app), ...) is a
+// client and is dropped, not reported unknown.
+func (js *jsResolver) serverReceiver(receiver string) bool {
+	base := jsReceiverBase(receiver)
+	if jsClientReceivers[strings.ToLower(base)] {
+		return false
 	}
+	if js.engines[receiver] || js.routers[receiver] {
+		return true
+	}
+	if js.expressImport {
+		return true
+	}
+	switch base {
+	case "app", "router", "routes", "api", "server":
+		return true
+	}
+	return strings.HasSuffix(base, "Router")
+}
+
+// jsReceiverBase reduces `this.router`, `request(app)` or `express.Router()`
+// to the name a developer would call the variable.
+func jsReceiverBase(receiver string) string {
+	base := strings.TrimSpace(receiver)
+	if i := strings.Index(base, "("); i >= 0 {
+		base = base[:i]
+	}
+	if i := strings.LastIndex(base, "."); i >= 0 {
+		base = base[i+1:]
+	}
+	return strings.TrimSpace(base)
+}
+
+func (js *jsResolver) expressRoute(f Fact) (Route, error) {
+	rawPath, err := js.routePath(f)
+	if err != nil {
+		return Route{}, err
+	}
+	receiver := f.Metavars["$R"]
 	args := factArgs(f)
 	if len(args) == 0 {
 		return Route{}, fmt.Errorf("route handler could not be resolved")

@@ -6,12 +6,37 @@
 # untouched. `sdt endpoints` runs only this directory.
 #
 # Express route/use rules match any receiver ($R): the router variable may be
-# called router, api, publicRouter, ... . Route calls carry one rule per arity
-# because Opengrep binds a metavariable once per call.
+# called router, api, publicRouter, ... . The resolver keeps a route only when
+# the receiver is a same-file engine/router, the file imports express, or the
+# name looks like a server (app, router, routes, api, server, ...Router); HTTP
+# clients (axios, http, request(...), ...) stay out. Route calls carry one rule
+# per arity because Opengrep binds a metavariable once per call. $PATH is any
+# expression so template literals reach the resolver unparsed by constant
+# propagation.
 #
 # NestJS decorators may be stacked in any order; Opengrep matches a decorator
 # pattern anywhere in the list, so @Get is found above @Roles and @UseGuards.
 rules:
+  # File-level markers: an express import keeps routers that another module
+  # built; a frontend import means the file is not a server at all.
+  - id: fact.js.express_import
+    languages: [javascript, typescript]
+    severity: INFO
+    message: Express module import
+    metadata:
+      fact: express_import
+    pattern-regex: |-
+      (from\s+['"]express['"]|require\(['"]express['"]\))
+
+  - id: fact.js.frontend_import
+    languages: [javascript, typescript]
+    severity: INFO
+    message: React, Vue or Angular module import
+    metadata:
+      fact: frontend_import
+    pattern-regex: |-
+      (from\s+['"](react|vue|@angular/)|require\(['"](react|vue|@angular/))
+
   # express() creates the application; express.Router() creates a sub-router
   # that another file may mount (the resolver then reports it as unknown).
   - id: fact.js.engine
@@ -30,7 +55,19 @@ rules:
     message: Express router constructor
     metadata:
       fact: router
-    pattern: $R = express.Router($...ARGS)
+    pattern-either:
+      - pattern: $R = express.Router($...ARGS)
+      - pattern: $R = require('express').Router($...ARGS)
+
+  # Router() is only express when the file imports it from express; the
+  # resolver applies that condition after reading the file's import fact.
+  - id: fact.js.router_fn
+    languages: [javascript, typescript]
+    severity: INFO
+    message: Router constructor call (gated on an express import)
+    metadata:
+      fact: router_fn
+    pattern: $R = Router($...ARGS)
 
   - id: fact.js.route1
     languages: [javascript, typescript]
@@ -39,7 +76,7 @@ rules:
     metadata:
       fact: route
     patterns:
-      - pattern: $R.$METHOD("$PATH", $A1)
+      - pattern: $R.$METHOD($PATH, $A1)
       - metavariable-regex:
           metavariable: $METHOD
           regex: ^(get|post|put|patch|delete|all)$
@@ -51,7 +88,7 @@ rules:
     metadata:
       fact: route
     patterns:
-      - pattern: $R.$METHOD("$PATH", $A1, $A2)
+      - pattern: $R.$METHOD($PATH, $A1, $A2)
       - metavariable-regex:
           metavariable: $METHOD
           regex: ^(get|post|put|patch|delete|all)$
@@ -63,7 +100,7 @@ rules:
     metadata:
       fact: route
     patterns:
-      - pattern: $R.$METHOD("$PATH", $A1, $A2, $A3)
+      - pattern: $R.$METHOD($PATH, $A1, $A2, $A3)
       - metavariable-regex:
           metavariable: $METHOD
           regex: ^(get|post|put|patch|delete|all)$
@@ -75,7 +112,7 @@ rules:
     metadata:
       fact: route
     patterns:
-      - pattern: $R.$METHOD("$PATH", $A1, $A2, $A3, $A4)
+      - pattern: $R.$METHOD($PATH, $A1, $A2, $A3, $A4)
       - metavariable-regex:
           metavariable: $METHOD
           regex: ^(get|post|put|patch|delete|all)$

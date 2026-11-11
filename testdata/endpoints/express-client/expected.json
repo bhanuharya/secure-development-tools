@@ -1,0 +1,86 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "POST",
+      "path": "/api/accounts",
+      "handler": "createAccount",
+      "file": "server.js",
+      "line": 12,
+      "protection": "authenticated",
+      "evidence": [
+        "server.js:10 middleware verifyJwt on mount /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "GET",
+      "path": "/api/accounts/{accountId}/notes",
+      "handler": "listNotes",
+      "file": "server.js",
+      "line": 14,
+      "protection": "authenticated",
+      "evidence": [
+        "server.js:10 middleware verifyJwt on mount /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "DELETE",
+      "path": "/api/accounts/{id}",
+      "handler": "closeAccount",
+      "file": "server.js",
+      "line": 15,
+      "protection": "role",
+      "roles": [
+        "admin"
+      ],
+      "evidence": [
+        "server.js:15 middleware requireRole('admin')",
+        "server.js:10 middleware verifyJwt on mount /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "handler": "getAccount",
+      "file": "server.js",
+      "line": 13,
+      "protection": "authenticated",
+      "evidence": [
+        "server.js:10 middleware verifyJwt on mount /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "GET",
+      "path": "/health",
+      "handler": "health",
+      "file": "server.js",
+      "line": 17,
+      "protection": "public",
+      "evidence": [
+        "server.js:17 no gate middleware on the route",
+        "server.js:9 middleware express.json on app (does not match the gate list)"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 3,
+    "public": 1,
+    "role": 1
+  }
+}

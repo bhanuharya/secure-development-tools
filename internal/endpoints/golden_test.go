@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/bhanuharya/secure-development-tools/internal/config"
@@ -69,6 +70,35 @@ func TestGoldenInventories(t *testing.T) {
 			}
 			compareFindings(t, dir, got)
 		})
+	}
+}
+
+// TestGoldenPathsHaveNoQuotes guards the path contract for every golden
+// fixture: a quote or backtick means a source fragment leaked into the path
+// (the T06 bug printed the value of a template prefix as '/api/account').
+func TestGoldenPathsHaveNoQuotes(t *testing.T) {
+	root := filepath.Join("..", "..", "testdata", "endpoints")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read fixtures: %v", err)
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(root, e.Name(), "expected.json"))
+		if err != nil {
+			continue // not a golden case
+		}
+		var inv endpoints.Inventory
+		if err := json.Unmarshal(raw, &inv); err != nil {
+			t.Fatalf("%s: expected.json: %v", e.Name(), err)
+		}
+		for _, route := range inv.Routes {
+			if strings.ContainsAny(route.Path, "'\"`") {
+				t.Errorf("%s: %s %s has a quote or backtick in its path", e.Name(), route.Method, route.Path)
+			}
+		}
 	}
 }
 
