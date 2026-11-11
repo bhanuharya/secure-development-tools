@@ -1,0 +1,163 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "GET",
+      "path": "/api/admin/legacy",
+      "handler": "legacyReport",
+      "file": "app.js",
+      "line": 27,
+      "protection": "public",
+      "evidence": [
+        "app.js:27 no gate middleware on the route",
+        "app.js:10 middleware express.json on app (does not match the gate list)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "GET",
+      "path": "/api/admin/reports",
+      "handler": "listReports",
+      "file": "app.js",
+      "line": 29,
+      "protection": "authenticated",
+      "evidence": [
+        "app.js:28 middleware verifyJwt on router"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "PATCH",
+      "path": "/api/admin/reports/{id}",
+      "handler": "updateReport",
+      "file": "app.js",
+      "line": 30,
+      "protection": "authenticated",
+      "evidence": [
+        "app.js:28 middleware verifyJwt on router"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "GET",
+      "path": "/api/catalog/items",
+      "handler": "listItems",
+      "file": "app.js",
+      "line": 16,
+      "protection": "public",
+      "evidence": [
+        "app.js:16 no gate middleware on the route",
+        "app.js:10 middleware express.json on app (does not match the gate list)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "GET",
+      "path": "/api/catalog/items/{id}",
+      "handler": "getItem",
+      "file": "app.js",
+      "line": 17,
+      "protection": "public",
+      "evidence": [
+        "app.js:17 no gate middleware on the route",
+        "app.js:10 middleware express.json on app (does not match the gate list)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "GET",
+      "path": "/api/orders",
+      "handler": "listOrders",
+      "file": "app.js",
+      "line": 21,
+      "protection": "authenticated",
+      "evidence": [
+        "app.js:20 middleware verifyJwt on mount /api/orders"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "POST",
+      "path": "/api/orders",
+      "handler": "createOrder",
+      "file": "app.js",
+      "line": 22,
+      "protection": "authenticated",
+      "evidence": [
+        "app.js:20 middleware verifyJwt on mount /api/orders"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "DELETE",
+      "path": "/api/orders/{id}",
+      "handler": "deleteOrder",
+      "file": "app.js",
+      "line": 23,
+      "protection": "role",
+      "roles": [
+        "admin"
+      ],
+      "evidence": [
+        "app.js:23 middleware requireRole('admin')",
+        "app.js:20 middleware verifyJwt on mount /api/orders"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "POST",
+      "path": "/events",
+      "handler": "receiveEvent",
+      "file": "app.js",
+      "line": 33,
+      "protection": "unknown",
+      "evidence": [
+        "app.js:33 router webhooksRouter is not mounted in this file"
+      ],
+      "confidence": "low"
+    },
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "GET",
+      "path": "/health",
+      "handler": "health",
+      "file": "app.js",
+      "line": 12,
+      "protection": "public",
+      "evidence": [
+        "app.js:12 no gate middleware on the route",
+        "app.js:10 middleware express.json on app (does not match the gate list)"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 4,
+    "public": 4,
+    "role": 1,
+    "unknown": 1
+  },
+  "unresolved": [
+    "app.js router webhooksRouter is exported and mounted in another file; protection unknown"
+  ]
+}

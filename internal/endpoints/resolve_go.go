@@ -24,7 +24,9 @@ var (
 func resolveFacts(facts []Fact, root string) ([]Route, []string) {
 	goRoutes, goUnresolved := resolveGo(facts, root)
 	springRoutes, springUnresolved := resolveSpring(facts, root)
-	return append(goRoutes, springRoutes...), append(goUnresolved, springUnresolved...)
+	jsRoutes, jsUnresolved := resolveJS(facts, root)
+	routes := append(append(goRoutes, springRoutes...), jsRoutes...)
+	return routes, append(append(goUnresolved, springUnresolved...), jsUnresolved...)
 }
 
 // resolveGo turns Go route facts into routes. Groups, Use and the same-file
