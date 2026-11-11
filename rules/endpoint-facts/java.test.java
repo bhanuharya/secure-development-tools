@@ -69,3 +69,23 @@ public class AccountsController {
         return service.get(id);
     }
 }
+
+class SecurityConfig {
+    void servlet(HttpSecurity http) {
+        // ruleid: fact.java.security_matcher
+        http.antMatchers("/api/admin/**").hasAuthority("admin:write");
+        // ruleid: fact.java.security_matcher
+        http.antMatchers(HttpMethod.POST, "/api/register", "/api/signup").permitAll();
+        // ruleid: fact.java.security_matcher
+        http.requestMatchers("/orders/**").access("hasRole('ADMIN')");
+        // ruleid: fact.java.security_default
+        http.anyRequest().authenticated();
+    }
+
+    void webflux(ServerHttpSecurity http) {
+        // ruleid: fact.java.security_matcher
+        http.pathMatchers("/services/**").hasAnyAuthority("SERVICE");
+        // ruleid: fact.java.security_default
+        http.anyExchange().authenticated();
+    }
+}

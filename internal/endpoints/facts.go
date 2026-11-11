@@ -17,6 +17,7 @@ type Fact struct {
 	Kind     string
 	File     string // slash path relative to the scanned root
 	Line     int
+	Column   int // keeps several rules on one line in source order
 	EndLine  int // last line of the match; scoping facts (chi.Route) need it
 	Metavars map[string]string
 }
@@ -134,6 +135,7 @@ func parseFacts(raw []byte, root string) ([]Fact, error) {
 			Path    string `json:"path"`
 			Start   struct {
 				Line int `json:"line"`
+				Col  int `json:"col"`
 			} `json:"start"`
 			End struct {
 				Line int `json:"line"`
@@ -161,7 +163,7 @@ func parseFacts(raw []byte, root string) ([]Fact, error) {
 		for name, v := range r.Extra.Metavars {
 			mv[name] = v.AbstractContent
 		}
-		facts = append(facts, Fact{Kind: kind, File: relFile(root, r.Path), Line: r.Start.Line, EndLine: r.End.Line, Metavars: mv})
+		facts = append(facts, Fact{Kind: kind, File: relFile(root, r.Path), Line: r.Start.Line, Column: r.Start.Col, EndLine: r.End.Line, Metavars: mv})
 	}
 	return facts, nil
 }

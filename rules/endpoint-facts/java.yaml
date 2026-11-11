@@ -108,6 +108,46 @@ rules:
               @RequestMapping(path = "$PATH")
               $RET $M(...) { ... }
 
+  # Security configuration: one access rule attached to a request matcher.
+  # `... "$PATTERN" ...` enumerates every string argument, so a matcher with
+  # several patterns yields one fact per pattern; focusing on $PATTERN gives
+  # each fact the pattern's own column, which keeps chains in source order.
+  - id: fact.java.security_matcher
+    languages: [java]
+    severity: INFO
+    message: Spring Security request matcher and its access rule
+    metadata:
+      fact: security_matcher
+    patterns:
+      - pattern-either:
+          - pattern: $CHAIN.$MATCHER(HttpMethod.$METHOD, ..., "$PATTERN", ...).$ACCESS($...ARGS)
+          - pattern: $CHAIN.$MATCHER(..., "$PATTERN", ...).$ACCESS($...ARGS)
+      - metavariable-regex:
+          metavariable: $MATCHER
+          regex: ^(antMatchers|mvcMatchers|requestMatchers|pathMatchers)$
+      - metavariable-regex:
+          metavariable: $ACCESS
+          regex: ^(permitAll|authenticated|hasRole|hasAnyRole|hasAuthority|hasAnyAuthority|denyAll|access|fullyAuthenticated)$
+      - focus-metavariable: $PATTERN
+
+  # The fallback of a chain: anyRequest() in the servlet DSL, anyExchange() in
+  # WebFlux. Focus on the access call so the fact carries its own line.
+  - id: fact.java.security_default
+    languages: [java]
+    severity: INFO
+    message: Spring Security fallback access rule
+    metadata:
+      fact: security_default
+    patterns:
+      - pattern: $CHAIN.$DEFAULT().$ACCESS($...ARGS)
+      - metavariable-regex:
+          metavariable: $DEFAULT
+          regex: ^(anyRequest|anyExchange)$
+      - metavariable-regex:
+          metavariable: $ACCESS
+          regex: ^(permitAll|authenticated|hasRole|hasAnyRole|hasAuthority|hasAnyAuthority|denyAll|access|fullyAuthenticated)$
+      - focus-metavariable: $ACCESS
+
   # Class-level method security. Spraying @PreAuthorize on a whole controller is
   # common, so the resolver applies it to every method without its own gate.
   - id: fact.java.class_gate

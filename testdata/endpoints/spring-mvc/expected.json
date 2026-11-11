@@ -86,7 +86,7 @@
       "line": 13,
       "protection": "unknown",
       "evidence": [
-        "OrdersController.java:13 no method-level security annotation; decided by security configuration (T05)"
+        "OrdersController.java:13 no security configuration in the service"
       ],
       "confidence": "low"
     },
@@ -135,7 +135,7 @@
       "line": 18,
       "protection": "unknown",
       "evidence": [
-        "OrdersController.java:18 no method-level security annotation; decided by security configuration (T05)"
+        "OrdersController.java:18 no security configuration in the service"
       ],
       "confidence": "low"
     },
@@ -180,7 +180,7 @@
     "unknown": 2
   },
   "unresolved": [
-    "OrdersController.java:13 OrdersController.list: protection decided by security configuration (T05)",
-    "OrdersController.java:18 OrdersController.get: protection decided by security configuration (T05)"
+    "OrdersController.java:13 OrdersController.list: no security configuration in the service; protection unknown",
+    "OrdersController.java:18 OrdersController.get: no security configuration in the service; protection unknown"
   ]
 }

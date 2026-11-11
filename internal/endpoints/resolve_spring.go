@@ -9,9 +9,10 @@ import (
 )
 
 // This file resolves Spring MVC controller annotations into routes (SPEC §5,
-// Spring bullet). T04 covers what the controller declares: the class prefix,
-// the method mapping and @PreAuthorize/@Secured/@RolesAllowed. The security
-// configuration that decides the remaining routes is T05, so they stay unknown.
+// Spring bullet). The controller supplies the class prefix, the method mapping
+// and @PreAuthorize/@Secured/@RolesAllowed; a route without such a gate takes
+// the access of the first matching rule of the service's Spring Security
+// configuration.
 
 var (
 	springRoleCallRe   = regexp.MustCompile(`(?i)\b(hasRole|hasAnyRole|hasAuthority|hasAnyAuthority)\s*\(([^)]*)\)`)
@@ -30,9 +31,28 @@ type springGate struct {
 	method     string // empty for a class-level gate
 }
 
-// resolveSpring resolves the Java facts. Kotlin is out of scope (SPEC §9), and
-// Spring WebFlux uses the same annotations; the framework label stays
-// spring-mvc until a WebFlux-specific difference shows up.
+// springMatcher is one authorization rule of a security configuration: a
+// request matcher (or the anyRequest/anyExchange fallback) and its access.
+type springMatcher struct {
+	file    string
+	line    int
+	column  int
+	name    string // antMatchers, mvcMatchers, requestMatchers, pathMatchers, anyRequest, anyExchange
+	pattern string // path pattern; "/**" for the fallback
+	method  string // HTTP method when the matcher names one, else ""
+	access  string // permitAll, authenticated, hasRole, ...
+	args    string // raw access arguments, e.g. "admin:write"
+}
+
+// springConfig holds the authorization rules of one service in source order.
+type springConfig struct {
+	matchers []springMatcher
+	webflux  bool // pathMatchers/anyExchange: label routes spring-webflux
+}
+
+// resolveSpring resolves the Java facts. Kotlin is out of scope (SPEC §9);
+// Spring WebFlux uses the same controller annotations, and its configuration
+// names are what label the service reactive.
 func resolveSpring(facts []Fact, root string) ([]Route, []string) {
 	byFile := map[string][]Fact{}
 	var files []string
@@ -46,11 +66,12 @@ func resolveSpring(facts []Fact, root string) ([]Route, []string) {
 		byFile[f.File] = append(byFile[f.File], f)
 	}
 	sort.Strings(files)
+	configs := springConfigs(facts, root)
 
 	var routes []Route
 	var unresolved []string
 	for _, file := range files {
-		fileRoutes, fileUnresolved := resolveSpringFile(file, byFile[file], root)
+		fileRoutes, fileUnresolved := resolveSpringFile(file, byFile[file], configs[serviceOf(root, file)], root)
 		routes = append(routes, fileRoutes...)
 		unresolved = append(unresolved, fileUnresolved...)
 	}
@@ -59,7 +80,7 @@ func resolveSpring(facts []Fact, root string) ([]Route, []string) {
 
 // resolveSpringFile indexes one controller file by class name and method, then
 // turns its route facts into routes.
-func resolveSpringFile(file string, facts []Fact, root string) ([]Route, []string) {
+func resolveSpringFile(file string, facts []Fact, cfg *springConfig, root string) ([]Route, []string) {
 	prefixes := map[string]string{}
 	classGates := map[string][]springGate{}
 	methodGates := map[string][]springGate{}
@@ -85,7 +106,7 @@ func resolveSpringFile(file string, facts []Fact, root string) ([]Route, []strin
 	var routes []Route
 	var unresolved []string
 	for _, f := range routeFacts {
-		route, sentence, err := springRoute(f, prefixes[classOf(f)], classGates, methodGates, root)
+		route, sentence, err := springRoute(f, prefixes[classOf(f)], classGates, methodGates, cfg, root)
 		if err != nil {
 			unresolved = append(unresolved, fmt.Sprintf("%s:%d %v", file, f.Line, err))
 			continue
@@ -114,23 +135,25 @@ func classOf(f Fact) string { return f.Metavars["$C"] }
 func springMethodKey(f Fact) string { return classOf(f) + "." + f.Metavars["$M"] }
 
 // springRoute builds one route. The returned sentence is the Unresolved note
-// for routes whose protection is not in this file (T05 decides it).
-func springRoute(f Fact, prefix string, classGates, methodGates map[string][]springGate, root string) (Route, string, error) {
+// for routes whose protection cannot be decided from this service.
+func springRoute(f Fact, prefix string, classGates, methodGates map[string][]springGate, cfg *springConfig, root string) (Route, string, error) {
 	class, method := classOf(f), f.Metavars["$M"]
 	if class == "" || method == "" {
 		return Route{}, "", fmt.Errorf("controller class or handler method could not be resolved")
 	}
 	handler := class + "." + method
-	protection, roles, evidence, confidence := springProtection(f, class, method, classGates, methodGates)
+	verb := springVerb(f.Metavars["$VERB"])
+	path := joinPaths([]string{prefix}, springPathVarRe.ReplaceAllString(f.Metavars["$PATH"], "{$1}"))
+	protection, roles, evidence, confidence := springProtection(f, class, method, verb, path, classGates, methodGates, cfg)
 	sentence := ""
-	if protection == ProtUnknown {
-		sentence = fmt.Sprintf("%s:%d %s: protection decided by security configuration (T05)", f.File, f.Line, handler)
+	if protection == ProtUnknown && cfg == nil {
+		sentence = fmt.Sprintf("%s:%d %s: no security configuration in the service; protection unknown", f.File, f.Line, handler)
 	}
 	return Route{
 		Service:    serviceOf(root, f.File),
-		Framework:  "spring-mvc",
-		Method:     springVerb(f.Metavars["$VERB"]),
-		Path:       joinPaths([]string{prefix}, springPathVarRe.ReplaceAllString(f.Metavars["$PATH"], "{$1}")),
+		Framework:  springFramework(cfg),
+		Method:     verb,
+		Path:       path,
 		Handler:    handler,
 		File:       f.File,
 		Line:       f.Line,
@@ -142,19 +165,23 @@ func springRoute(f Fact, prefix string, classGates, methodGates map[string][]spr
 }
 
 // springProtection prefers the method's own gate; a method gate overrides the
-// class gate (Spring Security applies the most specific annotation).
-func springProtection(f Fact, class, method string, classGates, methodGates map[string][]springGate) (Protection, []string, []string, string) {
+// class gate (Spring Security applies the most specific annotation). Only a
+// route without any gate is handed to the security configuration.
+func springProtection(f Fact, class, method, verb, path string, classGates, methodGates map[string][]springGate, cfg *springConfig) (Protection, []string, []string, string) {
 	gates := methodGates[class+"."+method]
 	classLevel := false
 	if len(gates) == 0 {
 		gates = classGates[class]
 		classLevel = len(gates) > 0
 	}
-	if len(gates) == 0 {
-		evidence := fmt.Sprintf("%s:%d no method-level security annotation; decided by security configuration (T05)", f.File, f.Line)
-		return ProtUnknown, nil, []string{evidence}, "low"
+	if len(gates) > 0 {
+		return springGateDecision(gates, classLevel)
 	}
-	return springGateDecision(gates, classLevel)
+	if cfg != nil {
+		return cfg.decide(path, verb)
+	}
+	evidence := fmt.Sprintf("%s:%d no security configuration in the service", f.File, f.Line)
+	return ProtUnknown, nil, []string{evidence}, "low"
 }
 
 // springGateDecision merges the (rare) multiple gates of one method. A denied
@@ -278,6 +305,165 @@ func springAnnotationText(g springGate, roles []string) string {
 		return "@" + g.annotation + "({" + strings.Join(quoted, ", ") + "})"
 	}
 	return "@" + g.annotation
+}
+
+// springConfigs collects the security rules of every service, in source order.
+// The service of a configuration is the nearest module file above it, the same
+// service the controllers resolve to (SPEC §4).
+func springConfigs(facts []Fact, root string) map[string]*springConfig {
+	configs := map[string]*springConfig{}
+	for _, f := range facts {
+		if !strings.HasSuffix(f.File, ".java") {
+			continue
+		}
+		var m springMatcher
+		switch f.Kind {
+		case "security_matcher":
+			m = springMatcher{
+				file: f.File, line: f.Line, column: f.Column,
+				name:    f.Metavars["$MATCHER"],
+				pattern: f.Metavars["$PATTERN"],
+				method:  normalizeOptionalMethod(f.Metavars["$METHOD"]),
+				access:  f.Metavars["$ACCESS"],
+				args:    f.Metavars["$...ARGS"],
+			}
+			if m.pattern == "" {
+				continue
+			}
+		case "security_default":
+			m = springMatcher{
+				file: f.File, line: f.Line, column: f.Column,
+				name:    f.Metavars["$DEFAULT"],
+				pattern: "/**",
+				access:  f.Metavars["$ACCESS"],
+				args:    f.Metavars["$...ARGS"],
+			}
+		default:
+			continue
+		}
+		if m.name == "" || m.access == "" {
+			continue
+		}
+		service := serviceOf(root, f.File)
+		cfg := configs[service]
+		if cfg == nil {
+			cfg = &springConfig{}
+			configs[service] = cfg
+		}
+		if m.name == "pathMatchers" || m.name == "anyExchange" {
+			cfg.webflux = true
+		}
+		cfg.matchers = append(cfg.matchers, m)
+	}
+	for _, cfg := range configs {
+		sort.SliceStable(cfg.matchers, func(i, j int) bool {
+			a, b := cfg.matchers[i], cfg.matchers[j]
+			if a.file != b.file {
+				return a.file < b.file
+			}
+			if a.line != b.line {
+				return a.line < b.line
+			}
+			return a.column < b.column
+		})
+	}
+	return configs
+}
+
+func normalizeOptionalMethod(method string) string {
+	method = strings.TrimSpace(method)
+	if method == "" {
+		return ""
+	}
+	return normalizeMethod(method)
+}
+
+// springFramework labels a service reactive when its configuration uses the
+// WebFlux matcher names; controller annotations are the same in both stacks.
+func springFramework(cfg *springConfig) string {
+	if cfg != nil && cfg.webflux {
+		return "spring-webflux"
+	}
+	return "spring-mvc"
+}
+
+// decide applies the first matcher that matches the path and, when the matcher
+// names one, the HTTP method. The fallback is the anyRequest/anyExchange rule,
+// which is stored as a `/**` matcher. Without either Spring lets the request
+// through, so the route is public with low confidence.
+func (cfg *springConfig) decide(path, method string) (Protection, []string, []string, string) {
+	for _, m := range cfg.matchers {
+		if !m.matches(method, path) {
+			continue
+		}
+		protection, roles, confidence := m.decision()
+		return protection, roles, []string{m.evidence()}, confidence
+	}
+	return ProtPublic, nil, []string{"no matcher; Spring permits"}, "low"
+}
+
+func (m springMatcher) matches(method, path string) bool {
+	if m.method != "" && method != "ANY" && m.method != method {
+		return false
+	}
+	return antMatch(normalizePath(m.pattern), path)
+}
+
+// decision reads the access call. An unrecognised form never becomes public:
+// the route stays protected but with medium confidence.
+func (m springMatcher) decision() (Protection, []string, string) {
+	switch m.access {
+	case "permitAll":
+		return ProtPublic, nil, "high"
+	case "authenticated", "fullyAuthenticated":
+		return ProtAuthenticated, nil, "high"
+	case "denyAll":
+		return ProtDenied, nil, "high"
+	case "hasRole", "hasAnyRole", "hasAuthority", "hasAnyAuthority":
+		roles := dedupe(quotedValues(m.args))
+		if len(roles) == 0 {
+			return ProtAuthenticated, nil, "medium"
+		}
+		return ProtRole, roles, "high"
+	case "access":
+		return springAccessDecision(m.args)
+	default:
+		return ProtAuthenticated, nil, "medium"
+	}
+}
+
+// springAccessDecision interprets the SpEL of access("...") the same way a
+// @PreAuthorize expression is interpreted, so both spell a role identically.
+func springAccessDecision(args string) (Protection, []string, string) {
+	expr := strings.TrimSpace(args)
+	if len(expr) >= 2 && (expr[0] == '"' || expr[0] == '\'') && expr[len(expr)-1] == expr[0] {
+		expr = expr[1 : len(expr)-1]
+	}
+	if expr == "" {
+		return ProtAuthenticated, nil, "medium"
+	}
+	protection, roles, known := springGateOutcome(springGate{annotation: "PreAuthorize", expr: expr})
+	confidence := "medium"
+	if known {
+		confidence = "high"
+	}
+	if protection == ProtRole {
+		return ProtRole, roles, confidence
+	}
+	return protection, nil, confidence
+}
+
+// evidence rebuilds the matcher call as the developer wrote it.
+func (m springMatcher) evidence() string {
+	call := "." + m.name + "("
+	if m.name != "anyRequest" && m.name != "anyExchange" {
+		if m.method != "" {
+			call += "HttpMethod." + m.method + ", "
+		}
+		call += strconv.Quote(m.pattern)
+	}
+	call += ")." + m.access + "(" + m.args + ")"
+	return fmt.Sprintf("%s:%d %s", m.file, m.line, call)
 }
 
 func springVerb(verb string) string {

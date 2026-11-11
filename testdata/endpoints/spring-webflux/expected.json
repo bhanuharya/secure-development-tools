@@ -1,0 +1,87 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "spring-webflux",
+      "method": "POST",
+      "path": "/services/accounts",
+      "handler": "AccountController.create",
+      "file": "AccountController.java",
+      "line": 11,
+      "protection": "role",
+      "roles": [
+        "SERVICE"
+      ],
+      "evidence": [
+        "SecurityConfig.java:11 .pathMatchers(\"/services/**\").hasAnyAuthority(\"SERVICE\")"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-webflux",
+      "method": "GET",
+      "path": "/services/accounts/{id}",
+      "handler": "AccountController.get",
+      "file": "AccountController.java",
+      "line": 8,
+      "protection": "role",
+      "roles": [
+        "SERVICE"
+      ],
+      "evidence": [
+        "SecurityConfig.java:11 .pathMatchers(\"/services/**\").hasAnyAuthority(\"SERVICE\")"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-webflux",
+      "method": "GET",
+      "path": "/status",
+      "handler": "StatusController.status",
+      "file": "StatusController.java",
+      "line": 7,
+      "protection": "authenticated",
+      "evidence": [
+        "SecurityConfig.java:12 .anyExchange().authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-webflux",
+      "method": "POST",
+      "path": "/verify-password/reset",
+      "handler": "PasswordController.reset",
+      "file": "PasswordController.java",
+      "line": 8,
+      "protection": "public",
+      "evidence": [
+        "SecurityConfig.java:10 .pathMatchers(\"/verify-password/**\").permitAll()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-webflux",
+      "method": "POST",
+      "path": "/verify-password/verify",
+      "handler": "PasswordController.verify",
+      "file": "PasswordController.java",
+      "line": 11,
+      "protection": "public",
+      "evidence": [
+        "SecurityConfig.java:10 .pathMatchers(\"/verify-password/**\").permitAll()"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 1,
+    "public": 2,
+    "role": 2
+  }
+}
