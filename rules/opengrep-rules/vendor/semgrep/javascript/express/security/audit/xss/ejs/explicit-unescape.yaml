@@ -7,6 +7,7 @@ rules:
     vulnerability. Use '<%= ... %>' to escape this data. If you
     need escaping, ensure no external data can reach this location.
   metadata:
+    title: Template output explicitly unescaped
     cwe:
     - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
     owasp:

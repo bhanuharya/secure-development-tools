@@ -10,6 +10,7 @@ rules:
       off when tokens travel in the Authorization header.
     severity: ERROR
     metadata:
+      title: CORS allows any origin with credentials
       category: security
       cwe: ["CWE-942"]
       owasp: ["A05:2021 - Security Misconfiguration"]
@@ -29,6 +30,7 @@ rules:
       Load the key and its password from a secret manager and rotate the key.
     severity: ERROR
     metadata:
+      title: Production key store uses a default password
       category: security
       cwe: ["CWE-798", "CWE-321"]
       owasp: ["A07:2021 - Identification and Authentication Failures"]
@@ -48,6 +50,7 @@ rules:
       access can replay tokens or read passwords. Use INFO or higher in production.
     severity: WARNING
     metadata:
+      title: Debug logging enabled in production
       category: security
       cwe: ["CWE-532"]
       owasp: ["A09:2021 - Security Logging and Monitoring Failures"]
@@ -69,6 +72,7 @@ rules:
       public.
     severity: ERROR
     metadata:
+      title: Gateway access policy is only a placeholder
       category: security
       cwe: ["CWE-284", "CWE-862"]
       owasp: ["A01:2021 - Broken Access Control"]
@@ -88,6 +92,7 @@ rules:
       manager or a mounted secret, remove the file from the repository and rotate the key.
     severity: ERROR
     metadata:
+      title: Key store committed inside the repository
       category: security
       cwe: ["CWE-321", "CWE-798"]
       owasp: ["A02:2021 - Cryptographic Failures"]
@@ -111,6 +116,7 @@ rules:
       Read it from an environment variable or a secret manager (${DB_PASSWORD}) and rotate it.
     severity: ERROR
     metadata:
+      title: Literal password in production configuration
       category: security
       cwe: ["CWE-798", "CWE-260"]
       owasp: ["A07:2021 - Identification and Authentication Failures"]
@@ -135,6 +141,7 @@ rules:
       routed from the internet.
     severity: ERROR
     metadata:
+      title: Actuator exposes sensitive endpoints
       category: security
       cwe: ["CWE-200", "CWE-215"]
       owasp: ["A05:2021 - Security Misconfiguration"]
@@ -160,6 +167,7 @@ rules:
       with the default.
     severity: ERROR
     metadata:
+      title: Secret keeps its well-known default value
       category: security
       cwe: ["CWE-1392", "CWE-798"]
       owasp: ["A07:2021 - Identification and Authentication Failures"]
@@ -179,6 +187,7 @@ rules:
       (${JWT_SECRET}) and rotate it.
     severity: ERROR
     metadata:
+      title: Literal secret in production configuration
       category: security
       cwe: ["CWE-798", "CWE-321"]
       owasp: ["A07:2021 - Identification and Authentication Failures"]
@@ -198,6 +207,7 @@ rules:
       Configure the credentials separately from a secret, and rotate the password.
     severity: ERROR
     metadata:
+      title: Password embedded in a configured service URL
       category: security
       cwe: ["CWE-798", "CWE-522"]
       owasp: ["A07:2021 - Identification and Authentication Failures"]
@@ -220,6 +230,7 @@ rules:
       localhost are not reported.
     severity: WARNING
     metadata:
+      title: Password embedded in a built service URL
       category: security
       cwe: ["CWE-522", "CWE-200"]
       owasp: ["A02:2021 - Cryptographic Failures"]
@@ -240,6 +251,7 @@ rules:
       that is meant to be reached, with only its public paths.
     severity: WARNING
     metadata:
+      title: Gateway routes every service in the cluster
       category: security
       cwe: ["CWE-441", "CWE-284"]
       owasp: ["A01:2021 - Broken Access Control"]

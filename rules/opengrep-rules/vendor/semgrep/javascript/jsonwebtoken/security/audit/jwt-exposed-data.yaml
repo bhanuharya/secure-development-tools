@@ -4,6 +4,7 @@ rules:
     The object is passed strictly to jsonwebtoken.sign(...)
     Make sure that sensitive information is not exposed through JWT token payload.
   metadata:
+    title: Sensitive data placed in a JWT payload
     owasp:
     - A02:2017 - Broken Authentication
     - A04:2021 - Insecure Design

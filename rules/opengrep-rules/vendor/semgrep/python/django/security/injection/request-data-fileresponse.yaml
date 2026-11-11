@@ -5,6 +5,7 @@ rules:
     file to read, which could result in leaking important data. Be sure to validate or sanitize the user-inputted
     filename in the request data before using it in FileResponse.
   metadata:
+    title: Request data returned as a file
     cwe:
     - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
     owasp:

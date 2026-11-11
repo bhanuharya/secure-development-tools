@@ -33,6 +33,7 @@ rules:
     read the cookie, set httponly=False. If you want to attach cookies to requests for external sites,
     set samesite=None.
   metadata:
+    title: Cookie set without security attributes
     cwe:
     - "CWE-614: Sensitive Cookie in HTTPS Session Without 'Secure' Attribute"
     owasp:

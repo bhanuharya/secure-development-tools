@@ -3,6 +3,7 @@ rules:
   message: >-
     Make sure that unverified user data can not reach `vm2`.
   metadata:
+    title: User input reaches the vm2 module
     owasp:
     - A03:2021 - Injection
     - A05:2025 - Injection

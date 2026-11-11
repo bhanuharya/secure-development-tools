@@ -50,6 +50,7 @@ rules:
     is
     sanitized or escaped.
   metadata:
+    title: Request data written unescaped to the response
     cwe:
     - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
     owasp:

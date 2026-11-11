@@ -8,6 +8,7 @@ rules:
       include:
         - "**/.github/workflows/discussion.yaml"
     metadata:
+      title: Known npm supply-chain backdoor pattern
       category: security
       cwe:
         - "CWE-509: Replicating Malicious Code (Virus or Worm)"

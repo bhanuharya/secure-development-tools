@@ -6,6 +6,7 @@ rules:
       locations. Consider using an allow-list approach to validate URLs, or warn
       users they are being redirected to a third-party website.
     metadata:
+      title: Redirect target comes from user input
       technology:
         - express
       references:

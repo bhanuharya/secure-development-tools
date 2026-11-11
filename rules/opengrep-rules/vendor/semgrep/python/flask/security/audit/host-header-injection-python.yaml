@@ -30,6 +30,7 @@ rules:
   - python
   severity: INFO
   metadata:
+    title: Host header used to build a request URL
     cwe: 
       - 'CWE-20: Improper Input Validation'
     category: security

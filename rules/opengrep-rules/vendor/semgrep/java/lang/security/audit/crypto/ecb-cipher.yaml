@@ -1,6 +1,7 @@
 rules:
 - id: ecb-cipher
   metadata:
+    title: Cipher uses ECB mode
     functional-categories:
       - 'crypto::search::mode::javax.crypto'
     cwe:

@@ -4,6 +4,7 @@ rules:
     message: eval() executes arbitrary code from its string argument.
     severity: ERROR
     metadata:
+      title: eval() executes attacker-controlled code
       category: security
       cwe: ["CWE-95"]
       owasp: ["A03:2021 - Injection"]

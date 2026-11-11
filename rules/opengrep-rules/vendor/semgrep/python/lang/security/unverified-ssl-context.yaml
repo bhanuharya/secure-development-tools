@@ -12,6 +12,7 @@ rules:
     verifying
     SSL certificates. Use 'ssl.create_default_context' instead.
   metadata:
+    title: TLS verification disabled
     owasp:
     - A03:2017 - Sensitive Data Exposure
     - A07:2021 - Identification and Authentication Failures

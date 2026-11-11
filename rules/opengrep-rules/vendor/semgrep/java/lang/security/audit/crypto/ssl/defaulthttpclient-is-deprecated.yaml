@@ -1,6 +1,7 @@
 rules:
 - id: defaulthttpclient-is-deprecated
   metadata:
+    title: Deprecated DefaultHttpClient used
     cwe:
     - 'CWE-326: Inadequate Encryption Strength'
     owasp:

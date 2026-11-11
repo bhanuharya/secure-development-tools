@@ -1,6 +1,7 @@
 rules:
 - id: pprof-debug-exposure
   metadata:
+    title: pprof debug endpoints exposed
     cwe:
     - 'CWE-489: Active Debug Code'
     owasp: 'A06:2017 - Security Misconfiguration'

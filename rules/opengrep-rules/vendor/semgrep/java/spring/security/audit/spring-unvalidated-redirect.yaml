@@ -4,6 +4,7 @@ rules:
     Application redirects a user to a destination URL specified by a user supplied parameter that is not
     validated.
   metadata:
+    title: Redirect target comes from user input
     cwe:
     - "CWE-601: URL Redirection to Untrusted Site ('Open Redirect')"
     owasp:

@@ -9,6 +9,7 @@ rules:
     to code being run without your knowledge. Ensure that your ClientTrace is statically
     defined.
   metadata:
+    title: Dynamic client trace can leak request data
     cwe:
     - 'CWE-913: Improper Control of Dynamically-Managed Code Resources'
     owasp:

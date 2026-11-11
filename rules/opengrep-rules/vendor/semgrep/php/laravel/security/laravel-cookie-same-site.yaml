@@ -38,6 +38,7 @@ rules:
   - php
   severity: ERROR
   metadata:
+    title: Laravel cookie SameSite not set
     category: security
     cwe:
     - 'CWE-1275: Sensitive Cookie with Improper SameSite Attribute'

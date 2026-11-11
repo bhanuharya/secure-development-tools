@@ -8,6 +8,7 @@ rules:
     parameterized queries like so: `knex.raw('SELECT $1 from table',
     [userinput])` can help prevent SQLi.
   metadata:
+    title: SQL query built from user input
     confidence: MEDIUM
     references:
     - https://knexjs.org/#Builder-fromRaw

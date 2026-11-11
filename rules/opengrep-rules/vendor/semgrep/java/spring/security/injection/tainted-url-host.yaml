@@ -15,6 +15,7 @@ rules:
   options:
     interfile: true
   metadata:
+    title: User input controls the request host
     cwe:
     - 'CWE-918: Server-Side Request Forgery (SSRF)'
     owasp:

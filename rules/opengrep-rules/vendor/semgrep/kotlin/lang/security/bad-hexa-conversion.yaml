@@ -1,6 +1,7 @@
 rules:
 - id: bad-hexa-conversion
   metadata:
+    title: Hex conversion drops leading zero bytes
     cwe:
     - 'CWE-704: Incorrect Type Conversion or Cast'
     owasp: 'A03:2017 - Sensitive Data Exposure'

@@ -10,6 +10,7 @@ rules:
       private network, and keep these ports on an internal load balancer.
     severity: ERROR
     metadata:
+      title: Firewall opens an internal port to the internet
       category: security
       cwe: ["CWE-284"]
       owasp: ["A05:2021 - Security Misconfiguration"]

@@ -9,6 +9,7 @@ rules:
     bucket policy and ACLs. Please review the bucket configuration to make sure they are set with intended
     values.
   metadata:
+    title: S3 bucket allows public access
     category: security
     cwe:
     - 'CWE-264: CWE CATEGORY: Permissions, Privileges, and Access Controls'

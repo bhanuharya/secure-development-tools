@@ -26,6 +26,7 @@ rules:
            - pattern: (java.lang.Runtime $R).exec($CMD, $ENV_ARGS, ...);
            - focus-metavariable: $ENV_ARGS
   metadata:
+    title: Request input reaches command environment variables
     category: security
     technology:
     - java

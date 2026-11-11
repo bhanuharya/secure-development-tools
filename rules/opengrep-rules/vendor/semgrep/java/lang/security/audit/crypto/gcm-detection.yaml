@@ -1,6 +1,7 @@
 rules:
 - id: gcm-detection
   metadata:
+    title: GCM mode needs a unique nonce
     category: security
     functional-categories:
       - 'crypto::search::randomness::javax.crypto'

@@ -9,6 +9,7 @@ rules:
     any way. Consider instead removing 'is_safe' and explicitly marking safe
     content with 'mark_safe()'.
   metadata:
+    title: Template filter marked safe without escaping
     cwe:
     - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
     owasp:

@@ -5,6 +5,7 @@ rules:
     revoked.
     Consider using function as the `isRevoked` option.
   metadata:
+    title: JWT tokens cannot be revoked
     cwe:
     - 'CWE-522: Insufficiently Protected Credentials'
     owasp:

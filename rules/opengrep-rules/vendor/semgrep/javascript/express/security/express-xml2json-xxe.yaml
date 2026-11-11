@@ -4,6 +4,7 @@ rules:
     Make sure that unverified user data can not reach the XML Parser,
     as it can result in XML External or Internal Entity (XXE) Processing vulnerabilities
   metadata:
+    title: User input reaches an XML parser
     owasp:
     - A04:2017 - XML External Entities (XXE)
     - A05:2021 - Security Misconfiguration

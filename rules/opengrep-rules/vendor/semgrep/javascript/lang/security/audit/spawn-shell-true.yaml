@@ -8,6 +8,7 @@ rules:
     makes it much easier for a malicious actor to execute commands. Use '{shell: false}'
     instead.
   metadata:
+    title: Command spawned with shell enabled
     owasp:
     - A01:2017 - Injection
     - A03:2021 - Injection

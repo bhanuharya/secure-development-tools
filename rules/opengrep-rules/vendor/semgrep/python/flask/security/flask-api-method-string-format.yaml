@@ -22,6 +22,7 @@ rules:
   languages:
   - python
   metadata:
+    title: Flask API method builds a query from input
     cwe:
     - 'CWE-134: Use of Externally-Controlled Format String'
     category: security

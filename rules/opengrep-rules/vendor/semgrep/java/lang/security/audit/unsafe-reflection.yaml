@@ -18,6 +18,7 @@ rules:
     checks
     or otherwise cause the application to behave in an unexpected manner.
   metadata:
+    title: Reflection by attacker-supplied name
     cwe:
     - "CWE-470: Use of Externally-Controlled Input to Select Classes or Code ('Unsafe Reflection')"
     owasp:

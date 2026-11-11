@@ -9,6 +9,7 @@ rules:
     data from the database. Instead, use prepared statements (`$mysqli->prepare("INSERT INTO test(id,
     label) VALUES (?, ?)");`) or a safe library.
   metadata:
+    title: User input concatenated into a SQL query
     cwe:
     - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
     owasp:

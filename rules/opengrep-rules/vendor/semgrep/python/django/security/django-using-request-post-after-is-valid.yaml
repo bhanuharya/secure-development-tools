@@ -14,6 +14,7 @@ rules:
     languages: [python]
     severity: WARNING
     metadata:
+      title: request.POST used after form validation
       category: security
       cwe: "CWE-20: Improper Input Validation"
       references:

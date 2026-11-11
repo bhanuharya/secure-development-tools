@@ -4,6 +4,7 @@ rules:
     message: GitHub Actions should be pinned to a full commit SHA instead of a mutable branch.
     severity: WARNING
     metadata:
+      title: GitHub Action not pinned to a commit SHA
       category: security
       cwe: ["CWE-1357"]
     pattern-regex: 'uses:\s+[\w\-.]+/[\w\-.]+@(main|master)\b'

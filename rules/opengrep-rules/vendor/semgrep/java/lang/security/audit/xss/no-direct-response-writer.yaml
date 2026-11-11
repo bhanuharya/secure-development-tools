@@ -9,6 +9,7 @@ rules:
   options:
     interfile: true
   metadata:
+    title: Unescaped data written to the response
     likelihood: HIGH
     impact: MEDIUM
     confidence: MEDIUM

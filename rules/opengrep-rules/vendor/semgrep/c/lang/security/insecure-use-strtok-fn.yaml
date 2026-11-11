@@ -6,6 +6,7 @@ rules:
     permanently erasing the
     delimiter character. Use 'strtok_r()' instead.
   metadata:
+    title: strtok() is not thread-safe
     cwe:
     - 'CWE-676: Use of Potentially Dangerous Function'
     references:

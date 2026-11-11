@@ -4,6 +4,7 @@ rules:
     message: Shell execution interprets metacharacters and can enable command injection. Pass an argument list with shell=False.
     severity: ERROR
     metadata:
+      title: Subprocess runs through a shell
       category: security
       cwe: ["CWE-78"]
       owasp: ["A03:2021 - Injection"]
@@ -23,6 +24,7 @@ rules:
     message: Unsafe PyYAML loaders can construct arbitrary Python objects. Use yaml.safe_load for untrusted YAML.
     severity: ERROR
     metadata:
+      title: Unsafe YAML loader constructs Python objects
       category: security
       cwe: ["CWE-502"]
       owasp: ["A08:2021 - Software and Data Integrity Failures"]

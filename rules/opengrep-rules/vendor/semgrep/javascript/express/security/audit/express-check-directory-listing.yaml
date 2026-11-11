@@ -6,6 +6,7 @@ rules:
   options:
     interfile: true
   metadata:
+    title: Directory listing enabled
     interfile: true
     cwe:
     - 'CWE-548: Exposure of Information Through Directory Listing'

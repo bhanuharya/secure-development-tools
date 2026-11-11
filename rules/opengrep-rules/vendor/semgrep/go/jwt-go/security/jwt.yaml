@@ -9,6 +9,7 @@ rules:
   options:
     interfile: true
   metadata:
+    title: JWT signing key hard-coded in source
     cwe:
     - 'CWE-798: Use of Hard-coded Credentials'
     references:

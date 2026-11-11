@@ -9,6 +9,7 @@ rules:
     using an object-relational mapper (ORM) such as Sequelize which will
     protect your queries.
   metadata:
+    title: User input concatenated into a SQL query
     owasp:
     - A01:2017 - Injection
     - A03:2021 - Injection

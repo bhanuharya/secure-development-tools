@@ -2,6 +2,7 @@ rules:
 - id: documentbuilderfactory-external-general-entities-true
   severity: ERROR
   metadata:
+    title: XML external entities enabled
     cwe:
     - 'CWE-611: Improper Restriction of XML External Entity Reference'
     owasp:

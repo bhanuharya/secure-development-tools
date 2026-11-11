@@ -11,6 +11,7 @@ rules:
   message: top-level app.run(...) is ignored by flask. Consider putting app.run(...) behind a guard, like
     inside a function
   metadata:
+    title: Top-level app.run() ignored by Flask
     cwe:
     - 'CWE-668: Exposure of Resource to Wrong Sphere'
     owasp:

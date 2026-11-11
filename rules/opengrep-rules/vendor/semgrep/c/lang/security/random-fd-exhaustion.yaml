@@ -23,6 +23,7 @@ rules:
     Call to 'read()' without error checking is susceptible to file descriptor
     exhaustion. Consider using the 'getrandom()' function.
   metadata:
+    title: read() result unchecked, file descriptors can leak
     cwe:
     - 'CWE-774: Allocation of File Descriptors or Handles Without Limits or Throttling'
     references:

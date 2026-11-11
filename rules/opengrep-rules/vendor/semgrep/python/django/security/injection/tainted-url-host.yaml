@@ -9,6 +9,7 @@ rules:
     or SSRF.) Do not allow arbitrary hosts. Instead, create an allowlist for approved hosts, or hardcode the
     correct host.
   metadata:
+    title: User input controls the request host
     cwe:
     - 'CWE-918: Server-Side Request Forgery (SSRF)'
     owasp:

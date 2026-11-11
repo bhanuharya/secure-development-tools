@@ -24,6 +24,7 @@ rules:
       - yaml
     severity: WARNING
     metadata:
+      title: ClusterRole grants excessive permissions
       cwe:
         - "CWE-269: Improper Privilege Management"
       owasp:

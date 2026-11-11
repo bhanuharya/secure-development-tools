@@ -32,6 +32,7 @@ rules:
   - php
   severity: ERROR
   metadata:
+    title: Laravel cookie has no domain
     category: security
     cwe:
     - 'CWE-200: Exposure of Sensitive Information to an Unauthorized Actor'

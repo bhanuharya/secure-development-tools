@@ -34,6 +34,7 @@ rules:
   options:
     interfile: true
   metadata:
+    title: filepath.Clean does not stop path traversal
     references:
     - https://pkg.go.dev/path#Clean
     - http://technosophos.com/2016/03/31/go-quickly-cleaning-filepaths.html

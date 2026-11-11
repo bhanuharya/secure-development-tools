@@ -8,6 +8,7 @@ rules:
   languages: [go]
   severity: WARNING
   metadata:
+    title: Unsafe package bypasses Go type safety
     cwe:
     - 'CWE-242: Use of Inherently Dangerous Function'
     source_rule_url: https://github.com/securego/gosec/blob/master/rules/unsafe.go

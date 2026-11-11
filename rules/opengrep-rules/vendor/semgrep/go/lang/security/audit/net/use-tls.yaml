@@ -3,6 +3,7 @@ rules:
   pattern: http.ListenAndServe($ADDR, $HANDLER)
   fix: http.ListenAndServeTLS($ADDR, certFile, keyFile, $HANDLER)
   metadata:
+    title: HTTP server runs without TLS
     cwe:
     - 'CWE-319: Cleartext Transmission of Sensitive Information'
     owasp:

@@ -136,6 +136,7 @@ rules:
     This is dangerous if external data can reach this function call because it allows
     a malicious actor to run arbitrary Python code.
   metadata:
+    title: Interactive code execution enabled
     cwe:
     - "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection')"
     owasp:

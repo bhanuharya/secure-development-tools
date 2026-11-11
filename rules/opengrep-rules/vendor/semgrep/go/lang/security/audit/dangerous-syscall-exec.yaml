@@ -78,6 +78,7 @@ rules:
     vulnerability. A malicious actor can inject a malicious script to execute
     arbitrary code.
   metadata:
+    title: Command built from a non-literal value
     cwe:
     - "CWE-94: Improper Control of Generation of Code ('Code Injection')"
     owasp:

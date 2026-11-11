@@ -6,6 +6,7 @@ rules:
     allow GET requests (which are not checked by csrf) to turn into POST requests
     later.
   metadata:
+    title: CSRF middleware bypassed by method override
     cwe:
     - 'CWE-352: Cross-Site Request Forgery (CSRF)'
     source-rule-url: https://github.com/nodesecurity/eslint-plugin-security/blob/master/rules/detect-no-csrf-before-method-override.js

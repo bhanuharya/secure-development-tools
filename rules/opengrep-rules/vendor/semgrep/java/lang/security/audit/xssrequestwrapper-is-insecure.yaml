@@ -1,6 +1,7 @@
 rules:
 - id: xssrequestwrapper-is-insecure
   metadata:
+    title: Insecure XSSRequestWrapper implementation used
     owasp:
     - A07:2017 - Cross-Site Scripting (XSS)
     - A03:2021 - Injection

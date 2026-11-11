@@ -18,6 +18,7 @@ rules:
     field and specify the HTTP method (such as 'RequestMethod.POST').
   severity: WARNING
   metadata:
+    title: RequestMapping accepts every HTTP method
     cwe:
     - 'CWE-352: Cross-Site Request Forgery (CSRF)'
     owasp:

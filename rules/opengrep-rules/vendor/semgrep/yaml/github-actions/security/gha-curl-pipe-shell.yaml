@@ -4,6 +4,7 @@ rules:
   - yaml
   message: "A GitHub Actions run step pipes curl or wget directly into a shell; download and verify before executing."
   metadata:
+    title: Remote script piped into a shell
     category: security
     cwe:
     - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"

@@ -109,6 +109,7 @@ rules:
       ...
       {{ ... $TRANS ... }}
   metadata:
+    title: Translated string rendered without escaping
     cwe:
     - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
     owasp:

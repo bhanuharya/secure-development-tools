@@ -134,6 +134,7 @@ rules:
     could leverage this to perform command injection.
     You may consider using 'shlex.escape()'.
   metadata:
+    title: User input reaches a subprocess call
     owasp:
     - A01:2017 - Injection
     - A03:2021 - Injection

@@ -10,6 +10,7 @@ rules:
       manipulate data from the database. Instead, use prepared statements
       (`connection.PreparedStatement`) or a safe library.
     metadata:
+      title: User input concatenated into a SQL query
       cwe:
         - "CWE-89: Improper Neutralization of Special Elements used in an SQL
           Command ('SQL Injection')"

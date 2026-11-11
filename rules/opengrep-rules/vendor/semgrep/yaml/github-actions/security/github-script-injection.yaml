@@ -13,6 +13,7 @@ rules:
     the environment
     variable, like this: "$ENVVAR".
   metadata:
+    title: GitHub context interpolated into a script
     category: security
     cwe:
     - "CWE-94: Improper Control of Generation of Code ('Code Injection')"

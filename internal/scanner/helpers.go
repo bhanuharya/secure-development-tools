@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 func envOr(key, def string) string {
@@ -97,6 +98,23 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+// ruleNameFromID is the fallback for a rule without metadata.title: the
+// last id segment with separators turned back into spaces, so reports show
+// something readable instead of a bare slug.
+func ruleNameFromID(ruleID string) string {
+	name := ruleID
+	if i := strings.LastIndexAny(name, "./"); i >= 0 {
+		name = name[i+1:]
+	}
+	name = strings.TrimSpace(strings.NewReplacer("-", " ", "_", " ").Replace(name))
+	if name == "" {
+		return ""
+	}
+	runes := []rune(name)
+	runes[0] = unicode.ToUpper(runes[0])
+	return string(runes)
 }
 
 // cleanRuleID normalizes an engine rule id to a machine-independent key.

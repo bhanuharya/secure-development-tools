@@ -4,6 +4,7 @@ rules:
     leading to attackers gaining access to user cookies and protected information. Ensure that the request
     data is properly escaped or sanitzed.
   metadata:
+    title: Request data reflected in the response
     cwe:
     - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
     owasp:

@@ -6,6 +6,7 @@ rules:
     HTML tags, these may be interpreted by the browser, resulting in cross-site
     scripting (XSS).
   metadata:
+    title: Interpolated template literal contains HTML
     cwe:
     - 'CWE-116: Improper Encoding or Escaping of Output'
     owasp:

@@ -7,6 +7,7 @@ rules:
     by using up available disk space. Instead, ensure that request data is properly
     escaped or sanitized.
   metadata:
+    title: Request data written to a file
     cwe:
     - "CWE-93: Improper Neutralization of CRLF Sequences ('CRLF Injection')"
     owasp:

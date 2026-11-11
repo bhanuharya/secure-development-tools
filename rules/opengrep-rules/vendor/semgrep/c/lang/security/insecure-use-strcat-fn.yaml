@@ -8,6 +8,7 @@ rules:
     This is an issue because strcat or strncat can lead to buffer overflow vulns.
     Fix this by using strcat_s instead.
   metadata:
+    title: strcat() can overflow the destination buffer
     cwe:
     - 'CWE-676: Use of Potentially Dangerous Function'
     references:

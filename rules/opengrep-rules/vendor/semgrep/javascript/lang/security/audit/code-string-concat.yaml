@@ -7,6 +7,7 @@ rules:
   options:
     interfile: true
   metadata:
+    title: Request data flows to eval
     interfile: true
     confidence: HIGH
     owasp:

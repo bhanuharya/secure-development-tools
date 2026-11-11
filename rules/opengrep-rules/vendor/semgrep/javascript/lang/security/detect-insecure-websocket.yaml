@@ -2,6 +2,7 @@ rules:
 - id: detect-insecure-websocket
   message: Insecure WebSocket Detected. WebSocket Secure (wss) should be used for all WebSocket connections.
   metadata:
+    title: Insecure WebSocket connection
     cwe:
     - 'CWE-319: Cleartext Transmission of Sensitive Information'
     asvs:

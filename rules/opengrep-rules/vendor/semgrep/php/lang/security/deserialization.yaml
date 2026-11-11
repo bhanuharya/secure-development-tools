@@ -15,6 +15,7 @@ rules:
   languages:
   - php
   metadata:
+    title: extract() called on user input
     category: security
     cwe:
     - 'CWE-502: Deserialization of Untrusted Data'

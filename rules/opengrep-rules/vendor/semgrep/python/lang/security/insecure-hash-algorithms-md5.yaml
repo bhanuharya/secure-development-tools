@@ -8,6 +8,7 @@ rules:
     collision resistant and is therefore not suitable as a cryptographic
     signature. Use SHA256 or SHA3 instead.
   metadata:
+    title: MD5 used for security purposes
     source-rule-url: https://github.com/PyCQA/bandit/blob/d5f8fa0d89d7b11442fc6ec80ca42953974354c8/bandit/blacklists/calls.py#L59
     cwe:
     - 'CWE-327: Use of a Broken or Risky Cryptographic Algorithm'

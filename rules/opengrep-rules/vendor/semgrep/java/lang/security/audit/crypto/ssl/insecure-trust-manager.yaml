@@ -1,6 +1,7 @@
 rules:
 - id: insecure-trust-manager
   metadata:
+    title: Trust manager accepts any certificate
     cwe:
     - 'CWE-295: Improper Certificate Validation'
     owasp:

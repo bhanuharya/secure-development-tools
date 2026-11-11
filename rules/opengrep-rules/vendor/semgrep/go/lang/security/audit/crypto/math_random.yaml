@@ -1,6 +1,7 @@
 rules:
 - id: math-random-used
   metadata:
+    title: math/rand used for security decisions
     cwe:
     - 'CWE-338: Use of Cryptographically Weak Pseudo-Random Number Generator (PRNG)'
     owasp:

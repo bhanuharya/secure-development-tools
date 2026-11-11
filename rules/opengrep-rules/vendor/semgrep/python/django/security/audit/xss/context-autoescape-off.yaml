@@ -6,6 +6,7 @@ rules:
     scripting (XSS) vulnerabilities. Remove 'autoescape: False' or set it
     to 'True'.
   metadata:
+    title: Template autoescaping disabled
     cwe:
     - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
     owasp:

@@ -8,6 +8,7 @@ rules:
     CBC mode does not include any integrity checks.
     Use 'AES/GCM/NoPadding' instead.
   metadata:
+    title: CBC mode with PKCS5 padding is vulnerable
     cwe:
     - 'CWE-327: Use of a Broken or Risky Cryptographic Algorithm'
     owasp:

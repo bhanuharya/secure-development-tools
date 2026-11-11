@@ -6,6 +6,7 @@ rules:
     to try to connect to a remote repository.
     Make sure that the URL is not controlled by external input.
   metadata:
+    title: git clone can run shell commands from a URL
     cwe:
     - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
     owasp:

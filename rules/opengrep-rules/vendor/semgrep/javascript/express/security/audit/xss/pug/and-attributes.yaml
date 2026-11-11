@@ -7,6 +7,7 @@ rules:
     vulnerability. If you must do this, ensure no external data
     can reach this location.
   metadata:
+    title: Unescaped variables used with attributes
     cwe:
     - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
     owasp:

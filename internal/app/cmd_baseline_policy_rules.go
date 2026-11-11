@@ -160,6 +160,16 @@ func newRulesCmd() *cobra.Command {
 			if len(invalid) > 0 {
 				return failf(ExitInvalidInput, "%d invalid rule files", len(invalid))
 			}
+			// Readable names: every rule needs a short metadata.title, which
+			// reports and SonarQube show instead of the raw id.
+			titleProblems := rules.TitleProblems(files)
+			for _, p := range titleProblems {
+				fmt.Fprintln(cmd.ErrOrStderr(), "title: "+p)
+			}
+			if len(titleProblems) > 0 {
+				return failf(ExitInvalidInput, "%d rules without a usable title", len(titleProblems))
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "titles: %d rules named\n", total)
 			// Manifest enforcement: expected counts, per-file and bundle hashes.
 			cwd, _ := os.Getwd()
 			manifestPath := rules.RuleManifestPath()

@@ -3,6 +3,7 @@ rules:
   languages:
   - java
   metadata:
+    title: Unsafe SnakeYAML constructor used
     owasp:
     - A08:2017 - Insecure Deserialization
     - A08:2021 - Software and Data Integrity Failures

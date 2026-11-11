@@ -5,6 +5,7 @@ rules:
     Ensure you are redirecting to safe URLs by using django.utils.http.is_safe_url().
     See https://cwe.mitre.org/data/definitions/601.html for more information.
   metadata:
+    title: Redirect target comes from user input
     cwe:
     - "CWE-601: URL Redirection to Untrusted Site ('Open Redirect')"
     owasp:

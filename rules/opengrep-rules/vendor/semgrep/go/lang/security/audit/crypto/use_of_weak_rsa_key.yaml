@@ -4,6 +4,7 @@ rules:
   languages: [go]
   severity: WARNING
   metadata:
+    title: RSA key shorter than 2048 bits
     cwe:
     - 'CWE-326: Inadequate Encryption Strength'
     owasp:

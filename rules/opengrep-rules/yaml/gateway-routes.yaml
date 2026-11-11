@@ -13,6 +13,7 @@ rules:
       registry paths on an internal listener.
     severity: ERROR
     metadata:
+      title: Kong route exposes a sensitive path
       category: security
       cwe: ["CWE-284"]
       owasp: ["A01:2021 - Broken Access Control"]
@@ -39,6 +40,7 @@ rules:
       Prefer explicit paths per service.
     severity: WARNING
     metadata:
+      title: Kong route forwards every path
       category: security
       cwe: ["CWE-284"]
       owasp: ["A01:2021 - Broken Access Control"]
@@ -70,6 +72,7 @@ rules:
       explicitly.
     severity: WARNING
     metadata:
+      title: Zuul routes every service without a policy
       category: security
       cwe: ["CWE-441"]
       owasp: ["A01:2021 - Broken Access Control"]
@@ -97,6 +100,7 @@ rules:
       listener.
     severity: ERROR
     metadata:
+      title: Gateway exposes a sensitive path
       category: security
       cwe: ["CWE-284"]
       owasp: ["A01:2021 - Broken Access Control"]
@@ -127,6 +131,7 @@ rules:
       plus allow for the management network), mark it internal, or stop proxying it.
     severity: ERROR
     metadata:
+      title: NGINX proxies a sensitive path
       category: security
       cwe: ["CWE-284"]
       owasp: ["A01:2021 - Broken Access Control"]

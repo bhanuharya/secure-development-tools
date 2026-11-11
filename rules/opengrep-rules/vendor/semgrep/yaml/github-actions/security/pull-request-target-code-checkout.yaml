@@ -17,6 +17,7 @@ rules:
     Please see https://securitylab.github.com/research/github-actions-preventing-pwn-requests/ for additional
     mitigations.
   metadata:
+    title: pull_request_target checks out untrusted code
     category: security
     owasp:
     - A08:2021 - Software and Data Integrity Failures

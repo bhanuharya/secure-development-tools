@@ -6,6 +6,7 @@ rules:
   message: <- A new object is created where the class name is based on user input. This could lead to
     remote code execution, as it allows to instantiate any class in the application.
   metadata:
+    title: User input controls the instantiated class
     cwe:
     - "CWE-470: Use of Externally-Controlled Input to Select Classes or Code ('Unsafe Reflection')"
     category: security

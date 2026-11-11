@@ -3,6 +3,7 @@ rules:
     message: SSL verification disabled, this allows for MitM attacks
     pattern: "$BUILDER.set_verify(openssl::ssl::SSL_VERIFY_NONE)"
     metadata:
+      title: TLS verification disabled
       references:
         - https://docs.rs/openssl/latest/openssl/ssl/struct.SslContextBuilder.html#method.set_verify
       technology:

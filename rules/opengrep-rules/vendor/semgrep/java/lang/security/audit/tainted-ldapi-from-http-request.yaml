@@ -7,6 +7,7 @@ rules:
     Ensure data passed to an LDAP query is not controllable or properly sanitize
     the data.
   metadata:
+    title: Request input reaches an LDAP query
     cwe:
     - "CWE-90: Improper Neutralization of Special Elements used in an LDAP Query ('LDAP Injection')"
     owasp:

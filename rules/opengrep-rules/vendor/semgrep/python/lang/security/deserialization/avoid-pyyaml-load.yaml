@@ -1,6 +1,7 @@
 rules:
 - id: avoid-pyyaml-load
   metadata:
+    title: Unsafe YAML loader used
     owasp:
     - A08:2017 - Insecure Deserialization
     - A08:2021 - Software and Data Integrity Failures

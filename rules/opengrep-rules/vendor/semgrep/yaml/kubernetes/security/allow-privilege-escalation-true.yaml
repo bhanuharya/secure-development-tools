@@ -34,6 +34,7 @@ rules:
     In the container `$CONTAINER` this parameter is set to `true` which makes
     this container much more vulnerable to privelege escalation attacks.
   metadata:
+    title: Pod allows privilege escalation
     cwe:
     - 'CWE-732: Incorrect Permission Assignment for Critical Resource'
     owasp:

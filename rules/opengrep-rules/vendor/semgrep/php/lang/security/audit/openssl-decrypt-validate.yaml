@@ -57,6 +57,7 @@ rules:
   - php
   severity: WARNING
   metadata:
+    title: openssl_decrypt result not validated
     references:
     - https://www.php.net/manual/en/function.openssl-decrypt.php
     cwe:

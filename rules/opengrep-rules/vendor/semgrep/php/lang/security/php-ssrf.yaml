@@ -29,6 +29,7 @@ rules:
       sufficiently ensure that the request is being sent to the expected
       destination. Dangerous function $FUNCS with payload $DATA
     metadata:
+      title: Request URL comes from user input
       references: 
         - https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html
       cwe:

@@ -1,6 +1,7 @@
 rules:
 - id: insecure-smtp-connection
   metadata:
+    title: SMTP connection without TLS
     cwe:
     - 'CWE-297: Improper Validation of Certificate with Host Mismatch'
     owasp:

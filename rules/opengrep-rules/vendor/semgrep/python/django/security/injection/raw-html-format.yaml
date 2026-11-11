@@ -9,6 +9,7 @@ rules:
     check that the HTML is rendered safely. Otherwise, use templates (`django.shortcuts.render`) which
     will safely render HTML instead.
   metadata:
+    title: User input built into an HTML string
     cwe:
     - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
     owasp:

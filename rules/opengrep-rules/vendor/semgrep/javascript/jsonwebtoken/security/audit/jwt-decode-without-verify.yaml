@@ -6,6 +6,7 @@ rules:
     integrity is unknown. This means a malicious actor could forge
     a JWT token with any claims. Call '.verify()' before using the token.
   metadata:
+    title: JWT decoded without verifying its signature
     cwe:
     - 'CWE-345: Insufficient Verification of Data Authenticity'
     owasp:

@@ -1,6 +1,7 @@
 rules:
 - id: jdbc-sql-formatted-string
   metadata:
+    title: SQL statement built with string formatting
     cwe:
     - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
     owasp:

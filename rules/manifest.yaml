@@ -27,8 +27,8 @@ sources:
       - vendor/aikido/rules
     expected_rule_count: 2
     hashes:
-      vendor/aikido/rules/github_workflow_prompt_injection/github_workflow_prompt_injection.yaml: 255f3141210edc0e8ac8b2663214e3e6e9a1e7523d69782020b4d6eea98eac3f
-      vendor/aikido/rules/npm_staged_publishing_missing/npm_staged_publishing_missing.yaml: e93747ca1faafec062844f29490987aa94109c443df73e2e6dfa0d2d11ec1b83
+      vendor/aikido/rules/github_workflow_prompt_injection/github_workflow_prompt_injection.yaml: 4a047b41bac22201047cff525161fc0a8e498904795fcd5f31d080e6d2666148
+      vendor/aikido/rules/npm_staged_publishing_missing/npm_staged_publishing_missing.yaml: 891fadffc49e22b38437057233d3c15934a02775ab46ef6725f9689e1e133b04
   # Wave 1: curated semgrep-rules lang/security subsets (audit/ excluded).
   # License: Semgrep Rules License v1.0 (rules/LICENSE.semgrep-rules),
   # internal business use. Shadow-triaged 2026-09-04: 26 findings on own
@@ -42,7 +42,7 @@ sources:
     path_prefixes:
       - vendor/semgrep/python
     expected_rule_count: 121
-    bundle_sha256: 8db669d1bfbb277801a140787eb1557acdc253597be83a3c814c5c17642fb192
+    bundle_sha256: fbf0c131c607e75a2a99c20e96537f5e493797f1ed8ce361319f3929073f14c0
   - id: semgrep-javascript
     repository: https://github.com/semgrep/semgrep-rules
     license: Semgrep-Rules-License-1.0
@@ -51,7 +51,7 @@ sources:
     path_prefixes:
       - vendor/semgrep/javascript
     expected_rule_count: 75
-    bundle_sha256: ef1a2309c40fe7735a0a16111815e80d2242deff2d6047147930afcbffb26a90
+    bundle_sha256: 81523067814056b31c29b693cf887c233899510812bc14bce6d62ef45fa19014
   - id: semgrep-go
     repository: https://github.com/semgrep/semgrep-rules
     license: Semgrep-Rules-License-1.0
@@ -60,7 +60,7 @@ sources:
     path_prefixes:
       - vendor/semgrep/go
     expected_rule_count: 59
-    bundle_sha256: 1ef287bab8d86fb985cfe6277bf6a8f55a204ad9d2166dd26a8f8b1733abf64b
+    bundle_sha256: fda6041e7f5316602626f8d62f5f82d7a5f7c0af5f158fe72e6504b5fe781fde
   # Wave 2: kotlin/java core, Kubernetes + GitHub Actions hygiene, AWS JSON.
   # Terraform provider rules deliberately excluded (Trivy owns IaC).
   # Shadow-triaged 2026-09-04 with Wave 1: harness green, 0 drops.
@@ -72,7 +72,7 @@ sources:
     path_prefixes:
       - vendor/semgrep/kotlin
     expected_rule_count: 14
-    bundle_sha256: 8e9c8218ab34462e5cd3b9ca4dc6ad76385fc96f0b50d4868215b839d0feddb6
+    bundle_sha256: 0a042517f869df6a90e2ba1336fb2b77a858e6ef9c2432f67ab99f5ab95721b1
   - id: semgrep-java
     repository: https://github.com/semgrep/semgrep-rules
     license: Semgrep-Rules-License-1.0
@@ -81,7 +81,7 @@ sources:
     path_prefixes:
       - vendor/semgrep/java
     expected_rule_count: 99
-    bundle_sha256: a43c79d64984ec1df99f240dd57dc5f853de28f6efc3802199052efa6315b670
+    bundle_sha256: 0980082ef4ba4a19b40a4a8018d6e6a9d5993574284c2bccc19e56eb42e849e8
   - id: semgrep-yaml
     repository: https://github.com/semgrep/semgrep-rules
     license: Semgrep-Rules-License-1.0
@@ -90,7 +90,7 @@ sources:
     path_prefixes:
       - vendor/semgrep/yaml
     expected_rule_count: 31
-    bundle_sha256: 5b3656d4b25c91dd810eaae6a2dc339ec0860c60b4660451da5287edcd0c2169
+    bundle_sha256: ebff686137175b3749466eb76daf16100cbb86acb6c50314b99941bb1a0252ae
   - id: semgrep-json
     repository: https://github.com/semgrep/semgrep-rules
     license: Semgrep-Rules-License-1.0
@@ -99,7 +99,7 @@ sources:
     path_prefixes:
       - vendor/semgrep/json
     expected_rule_count: 3
-    bundle_sha256: 503b2e6d53f9b96f3b1e582163285f3f8e85b0ed5366689f90cfd0a1115b7879
+    bundle_sha256: 53df1162d984db236edb0c34e16865250f9fcad7d8baa794ea9fcb4a5e3345d9
   # Probed 2026-09-04: per-rule annotated tests pass under opengrep 1.29.0
   # (whole-pack `opengrep test` mis-pairs; the sdt harness runs per rule).
   # C memory-safety rules need intra-file taint (enabled in the adapter).
@@ -111,7 +111,7 @@ sources:
     path_prefixes:
       - vendor/semgrep/c
     expected_rule_count: 12
-    bundle_sha256: 2ea1258ac54e2291322c05e4426a7d9d6cee07607c4d02da9c9e25b5db620b23
+    bundle_sha256: 5cde10ce021a84973f40ca62ed50f26e45fc0f4a9f0d7182373fd07cfc901c71
   - id: semgrep-rust
     repository: https://github.com/semgrep/semgrep-rules
     license: Semgrep-Rules-License-1.0
@@ -120,7 +120,7 @@ sources:
     path_prefixes:
       - vendor/semgrep/rust
     expected_rule_count: 10
-    bundle_sha256: 4430adc11bcff15379d13908f8a902eae7e22a52509d5bb6f80217668238f1e8
+    bundle_sha256: 97805305c656d67d532232deeb3d5cbbae169980c6e6c6eb7cd57b3cef23f1df
   # Wave 3 (2026-10-08): the semgrep-python, -javascript, -go and -java sources
   # above grew by the framework rules (Spring, Express, Flask, Django) and by
   # named audit/ subtrees (injection, request forgery, deserialisation, XML,
@@ -137,4 +137,4 @@ sources:
     path_prefixes:
       - vendor/semgrep/php
     expected_rule_count: 47
-    bundle_sha256: 27acc362348773cd3e498aa5d3065f9ab01cd4321f2d823996fefb3ada52c718
+    bundle_sha256: caf846beabef827ef227d8f3e4b73682bc026c0ffb334309065cc3a914977e98

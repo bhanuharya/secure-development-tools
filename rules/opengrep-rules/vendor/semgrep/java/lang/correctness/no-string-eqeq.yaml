@@ -10,6 +10,7 @@ rules:
       Use '.equals()' instead.
     severity: WARNING
     metadata:
+      title: Strings compared with == instead of equals()
       category: correctness
       technology:
         - java

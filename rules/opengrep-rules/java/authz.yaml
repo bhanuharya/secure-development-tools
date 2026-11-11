@@ -10,6 +10,7 @@ rules:
       else an explicit rule (anyRequest().authenticated() or denyAll()).
     severity: ERROR
     metadata:
+      title: permitAll() opens a whole path prefix
       category: security
       cwe: ["CWE-862"]
       owasp: ["A01:2021 - Broken Access Control"]
@@ -33,6 +34,7 @@ rules:
       token (for example #oauth2.isClient() or a scope) and keep the path off the public gateway.
     severity: ERROR
     metadata:
+      title: permitAll() opens an internal path
       category: security
       cwe: ["CWE-306", "CWE-862"]
       owasp: ["A01:2021 - Broken Access Control"]
@@ -57,6 +59,7 @@ rules:
       .anyRequest().authenticated() or .anyRequest().denyAll().
     severity: ERROR
     metadata:
+      title: Security chain has no default authorization rule
       category: security
       cwe: ["CWE-276", "CWE-862"]
       owasp: ["A01:2021 - Broken Access Control"]
@@ -75,6 +78,7 @@ rules:
       protect them. Drop the scoping and mark public paths with explicit permitAll() rules.
     severity: ERROR
     metadata:
+      title: Security chain applies only to listed paths
       category: security
       cwe: ["CWE-862"]
       owasp: ["A01:2021 - Broken Access Control"]
@@ -92,6 +96,7 @@ rules:
       line and add the narrower rule that was intended, or restore it.
     severity: WARNING
     metadata:
+      title: Authorization rule commented out
       category: security
       cwe: ["CWE-862"]
       owasp: ["A01:2021 - Broken Access Control"]
@@ -109,6 +114,7 @@ rules:
       allow-list, behind an administrator check.
     severity: WARNING
     metadata:
+      title: Roles copied from client-supplied request data
       category: security
       cwe: ["CWE-915", "CWE-269"]
       owasp: ["A01:2021 - Broken Access Control"]
@@ -137,6 +143,7 @@ rules:
       can reach. Allow a fixed list of front-end origins.
     severity: ERROR
     metadata:
+      title: CORS allows any origin with credentials
       category: security
       cwe: ["CWE-942"]
       owasp: ["A05:2021 - Security Misconfiguration"]
@@ -180,6 +187,7 @@ rules:
       them or limit them to a non-production profile.
     severity: WARNING
     metadata:
+      title: Test or debug endpoint mapped in production code
       category: security
       cwe: ["CWE-489"]
       owasp: ["A05:2021 - Security Misconfiguration"]
@@ -197,6 +205,7 @@ rules:
       token and secret fields out of toString().
     severity: WARNING
     metadata:
+      title: toString() prints a secret field
       category: security
       cwe: ["CWE-532", "CWE-312"]
       owasp: ["A09:2021 - Security Logging and Monitoring Failures"]

@@ -20,6 +20,7 @@ rules:
       include:
         - "**/*.java"
     metadata:
+      title: Regex built from a method parameter
       category: security
       owasp:
         - A03:2021 Injection

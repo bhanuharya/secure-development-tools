@@ -4,6 +4,7 @@ rules:
     message: eval() executes arbitrary code from its string argument.
     severity: ERROR
     metadata:
+      title: eval() executes attacker-controlled code
       category: security
       cwe: ["CWE-95"]
       owasp: ["A03:2021 - Injection"]
@@ -14,6 +15,7 @@ rules:
     message: Assigning untrusted data to innerHTML enables cross-site scripting.
     severity: WARNING
     metadata:
+      title: Untrusted data assigned to innerHTML
       category: security
       cwe: ["CWE-79"]
       owasp: ["A03:2021 - Injection"]
@@ -27,6 +29,7 @@ rules:
       host against an allow-list before sending.
     severity: WARNING
     metadata:
+      title: Request target comes from the HTTP request
       category: security
       cwe: ["CWE-918"]
       owasp: ["A10:2021 - Server-Side Request Forgery (SSRF)"]
@@ -71,6 +74,7 @@ rules:
       when it is missing, then rotate the value.
     severity: ERROR
     metadata:
+      title: Secret falls back to a literal value
       category: security
       cwe: ["CWE-798", "CWE-1188"]
       owasp: ["A07:2021 - Identification and Authentication Failures"]
@@ -112,6 +116,7 @@ rules:
       credential, and rotate this one.
     severity: ERROR
     metadata:
+      title: Basic auth credential hard-coded in front-end
       category: security
       cwe: ["CWE-798"]
       owasp: ["A07:2021 - Identification and Authentication Failures"]
@@ -135,6 +140,7 @@ rules:
       console can collect it. Remove the log call or log a masked value.
     severity: WARNING
     metadata:
+      title: Secret written to the browser console
       category: security
       cwe: ["CWE-532"]
       owasp: ["A09:2021 - Security Logging and Monitoring Failures"]

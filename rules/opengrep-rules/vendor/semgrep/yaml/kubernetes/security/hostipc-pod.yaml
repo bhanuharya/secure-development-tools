@@ -12,6 +12,7 @@ rules:
     bypasses container protection models. Remove the 'hostIPC' key to disable
     this functionality.
   metadata:
+    title: Pod shares the host IPC namespace
     cwe:
     - 'CWE-693: Protection Mechanism Failure'
     references:

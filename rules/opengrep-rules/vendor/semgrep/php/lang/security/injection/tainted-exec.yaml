@@ -6,6 +6,7 @@ rules:
   message: >-
     User input is passed to a function that executes a shell command. This can lead to remote code execution.
   metadata:
+    title: User input reaches a shell command
     cwe:
     - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
     category: security

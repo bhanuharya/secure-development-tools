@@ -336,7 +336,7 @@ def convert(findings_doc: dict, repo_root: Path | None = None) -> tuple[dict, in
                 desc = _vuln_description(str(f.get("message", "")))
             rules[key] = {
                 "id": key,
-                "name": _tail(str(rule.get("id", key)))[:200],
+                "name": str(rule.get("name") or _tail(str(rule.get("id", key))))[:200],
                 "description": desc[:2000],
                 "engineId": f"sdt-{adapter}",
                 "cleanCodeAttribute": attr,

@@ -12,6 +12,7 @@ rules:
     Fix this by using strcpy_s instead (although note that strcpy_s is an
     optional part of the C11 standard, and so may not be available).
   metadata:
+    title: strcpy() can overflow the destination buffer
     cwe:
     - 'CWE-676: Use of Potentially Dangerous Function'
     references:

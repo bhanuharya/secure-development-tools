@@ -11,6 +11,7 @@ rules:
   severity: WARNING
   languages: [java]
   metadata:
+    title: File permissions allow read, write and execute
     cwe:
     - 'CWE-276: Incorrect Default Permissions'
     owasp:

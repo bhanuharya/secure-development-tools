@@ -111,6 +111,7 @@ rules:
     Found user controlled content in `run_string`.
     This is dangerous because it allows a malicious actor to run arbitrary Python code.
   metadata:
+    title: User input reaches run_string
     cwe:
     - "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection')"
     owasp:

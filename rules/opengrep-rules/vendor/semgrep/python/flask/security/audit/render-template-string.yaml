@@ -2,6 +2,7 @@ rules:
 - id: render-template-string
   pattern: flask.render_template_string(...)
   metadata:
+    title: Template built from string formatting
     cwe:
     - "CWE-96: Improper Neutralization of Directives in Statically Saved Code ('Static Code Injection')"
     owasp:

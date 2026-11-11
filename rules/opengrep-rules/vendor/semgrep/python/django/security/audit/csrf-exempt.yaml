@@ -8,6 +8,7 @@ rules:
     This could lead to an attacker manipulating the user's account and exfiltration of private data. Instead,
     create a function without this decorator.
   metadata:
+    title: View exempted from CSRF protection
     cwe:
     - 'CWE-352: Cross-Site Request Forgery (CSRF)'
     owasp:

@@ -75,6 +75,7 @@ rules:
   languages: [java]
   severity: WARNING
   metadata:
+    title: SQL statement built with string formatting
     cwe:
     - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
     category: security

@@ -10,6 +10,7 @@ rules:
     as it will leak sensitive information. Instead, consider using Flask configuration
     variables or setting 'debug' using system environment variables.
   metadata:
+    title: Flask debug mode enabled
     cwe:
     - 'CWE-489: Active Debug Code'
     owasp: 'A06:2017 - Security Misconfiguration'

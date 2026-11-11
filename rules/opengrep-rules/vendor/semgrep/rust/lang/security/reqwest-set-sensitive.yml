@@ -30,6 +30,7 @@ rules:
             - pattern: header::AUTHORIZATION
             - pattern: '"Authorization"'
     metadata:
+      title: Security header missing the sensitive flag
       references:
         - https://docs.rs/reqwest/latest/reqwest/header/struct.HeaderValue.html#method.set_sensitive
       technology:

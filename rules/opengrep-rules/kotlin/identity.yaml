@@ -9,6 +9,7 @@ rules:
       support staff. Log an identifier or a masked value instead.
     severity: WARNING
     metadata:
+      title: Secret written to a log
       category: security
       cwe: ["CWE-532"]
       owasp: ["A09:2021 - Security Logging and Monitoring Failures"]
@@ -44,6 +45,7 @@ rules:
       at all, keep a token in the platform key store.
     severity: WARNING
     metadata:
+      title: Password stored in a recoverable form
       category: security
       cwe: ["CWE-257", "CWE-916"]
       owasp: ["A02:2021 - Cryptographic Failures"]
@@ -79,6 +81,7 @@ rules:
       manager, and rotate this one.
     severity: ERROR
     metadata:
+      title: Hard-coded secret in source code
       category: security
       cwe: ["CWE-798", "CWE-321"]
       owasp: ["A07:2021 - Identification and Authentication Failures"]

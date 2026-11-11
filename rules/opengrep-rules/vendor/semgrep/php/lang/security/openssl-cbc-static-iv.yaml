@@ -13,6 +13,7 @@ rules:
   - php
   severity: ERROR
   metadata:
+    title: Static IV used with AES-CBC
     cwe:
     - 'CWE-329: Generation of Predictable IV with CBC Mode'
     references:

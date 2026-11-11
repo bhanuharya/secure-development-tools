@@ -5,6 +5,7 @@ rules:
       - pattern: reqwest::Client::builder(). ... .danger_accept_invalid_hostnames(true)
       - pattern: reqwest::Client::builder(). ... .danger_accept_invalid_certs(true)
     metadata:
+      title: TLS verification disabled in reqwest
       references:
         - https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html#method.danger_accept_invalid_hostnames
         - https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html#method.danger_accept_invalid_certs

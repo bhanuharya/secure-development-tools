@@ -5,6 +5,7 @@ rules:
     If the expected authentication tag length is not specified or otherwise checked, the application might be tricked into verifying a shorter-than-expected authentication tag.
     This can be abused by an attacker to spoof ciphertexts or recover the implicit authentication key of GCM, allowing arbitrary forgeries.
   metadata:
+    title: GCM auth tag length not specified
     cwe:
     - 'CWE-310: CWE CATEGORY: Cryptographic Issues'
     owasp:

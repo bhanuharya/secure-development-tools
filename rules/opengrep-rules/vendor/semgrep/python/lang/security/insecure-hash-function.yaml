@@ -5,6 +5,7 @@ rules:
     These functions have known vulnerabilities and are considered deprecated.
     Consider using 'SHA256' or a similar function instead.
   metadata:
+    title: Insecure MD4 or MD5 hash used
     cwe:
     - 'CWE-327: Use of a Broken or Risky Cryptographic Algorithm'
     owasp:

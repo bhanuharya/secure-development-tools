@@ -7,6 +7,7 @@ rules:
     need unescaped HTML, use the triple brace operator in your template:
     '{{{ ... }}}'.
   metadata:
+    title: Mustache escape function overwritten
     cwe:
     - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
     owasp:

@@ -7,6 +7,7 @@ rules:
       property should not be relied upon for security purposes."
     pattern: "std::env::args()"
     metadata:
+      title: args cannot validate UTF-8 input
       references:
         - https://doc.rust-lang.org/stable/std/env/fn.args.html
       technology:

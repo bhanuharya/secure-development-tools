@@ -43,6 +43,7 @@ rules:
     or similar and checking if the 'netloc' property is the same as
     your site's host name. See the references for more information.
   metadata:
+    title: Redirect target comes from user input
     cwe:
     - "CWE-601: URL Redirection to Untrusted Site ('Open Redirect')"
     owasp:

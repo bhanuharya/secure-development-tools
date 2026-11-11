@@ -39,6 +39,7 @@ rules:
   - pattern: escapeHtmlAttr(...)
   fix: echo htmlentities($...VARS);
   metadata:
+    title: Request data echoed unescaped
     technology:
     - php
     cwe:

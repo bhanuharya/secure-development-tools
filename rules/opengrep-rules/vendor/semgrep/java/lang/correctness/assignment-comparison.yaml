@@ -7,6 +7,7 @@ rules:
       - pattern: if ($X=true) { ... }
       - pattern: if ($X=false) { ... }
     metadata:
+      title: Assignment used inside a conditional
       category: correctness
       technology:
         - java

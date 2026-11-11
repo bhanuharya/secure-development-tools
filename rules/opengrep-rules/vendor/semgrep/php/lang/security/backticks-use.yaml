@@ -4,6 +4,7 @@ rules:
   message: >-
     Backticks use may lead to command injection vulnerabilities.
   metadata:
+    title: Backtick operator runs shell commands
     cwe:
     - "CWE-94: Improper Control of Generation of Code ('Code Injection')"
     references:

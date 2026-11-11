@@ -8,6 +8,7 @@ rules:
     Instead, use an intermediate environment variable with `env:` to store the data and use the environment
     variable in the `run:` script. Be sure to use double-quotes the environment variable, like this: "$ENVVAR".'
   metadata:
+    title: GitHub context interpolated into a shell
     category: security
     cwe:
     - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"

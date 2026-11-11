@@ -6,6 +6,7 @@ rules:
     execute arbitrary remote code on the system. Instead, refactor your code to not use 'eval' and
     instead use a safe library for the specific functionality you need.
   metadata:
+    title: User input reaches exec
     cwe:
     - "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection')"
     owasp:

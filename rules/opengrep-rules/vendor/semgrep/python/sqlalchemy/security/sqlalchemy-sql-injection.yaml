@@ -39,6 +39,7 @@ rules:
   - python
   severity: WARNING
   metadata:
+    title: User input controls SQL clauses
     cwe:
     - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
     category: security

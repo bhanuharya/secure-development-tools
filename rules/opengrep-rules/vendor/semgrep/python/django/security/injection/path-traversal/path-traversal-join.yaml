@@ -5,6 +5,7 @@ rules:
     which can lead to sensitive data being leaked. To mitigate, consider using os.path.abspath or os.path.realpath
     or Path library.
   metadata:
+    title: Request data used in a file path
     cwe:
     - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
     owasp:

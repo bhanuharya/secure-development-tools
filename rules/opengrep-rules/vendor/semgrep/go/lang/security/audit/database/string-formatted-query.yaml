@@ -7,6 +7,7 @@ rules:
     SQL is not manipulable by external data.
   severity: WARNING
   metadata:
+    title: SQL query built with string formatting
     owasp:
     - A01:2017 - Injection
     - A03:2021 - Injection

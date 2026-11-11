@@ -20,6 +20,7 @@ rules:
   - php
   severity: WARNING
   metadata:
+    title: Laravel route builds SQL from user input
     category: security
     cwe:
     - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"

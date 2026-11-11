@@ -5,6 +5,7 @@ rules:
     parameter that is not validated. This could direct users to malicious locations.
     Consider using an allowlist to validate URLs.
   metadata:
+    title: Redirect target comes from user input
     cwe:
     - "CWE-601: URL Redirection to Untrusted Site ('Open Redirect')"
     owasp:

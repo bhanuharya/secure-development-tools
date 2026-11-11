@@ -1,6 +1,7 @@
 rules:
 - id: avoid-unsafe-ruamel
   metadata:
+    title: Unsafe ruamel.yaml loader used
     owasp:
     - A08:2017 - Insecure Deserialization
     - A08:2021 - Software and Data Integrity Failures

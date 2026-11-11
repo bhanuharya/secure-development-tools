@@ -15,6 +15,7 @@ rules:
       restrict the source ranges.
     severity: ERROR
     metadata:
+      title: Internal service exposed by a public load balancer
       category: security
       cwe: ["CWE-668"]
       owasp: ["A05:2021 - Security Misconfiguration"]
@@ -34,6 +35,7 @@ rules:
       registry and the management endpoints on an internal host name.
     severity: ERROR
     metadata:
+      title: Ingress exposes an internal service
       category: security
       cwe: ["CWE-668"]
       owasp: ["A01:2021 - Broken Access Control"]
@@ -54,6 +56,7 @@ rules:
       development environment.
     severity: ERROR
     metadata:
+      title: Consul ACLs disabled or open by default
       category: security
       cwe: ["CWE-306"]
       owasp: ["A07:2021 - Identification and Authentication Failures"]
@@ -87,6 +90,7 @@ rules:
       the UI through a tunnel or an authenticated proxy.
     severity: WARNING
     metadata:
+      title: Consul API bound to every interface
       category: security
       cwe: ["CWE-668"]
       owasp: ["A05:2021 - Security Misconfiguration"]
@@ -113,6 +117,7 @@ rules:
       port off the internet.
     severity: ERROR
     metadata:
+      title: Actuator exposure set through the environment
       category: security
       cwe: ["CWE-200"]
       owasp: ["A05:2021 - Security Misconfiguration"]

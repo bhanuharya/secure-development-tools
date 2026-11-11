@@ -13,6 +13,7 @@ rules:
   message: >-
     Detected usage of weak crypto function. Consider using stronger alternatives.
   metadata:
+    title: Weak cryptographic function used
     cwe:
     - 'CWE-328: Use of Weak Hash'
     references:

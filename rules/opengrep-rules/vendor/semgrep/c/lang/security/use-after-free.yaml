@@ -19,6 +19,7 @@ rules:
     message: >-
       Variable '$VAR' was used after being freed. This can lead to undefined behavior.
     metadata:
+      title: Memory used after being freed
       cwe:
         - "CWE-416: Use After Free"
       references:

@@ -5,6 +5,7 @@ rules:
     \ use Django ORM and parameterized queries before raw SQL. An example of using the Django ORM is:\
     \ `People.objects.get(name='Bob')`"
   metadata:
+    title: Raw SQL executed
     source-rule-url: https://bandit.readthedocs.io/en/latest/plugins/b611_django_rawsql_used.html
     cwe:
     - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"

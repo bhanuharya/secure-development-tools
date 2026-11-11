@@ -22,6 +22,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -126,6 +127,45 @@ func CountRules(files []string) (total int, invalid []string) {
 		total += len(doc.Rules)
 	}
 	return total, invalid
+}
+
+// MaxRuleTitleLength keeps titles readable in a table cell and in SonarQube's
+// rule name column.
+const MaxRuleTitleLength = 60
+
+// TitleProblems checks the readable name every rule must carry. Reports and
+// SonarQube show it instead of the last id segment.
+func TitleProblems(files []string) []string {
+	var problems []string
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			problems = append(problems, f+": unreadable: "+err.Error())
+			continue
+		}
+		var doc struct {
+			Rules []struct {
+				ID       string `yaml:"id"`
+				Metadata struct {
+					Title string `yaml:"title"`
+				} `yaml:"metadata"`
+			} `yaml:"rules"`
+		}
+		if err := yaml.Unmarshal(raw, &doc); err != nil {
+			continue // CountRules already reports files that do not parse
+		}
+		for _, r := range doc.Rules {
+			title := strings.TrimSpace(r.Metadata.Title)
+			switch {
+			case title == "":
+				problems = append(problems, fmt.Sprintf("%s: rule %q has no metadata.title", f, r.ID))
+			case utf8.RuneCountInString(title) > MaxRuleTitleLength:
+				problems = append(problems, fmt.Sprintf("%s: rule %q title is %d characters (max %d)",
+					f, r.ID, utf8.RuneCountInString(title), MaxRuleTitleLength))
+			}
+		}
+	}
+	return problems
 }
 
 // CountRulesIn counts rules in files under prefix (slash-separated, as in

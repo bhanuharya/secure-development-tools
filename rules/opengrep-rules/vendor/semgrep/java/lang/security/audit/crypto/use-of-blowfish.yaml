@@ -2,6 +2,7 @@ rules:
 - id: use-of-blowfish
   pattern: $CIPHER.getInstance("Blowfish") 
   metadata:
+    title: Blowfish cipher used
     functional-categories:
       - 'crypto::search::symmetric-algorithm::javax.crypto'
     cwe:

@@ -6,6 +6,7 @@ rules:
     to render a page in
     an `iframe`.
   metadata:
+    title: X-Frame-Options controlled by user input
     references:
     - https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Frame-Options
     owasp:

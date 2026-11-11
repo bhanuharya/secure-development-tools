@@ -66,6 +66,7 @@ rules:
       injection, do not use strings concatenated with user-controlled input.
       Instead, use parameterized statements.
     metadata:
+      title: SQL query built from concatenated input
       cwe:
         - "CWE-89: Improper Neutralization of Special Elements used in an SQL
           Command ('SQL Injection')"

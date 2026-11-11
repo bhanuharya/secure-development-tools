@@ -15,6 +15,7 @@ rules:
     service in an unrestricted state. Remove 'seccompProfile: unconfined' to
     prevent this.
   metadata:
+    title: seccomp confinement disabled
     cwe:
     - 'CWE-284: Improper Access Control'
     references:

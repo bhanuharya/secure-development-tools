@@ -5,6 +5,7 @@ rules:
     contents. Be absolutely sure there is no user-controlled data in this template. If user data can
     reach this template, you may have a XSS vulnerability.
   metadata:
+    title: User input passed to template.HTML()
     cwe:
     - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
     owasp:

@@ -10,6 +10,7 @@ rules:
     This may expose these credentials to unauthorized parties.
     Use 'https://' instead.
   metadata:
+    title: Credentials sent over plain HTTP
     cwe:
     - 'CWE-523: Unprotected Transport of Credentials'
     owasp:

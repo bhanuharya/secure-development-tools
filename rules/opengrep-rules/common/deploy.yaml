@@ -12,6 +12,7 @@ rules:
       (strapi start, next start, nuxt start, node on the build output, gunicorn).
     severity: ERROR
     metadata:
+      title: Development server started from a deployment artifact
       category: security
       cwe: ["CWE-489", "CWE-552"]
       owasp: ["A05:2021 - Security Misconfiguration"]
@@ -40,6 +41,7 @@ rules:
       keep the development server under dev or develop.
     severity: WARNING
     metadata:
+      title: Start script runs a development server
       category: security
       cwe: ["CWE-489"]
       owasp: ["A05:2021 - Security Misconfiguration"]

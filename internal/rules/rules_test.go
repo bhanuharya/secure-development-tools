@@ -36,6 +36,27 @@ func TestCountRules(t *testing.T) {
 	}
 }
 
+func TestTitleProblems(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "good.yaml")
+	bad := filepath.Join(dir, "bad.yaml")
+	writeFile(t, good, "rules:\n- id: a\n  message: m\n  metadata:\n    title: A readable title\n")
+	writeFile(t, bad, "rules:\n- id: b\n  message: m\n- id: c\n  message: m\n  metadata:\n    title: "+
+		strings.Repeat("x", MaxRuleTitleLength+1)+"\n")
+	problems := TitleProblems([]string{good})
+	if len(problems) != 0 {
+		t.Fatalf("good rule reported: %v", problems)
+	}
+	problems = TitleProblems([]string{bad})
+	if len(problems) != 2 {
+		t.Fatalf("want 2 problems (missing and too long), got %v", problems)
+	}
+	if !strings.Contains(problems[0], `rule "b" has no metadata.title`) ||
+		!strings.Contains(problems[1], "title is 61 characters") {
+		t.Fatalf("unexpected problems: %v", problems)
+	}
+}
+
 func TestBundleHashMatchesShell(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "a.yaml"), twoRules)

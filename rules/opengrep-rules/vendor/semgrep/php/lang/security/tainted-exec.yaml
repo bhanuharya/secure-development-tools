@@ -19,6 +19,7 @@ rules:
   message: >-
     Executing non-constant commands. This can lead to command injection. You should use `escapeshellarg()` when using command.
   metadata:
+    title: User input reaches a shell command
     cwe:
     - "CWE-94: Improper Control of Generation of Code ('Code Injection')"
     references:

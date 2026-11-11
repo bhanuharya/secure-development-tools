@@ -1,6 +1,7 @@
 rules:
 - id: avoid-pickle
   metadata:
+    title: Insecure pickle deserialization
     owasp:
     - A08:2017 - Insecure Deserialization
     - A08:2021 - Software and Data Integrity Failures
@@ -35,6 +36,7 @@ rules:
     - pattern-not: _pickle.$FUNC("...")
 - id: avoid-cPickle
   metadata:
+    title: Insecure cPickle deserialization
     owasp:
     - A08:2017 - Insecure Deserialization
     - A08:2021 - Software and Data Integrity Failures
@@ -66,6 +68,7 @@ rules:
   - pattern-not: cPickle.$FUNC("...")
 - id: avoid-dill
   metadata:
+    title: Insecure dill deserialization
     owasp:
     - A08:2017 - Insecure Deserialization
     - A08:2021 - Software and Data Integrity Failures
@@ -98,6 +101,7 @@ rules:
   - pattern-not: dill.$FUNC("...")
 - id: avoid-shelve
   metadata:
+    title: Insecure shelve deserialization
     owasp:
     - A08:2017 - Insecure Deserialization
     - A08:2021 - Software and Data Integrity Failures

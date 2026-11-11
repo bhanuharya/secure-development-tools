@@ -5,6 +5,7 @@ rules:
     it can enable an attacker to execute remote code. See
     https://owasp.org/www-community/attacks/Code_Injection for more information.
   metadata:
+    title: User input reaches eval
     cwe:
     - "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection')"
     owasp:

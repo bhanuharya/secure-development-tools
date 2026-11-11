@@ -2,6 +2,7 @@ rules:
 - id: use-of-aes-ecb
   pattern: $CIPHER.getInstance("=~/AES/ECB.*/") 
   metadata:
+    title: AES in ECB mode used
     functional-categories:
       - 'crypto::search::mode::javax.crypto'
     cwe:

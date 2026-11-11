@@ -87,6 +87,20 @@ func TestOpengrepPathsRelativeToRoot(t *testing.T) {
 	}
 }
 
+func TestOpengrepRuleNameFromTitleOrID(t *testing.T) {
+	a := &OpengrepAdapter{}
+	withTitle := []byte(`{"results": [{"check_id": "scp.java.authz.permitall-wildcard-prefix", "path": "/repo/A.java", "start": {"line": 1}, "end": {"line": 1}, "extra": {"message": "m", "severity": "ERROR", "metadata": {"title": "permitAll() opens a whole path prefix"}}}]}`)
+	pr := a.Parse("1.29.0", "/repo", withTitle, "", 1)
+	if got := pr.Findings[0].Rule.Name; got != "permitAll() opens a whole path prefix" {
+		t.Fatalf("title not used as rule name: %q", got)
+	}
+	withoutTitle := []byte(`{"results": [{"check_id": "vendor.semgrep.java.lang.correctness.no-string-eqeq", "path": "/repo/S.java", "start": {"line": 1}, "end": {"line": 1}, "extra": {"message": "m", "severity": "ERROR"}}]}`)
+	pr = a.Parse("1.29.0", "/repo", withoutTitle, "", 1)
+	if got := pr.Findings[0].Rule.Name; got != "No string eqeq" {
+		t.Fatalf("fallback name wrong: %q", got)
+	}
+}
+
 // Regression (pilot): four identical `hardcoded-conditional` messages in one
 // file collapsed to one fingerprint. Flagged-code content must dominate.
 func TestOpengrepContentSeparatesSameFileFindings(t *testing.T) {

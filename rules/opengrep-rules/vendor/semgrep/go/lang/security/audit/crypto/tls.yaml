@@ -7,6 +7,7 @@ rules:
     See https://golang.org/pkg/crypto/tls/#InsecureCipherSuites
     for why and what other cipher suites to use.
   metadata:
+    title: Insecure TLS cipher suite selected
     cwe:
     - 'CWE-327: Use of a Broken or Risky Cryptographic Algorithm'
     owasp:

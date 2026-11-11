@@ -6,6 +6,7 @@ rules:
     Other modes are still affected in their strength, though they're not completely broken.
     Use 'createCipheriv' or 'createDecipheriv' instead.
   metadata:
+    title: Deprecated createCipher used without an IV
     cwe:
     - 'CWE-1204: Generation of Weak Initialization Vector (IV)'
     category: security

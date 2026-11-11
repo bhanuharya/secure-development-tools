@@ -8,6 +8,7 @@ rules:
   message: >-
     FTP allows for unencrypted file transfers. Consider using an encrypted alternative.
   metadata:
+    title: FTP transfers files without encryption
     cwe:
     - 'CWE-319: Cleartext Transmission of Sensitive Information'
     references:

@@ -1,6 +1,7 @@
 rules:
 - id: unencrypted-socket
   metadata:
+    title: Socket traffic is not encrypted
     functional-categories:
       - 'net::search::crypto-config::java.net'
     cwe:

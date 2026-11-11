@@ -1,6 +1,7 @@
 rules:
 - id: weak-ssl-context
   metadata:
+    title: Insecure SSL context configured
     cwe:
     - 'CWE-326: Inadequate Encryption Strength'
     owasp:

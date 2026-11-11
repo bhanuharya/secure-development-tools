@@ -37,6 +37,7 @@ rules:
     SQL injection if user input can reach here. Use normal SQLAlchemy operators (such as `or_()`, `and_()`, etc.)
     to construct SQL.
   metadata:
+    title: SQLAlchemy text() builds raw SQL
     owasp:
     - A01:2017 - Injection
     - A03:2021 - Injection

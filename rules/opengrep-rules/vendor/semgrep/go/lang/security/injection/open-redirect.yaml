@@ -11,6 +11,7 @@ rules:
     options:
       interfile: true
     metadata:
+      title: Redirect target comes from user input
       cwe:
         - "CWE-601: URL Redirection to Untrusted Site ('Open Redirect')"
       references:

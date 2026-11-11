@@ -21,6 +21,7 @@ rules:
       - pattern: |
           (javax.xml.xpath.XPath $XP).compile(...).evaluate(...)
   metadata:
+    title: Request input reaches an XPath query
     category: security
     technology:
     - java

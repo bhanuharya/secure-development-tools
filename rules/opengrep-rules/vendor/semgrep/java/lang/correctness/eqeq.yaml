@@ -15,6 +15,7 @@ rules:
     languages: [java]
     severity: ERROR
     metadata:
+      title: Comparison is always true or always false
       category: correctness
       technology:
         - java

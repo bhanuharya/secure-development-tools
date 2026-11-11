@@ -13,6 +13,7 @@ rules:
   - go
   severity: WARNING
   metadata:
+    title: XML external entities enabled
     category: security
     cwe:
     - 'CWE-611: Improper Restriction of XML External Entity Reference'

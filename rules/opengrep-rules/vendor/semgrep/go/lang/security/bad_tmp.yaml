@@ -4,6 +4,7 @@ rules:
   languages: [go]
   severity: WARNING
   metadata:
+    title: Temporary file created in a shared directory
     cwe:
     - 'CWE-377: Insecure Temporary File'
     source-rule-url: https://github.com/securego/gosec

@@ -7,6 +7,7 @@ rules:
     See https://flask.palletsprojects.com/en/1.1.x/templating/#jinja-setup
     for more information.
   metadata:
+    title: Custom template extension skips escaping
     cwe:
     - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
     owasp:

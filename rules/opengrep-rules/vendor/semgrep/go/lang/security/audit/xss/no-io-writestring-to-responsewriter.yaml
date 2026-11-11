@@ -6,6 +6,7 @@ rules:
     vulnerabilities. Instead, use the 'html/template' package
     to render data to users.
   metadata:
+    title: Unescaped string written to the response
     owasp:
     - A07:2017 - Cross-Site Scripting (XSS)
     - A03:2021 - Injection

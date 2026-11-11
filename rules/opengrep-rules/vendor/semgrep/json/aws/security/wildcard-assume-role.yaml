@@ -12,6 +12,7 @@ rules:
     AWS account ID and the name of the role can assume the role. Instead, limit to
     a specific identity in your account, like this: `arn:aws:iam::<account_id>:root`.
   metadata:
+    title: Wildcard granted to sts:AssumeRole
     cwe:
     - 'CWE-250: Execution with Unnecessary Privileges'
     category: security

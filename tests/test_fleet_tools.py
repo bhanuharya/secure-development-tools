@@ -53,6 +53,22 @@ def test_sonar_rule_identity_and_path_safety():
     assert report["rules"][0]["id"] != report["rules"][1]["id"]
 
 
+def test_sonar_rule_name_prefers_the_readable_title():
+    def finding(rule):
+        return {"scanner": {"adapter": "opengrep"}, "category": "sast", "rule": rule,
+                "severity": {"canonical": "high"}, "location": {"path": "src/a.py", "startLine": 1},
+                "message": "review"}
+
+    titled = finding({"id": "scp.java.authz.permitall-wildcard-prefix",
+                      "name": "permitAll() opens a whole path prefix"})
+    report, _ = sdt_to_sonar.convert({"findings": [titled]})
+    assert report["rules"][0]["name"] == "permitAll() opens a whole path prefix"
+    # Older reports have no name: keep the historical last-segment fallback.
+    untitled = finding({"id": "scp.java.authz.permitall-wildcard-prefix"})
+    report, _ = sdt_to_sonar.convert({"findings": [untitled]})
+    assert report["rules"][0]["name"] == "permitall-wildcard-prefix"
+
+
 def test_sonar_only_imports_files_in_checkout(tmp_path):
     (tmp_path / "main.go").write_text("package main\n")
     base = {"scanner": {"adapter": "opengrep"}, "category": "sast",
@@ -987,6 +1003,19 @@ def test_docx_report_leads_with_code_security_then_secrets_then_dependencies(tmp
     assert 'Target="https://example.test/pr/1"' in rels and 'r:id="rIdScope"' in document
     assert "badCertificateCallback" in text  # the code excerpt for the occurrence
     assert "in test code" in text
+
+
+def test_docx_code_heading_uses_the_rule_title(tmp_path):
+    findings = {"findings": [{
+        "scanner": {"adapter": "opengrep"}, "category": "sast",
+        "rule": {"id": "vendor.semgrep.java.lang.correctness.no-string-eqeq",
+                 "name": "Strings compared with == instead of equals()"},
+        "severity": {"canonical": "high"}, "message": "reference comparison",
+        "location": {"path": "src/S.java", "startLine": 3}}]}
+    found = sdt_to_docx.merge(sdt_to_docx.from_findings(findings), None)
+    text, _, _, _ = _write_report(tmp_path, found)
+    assert "Strings compared with == instead of equals() [no-string-eqeq]" in text
+    assert "vendor.semgrep.java.lang.correctness.no-string-eqeq" in text
 
 
 def test_docx_many_findings_are_grouped_by_file_without_losing_any(tmp_path):

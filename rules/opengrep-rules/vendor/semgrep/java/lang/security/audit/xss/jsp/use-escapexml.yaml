@@ -8,6 +8,7 @@ rules:
     the JSTL taglib. See https://www.tutorialspoint.com/jsp/jstl_function_escapexml.htm
     for more information.
   metadata:
+    title: Expression language output not escaped
     owasp:
     - A03:2021 - Injection
     - A05:2025 - Injection

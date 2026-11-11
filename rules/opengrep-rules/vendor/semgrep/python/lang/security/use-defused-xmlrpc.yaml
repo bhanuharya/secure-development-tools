@@ -8,6 +8,7 @@ rules:
     Detected use of xmlrpc. xmlrpc is not inherently safe from vulnerabilities.
     Use defusedxml.xmlrpc instead.
   metadata:
+    title: xmlrpc used without defusedxml
     cwe:
     - "CWE-776: Improper Restriction of Recursive Entity References in DTDs ('XML Entity Expansion')"
     owasp:

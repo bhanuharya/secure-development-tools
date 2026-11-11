@@ -4,6 +4,7 @@ rules:
   message: >-
     The 'phpinfo' function may reveal sensitive information about your environment.
   metadata:
+    title: phpinfo() exposes configuration details
     cwe:
     - 'CWE-200: Exposure of Sensitive Information to an Unauthorized Actor'
     references:

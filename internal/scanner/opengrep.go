@@ -131,6 +131,7 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 				Fix      string `json:"fix"`
 				Lines    string `json:"lines"`
 				Metadata struct {
+					Title      string `json:"title"`
 					CWE        any    `json:"cwe"`
 					OWASP      any    `json:"owasp"`
 					References any    `json:"references"`
@@ -150,6 +151,10 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 			sev.Canonical = finding.SevMedium
 		}
 		ruleID := cleanRuleID(r.CheckID)
+		ruleName := strings.TrimSpace(r.Extra.Metadata.Title)
+		if ruleName == "" {
+			ruleName = ruleNameFromID(ruleID)
+		}
 		msg := report.Redact(truncate(r.Extra.Message, 1000))
 		sl, el := r.Start.Line, r.End.Line
 		rel := relToRoot(root, r.Path)
@@ -176,7 +181,7 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 			ID:            fmt.Sprintf("opengrep:%05d", i+1),
 			Scanner:       finding.ScannerID{Adapter: "opengrep", Tool: "opengrep", Version: toolVersion},
 			Category:      finding.CatSAST,
-			Rule:          finding.Rule{ID: ruleID, CWE: toStringList(r.Extra.Metadata.CWE, true)},
+			Rule:          finding.Rule{ID: ruleID, Name: ruleName, CWE: toStringList(r.Extra.Metadata.CWE, true)},
 			Severity:      sev,
 			Confidence:    confidence,
 			Message:       msg,

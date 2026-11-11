@@ -5,6 +5,7 @@ rules:
     dangerous because it allows an attacker to execute arbitrary code
     on the system. Refactor your code not to use 'globals()'.
   metadata:
+    title: Request data indexes globals()
     cwe:
     - "CWE-96: Improper Neutralization of Directives in Statically Saved Code ('Static Code Injection')"
     owasp:

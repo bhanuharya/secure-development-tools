@@ -6,6 +6,7 @@ rules:
     buffer boundaries and can lead to buffer overflows. Use 'fgets()' instead
     for reading input.
   metadata:
+    title: scanf() reads without bounds checking
     cwe:
     - 'CWE-676: Use of Potentially Dangerous Function'
     references:

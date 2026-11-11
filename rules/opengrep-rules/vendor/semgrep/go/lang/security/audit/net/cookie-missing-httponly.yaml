@@ -18,6 +18,7 @@ rules:
     attacks. Set the 'HttpOnly' flag by setting 'HttpOnly' to 'true'
     in the Cookie.
   metadata:
+    title: Session cookie missing the HttpOnly flag
     cwe:
     - "CWE-1004: Sensitive Cookie Without 'HttpOnly' Flag"
     owasp:

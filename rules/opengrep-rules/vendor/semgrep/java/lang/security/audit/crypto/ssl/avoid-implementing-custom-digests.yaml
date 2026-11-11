@@ -1,6 +1,7 @@
 rules:
 - id: avoid-implementing-custom-digests
   metadata:
+    title: Custom cryptographic digest implemented
     cwe:
     - 'CWE-327: Use of a Broken or Risky Cryptographic Algorithm'
     owasp:

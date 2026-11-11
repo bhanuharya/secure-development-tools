@@ -4,6 +4,7 @@ rules:
     Depending on the context, user control data in `Object.assign` can cause web response
     to include data that it should not have or can lead to a mass assignment vulnerability.
   metadata:
+    title: Object.assign can expose or overwrite data
     cwe:
     - "CWE-601: URL Redirection to Untrusted Site ('Open Redirect')"
     owasp:

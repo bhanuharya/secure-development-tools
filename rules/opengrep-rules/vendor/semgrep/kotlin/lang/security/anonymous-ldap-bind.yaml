@@ -1,6 +1,7 @@
 rules:
 - id: anonymous-ldap-bind
   metadata:
+    title: LDAP bind performed anonymously
     cwe:
     - 'CWE-287: Improper Authentication'
     owasp:

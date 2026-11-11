@@ -82,6 +82,7 @@ rules:
     `new ProcessBuilder("ls", "-al", targetDirectory)`. Further, make sure you
     hardcode or allowlist the actual command so that attackers can't run arbitrary commands.
   metadata:
+    title: User input reaches a system command
     cwe:
     - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
     owasp:

@@ -5,6 +5,7 @@ rules:
     This is susceptible to server-side template injection
     and cross-site scripting attacks.
   metadata:
+    title: Template built from string formatting
     cwe:
     - "CWE-96: Improper Neutralization of Directives in Statically Saved Code ('Static Code Injection')"
     owasp:

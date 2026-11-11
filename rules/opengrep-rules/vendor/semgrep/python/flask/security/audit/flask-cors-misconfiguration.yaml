@@ -21,6 +21,7 @@ rules:
               CORS(..., resources={"...": {...,"origins": "*",
               "supports_credentials": True,...}})
     metadata:
+      title: CORS allows credentials with any origin
       category: security
       subcategory:
         - audit

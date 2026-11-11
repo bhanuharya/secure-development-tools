@@ -8,6 +8,7 @@ rules:
     If this
     must be done, use the 'subprocess' module instead and pass the arguments as a list.
   metadata:
+    title: Request data reaches os.system
     cwe:
     - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
     owasp:

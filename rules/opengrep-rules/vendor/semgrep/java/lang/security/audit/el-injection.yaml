@@ -1,6 +1,7 @@
 rules:
 - id: el-injection
   metadata:
+    title: Expression language built from dynamic input
     cwe:
     - "CWE-94: Improper Control of Generation of Code ('Code Injection')"
     owasp:
