@@ -107,3 +107,13 @@ config/prod/production.env	database password in a production environment file	79
 config/default/app.env	token signing key left at a well-known placeholder	1392,798	rules
 config/registry.yaml	registry address with a literal password	798,522	rules
 config/lookalike/production.env	values injected by the platform, address without credentials	798,260,1392,522	none
+java/HardcodedSecretField.java	hard-coded secret constant in Java code	798,321	rules
+java/lookalike/SecretFieldNames.java	field, header and placeholder names (not hard-coded secrets)	798,321	none
+kotlin/HardcodedSecretField.kt	hard-coded secret constant in Kotlin code	798,321	rules
+kotlin/lookalike/SecretFieldNames.kt	field, header and placeholder names (not hard-coded secrets)	798,321	none
+node/secret-constant.js	hard-coded secret constant in JavaScript	798,321	rules
+node/lookalike/secret-constant-names.js	field, header and placeholder names (not hard-coded secrets)	798,321	none
+go/secret_constant.go	hard-coded secret constant in Go code	798,321	rules
+go/lookalike/secret_constant_names.go	field, header and placeholder names (not hard-coded secrets)	798,321	none
+python/secret_constant.py	hard-coded secret constant in Python code	798,321	rules
+python/lookalike/secret_constant_names.py	field, header and placeholder names (not hard-coded secrets)	798,321	none

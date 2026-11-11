@@ -78,3 +78,39 @@ api.post('/login', auth.login);
 api.get('/quotes', quotes.list);
 // ok: scp.javascript.authz.route-without-auth-middleware
 api.put('/profile', verifyJwt, profile.update);
+
+// ---- hardcoded-secret
+// ruleid: scp.javascript.secrets.hardcoded-secret
+const SIGNING_SECRET = 'Ex4mpleSecretValue91';
+// ruleid: scp.javascript.secrets.hardcoded-secret
+let apiKey = "abcDEF1234567890";
+// ruleid: scp.javascript.secrets.hardcoded-secret
+const ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiJ9.abc123";
+class SecretConfig {
+  // ruleid: scp.javascript.secrets.hardcoded-secret
+  clientSecret = "f3a91c0d7b2e4a6c9d81";
+}
+// ok: scp.javascript.secrets.hardcoded-secret
+const CLIENT_SECRET = 'client_secret';
+// ok: scp.javascript.secrets.hardcoded-secret
+const API_KEY = 'X-Api-Key';
+// ok: scp.javascript.secrets.hardcoded-secret
+const JWT_SECRET = '/oauth/token';
+// ok: scp.javascript.secrets.hardcoded-secret
+const APP_SECRET = 'jwt.secret';
+// ok: scp.javascript.secrets.hardcoded-secret
+const PASSWORD = 'changeme';
+// ok: scp.javascript.secrets.hardcoded-secret
+const ADMIN_PASSWORD = 'password';
+// ok: scp.javascript.secrets.hardcoded-secret
+const DB_PASSWORD = 'At least eight characters';
+// ok: scp.javascript.secrets.hardcoded-secret
+const ENCRYPTION_KEY = '';
+// ok: scp.javascript.secrets.hardcoded-secret
+const SIGNING_SECRET = '${SIGNING_KEY}';
+// ok: scp.javascript.secrets.hardcoded-secret
+const TOKEN = 'abc123456789';
+// ok: scp.javascript.secrets.hardcoded-secret
+const PRIVATE_KEY = '-----BEGIN PRIVATE KEY-----';
+// ok: scp.javascript.secrets.hardcoded-secret
+const API_SECRET = 'https://example.com/oauth/token';

@@ -1,5 +1,6 @@
 # Identity and credentials for Python services: who may change another person's password or
-# e-mail, whether a stored password can be turned back into clear text, and secrets in logs.
+# e-mail, whether a stored password can be turned back into clear text, secrets in logs, and
+# secrets written as literals.
 rules:
   - id: scp.python.authz.credential-change-by-request-id
     languages: [python]
@@ -103,3 +104,24 @@ rules:
       - metavariable-regex:
           metavariable: $X
           regex: ^(?![A-Z0-9_.]+$)(?!.*(?i:fcm|push|device|page|cancel|csrf|type|expir|ttl|header))(?:\w+\.)*(?i:\w*(?:password|passwd|pwd|secret|api_?key|otp)|\w*token|pin|\w+_pin)$
+
+  - id: scp.python.secrets.hardcoded-secret
+    languages: [python]
+    message: >-
+      A client secret, API key, signing key, encryption key or password is a string literal in
+      the code. Everyone who can read the repository or the built artifact has the value, and
+      it cannot be rotated without a new release. Read it from the environment or a secret
+      manager, and rotate this one.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: ["CWE-798", "CWE-321"]
+      owasp: ["A07:2021 - Identification and Authentication Failures"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["test_*.py", "*_test.py", "conftest.py"]
+    # A declaration whose name ends in a secret word and whose value is a string literal.
+    # The value filter drops placeholders, names of headers/fields/properties/paths, hint
+    # text and short values, so only material meant to stay private is reported.
+    pattern-regex: >-
+      (?m)^[ \t]*(?:[A-Za-z_]\w*\.)*(?:\w*(?i:client_?secret|api_?secret|secret_?key|signing_?key|encryption_?key|aes_?key|hmac_?key|private_?key|jwt_?secret|api_?key|passphrase|password|passwd|secret)\b|\w*_(?i:token)\b|\w*Token\b)[ \t]*(?::[ \t]*[A-Za-z_][\w\[\]., |]*[ \t]*)?=[ \t]*(["'])(?=[^"'\n]*\d|[^"'\n]{20,})(?![^"'\n]*(?:\$\{|\$\(|%[sdv]|\{\{))(?![^"'\n]*<[^>]*>)(?!-{5}(?:BEGIN|END))(?![a-z][a-z0-9+.-]*://)(?!(?i:(?:changeme|change[-_ ]?me|changeit|password|passwd|secret|token|key|your[-_ ][^"'\n]*|xxx+|x{3,}|\*+|todo|fixme|tbd|none|null|nil|undefined|example|dummy|sample|placeholder)[^"'\n]*\1))(?!(?i:/?[a-z0-9]*(?:[._/-][a-z0-9]+)*[._/-](?:secret|password|passwd|token|key)\1))(?!(?i:[a-z0-9]*(?:secret|password|passwd|token|key)\1))(?!(?i:[a-z]+(?:[ \t]+[a-z]+)+\1))[^"'\n$]{8,}\1[ \t]*(?:#.*)?$

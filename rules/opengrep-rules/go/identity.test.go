@@ -67,3 +67,52 @@ func publicRoutes(app *fiber.App) {
 	app.Post("/api/contact", handler.Contact)
 	app.Get("/api/news", handler.News)
 }
+
+// ---- hardcoded-secret
+// ruleid: scp.go.secrets.hardcoded-secret
+const clientSecret = "Ex4mpleSecretValue91"
+
+// ruleid: scp.go.secrets.hardcoded-secret
+const signingKey = "s1gning-Key-Value-2024"
+
+// ruleid: scp.go.secrets.hardcoded-secret
+var apiKey = "abcDEF1234567890"
+
+// ruleid: scp.go.secrets.hardcoded-secret
+const accessToken = "eyJhbGciOiJIUzI1NiJ9.abc123"
+
+// ok: scp.go.secrets.hardcoded-secret
+const fieldSecret = "client_secret"
+
+// ok: scp.go.secrets.hardcoded-secret
+const headerSecret = "X-Api-Key"
+
+// ok: scp.go.secrets.hardcoded-secret
+const jwtSecret = "/oauth/token"
+
+// ok: scp.go.secrets.hardcoded-secret
+const appSecret = "jwt.secret"
+
+// ok: scp.go.secrets.hardcoded-secret
+const password = "changeme"
+
+// ok: scp.go.secrets.hardcoded-secret
+const adminPassword = "password"
+
+// ok: scp.go.secrets.hardcoded-secret
+const dbPassword = "At least eight characters"
+
+// ok: scp.go.secrets.hardcoded-secret
+const encryptionKey = ""
+
+// ok: scp.go.secrets.hardcoded-secret
+const signingSecret = "${SIGNING_KEY}"
+
+// ok: scp.go.secrets.hardcoded-secret
+const token = "abc123456789"
+
+// ok: scp.go.secrets.hardcoded-secret
+const privateKey = "-----BEGIN PRIVATE KEY-----"
+
+// ok: scp.go.secrets.hardcoded-secret
+const apiSecret = "https://example.com/oauth/token"
