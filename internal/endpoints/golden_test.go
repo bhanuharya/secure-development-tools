@@ -7,9 +7,19 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/bhanuharya/secure-development-tools/internal/config"
 	"github.com/bhanuharya/secure-development-tools/internal/endpoints"
 	"github.com/bhanuharya/secure-development-tools/internal/scanner"
 )
+
+// goldenFinding is the compact projection of a convention finding that
+// expected-findings.json stores (rule id, file, line, endpoint only).
+type goldenFinding struct {
+	Rule     string `json:"rule"`
+	File     string `json:"file"`
+	Line     int    `json:"line"`
+	Endpoint string `json:"endpoint"`
+}
 
 // TestGoldenInventories runs the inventory for every testdata/endpoints/<case>
 // that ships an expected.json and compares the whole document. Golden fixtures
@@ -57,6 +67,41 @@ func TestGoldenInventories(t *testing.T) {
 				w, _ := json.MarshalIndent(want, "", "  ")
 				t.Fatalf("inventory mismatch\n--- got ---\n%s\n--- want ---\n%s", g, w)
 			}
+			compareFindings(t, dir, got)
 		})
+	}
+}
+
+func compareFindings(t *testing.T, dir string, inv *endpoints.Inventory) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(dir, "expected-findings.json"))
+	if err != nil {
+		return // the case does not pin convention findings
+	}
+	var want []goldenFinding
+	if err := json.Unmarshal(raw, &want); err != nil {
+		t.Fatalf("expected-findings.json: %v", err)
+	}
+	findings, err := endpoints.Analyze(inv, config.Defaults().Endpoints)
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	got := make([]goldenFinding, 0, len(findings))
+	for _, f := range findings {
+		line := 0
+		file := ""
+		if f.Location != nil {
+			file = f.Location.Path
+			if f.Location.StartLine != nil {
+				line = *f.Location.StartLine
+			}
+		}
+		endpoint, _ := f.Metadata["endpoint"].(string)
+		got = append(got, goldenFinding{Rule: f.Rule.ID, File: file, Line: line, Endpoint: endpoint})
+	}
+	if !reflect.DeepEqual(got, want) {
+		g, _ := json.MarshalIndent(got, "", "  ")
+		w, _ := json.MarshalIndent(want, "", "  ")
+		t.Fatalf("findings mismatch\n--- got ---\n%s\n--- want ---\n%s", g, w)
 	}
 }

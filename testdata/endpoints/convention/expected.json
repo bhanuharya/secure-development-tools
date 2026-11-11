@@ -1,0 +1,186 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/accounts",
+      "handler": "createAccount",
+      "file": "main.go",
+      "line": 14,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:9 middleware AuthMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "PUT",
+      "path": "/api/admin/roles/{id}",
+      "handler": "updateRole",
+      "file": "main.go",
+      "line": 24,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:24 middleware AuthMiddleware"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "DELETE",
+      "path": "/api/admin/sessions",
+      "handler": "revokeSession",
+      "file": "main.go",
+      "line": 19,
+      "protection": "role",
+      "roles": [
+        "admin"
+      ],
+      "evidence": [
+        "main.go:18 middleware RequireRole(\"admin\") on group /admin",
+        "main.go:9 middleware AuthMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "GET",
+      "path": "/api/admin/users",
+      "handler": "listUsers",
+      "file": "main.go",
+      "line": 23,
+      "protection": "public",
+      "evidence": [
+        "main.go:23 no gate middleware on the route",
+        "main.go:7 middleware Logger on router (does not match the gate list)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/funds/deposits",
+      "handler": "depositFunds",
+      "file": "main.go",
+      "line": 15,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:9 middleware AuthMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/funds/transfer",
+      "handler": "transferFunds",
+      "file": "main.go",
+      "line": 21,
+      "protection": "public",
+      "evidence": [
+        "main.go:21 no gate middleware on the route",
+        "main.go:7 middleware Logger on router (does not match the gate list)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/notifications",
+      "handler": "sendNotification",
+      "file": "main.go",
+      "line": 16,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:9 middleware AuthMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/orders",
+      "handler": "createOrder",
+      "file": "main.go",
+      "line": 10,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:9 middleware AuthMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "DELETE",
+      "path": "/api/orders/{id}",
+      "handler": "deleteOrder",
+      "file": "main.go",
+      "line": 13,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:9 middleware AuthMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "PATCH",
+      "path": "/api/orders/{id}",
+      "handler": "patchOrder",
+      "file": "main.go",
+      "line": 12,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:9 middleware AuthMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "PUT",
+      "path": "/api/orders/{id}",
+      "handler": "updateOrder",
+      "file": "main.go",
+      "line": 11,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:9 middleware AuthMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/v1/login",
+      "handler": "login",
+      "file": "main.go",
+      "line": 22,
+      "protection": "public",
+      "evidence": [
+        "main.go:22 no gate middleware on the route",
+        "main.go:7 middleware Logger on router (does not match the gate list)"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 8,
+    "public": 3,
+    "role": 1
+  }
+}

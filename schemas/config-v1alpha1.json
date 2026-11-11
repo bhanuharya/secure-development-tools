@@ -77,6 +77,16 @@
     "outputs": {"type": "object"},
     "runtime": {"type": "object"},
     "publish": {"type": "object"},
-    "ai": {"type": "object"}
+    "ai": {"type": "object"},
+    "endpoints": {
+      "type": "object",
+      "properties": {
+        "authGates": {"type": "array", "items": {"type": "string"}},
+        "publicPaths": {"type": "array", "items": {"type": "string"}},
+        "sensitivePaths": {"type": "array", "items": {"type": "string"}},
+        "minRoutes": {"type": "integer", "minimum": 0},
+        "majority": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    }
   }
 }

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -42,6 +43,7 @@ type ScanConfiguration struct {
 	Runtime    Runtime            `yaml:"runtime,omitempty" json:"runtime,omitempty"`
 	Publish    Publish            `yaml:"publish,omitempty" json:"publish,omitempty"`
 	AI         AI                 `yaml:"ai,omitempty" json:"ai,omitempty"`
+	Endpoints  EndpointsCfg       `yaml:"endpoints,omitempty" json:"endpoints,omitempty"`
 }
 
 type Metadata struct {
@@ -179,12 +181,30 @@ type AI struct {
 	SendSecretFindings bool   `yaml:"sendSecretFindings,omitempty" json:"sendSecretFindings,omitempty"`
 }
 
+// EndpointsCfg tunes the endpoint inventory's convention rules (SPEC §6/§7).
+// AuthGates, PublicPaths and SensitivePaths are extras: they are added to the
+// built-in gate and path lists, never replace them.
+type EndpointsCfg struct {
+	AuthGates      []string `yaml:"authGates,omitempty" json:"authGates,omitempty"`
+	PublicPaths    []string `yaml:"publicPaths,omitempty" json:"publicPaths,omitempty"`
+	SensitivePaths []string `yaml:"sensitivePaths,omitempty" json:"sensitivePaths,omitempty"`
+	MinRoutes      int      `yaml:"minRoutes,omitempty" json:"minRoutes,omitempty"`
+	Majority       float64  `yaml:"majority,omitempty" json:"majority,omitempty"`
+}
+
+// Compiled defaults for the endpoint convention rules (SPEC §7). They live
+// here so a caller reading Defaults() sees the thresholds the CLI applies.
+const (
+	DefaultMinRoutes = 5
+	DefaultMajority  = 0.7
+)
+
 // knownTopLevel is the strict allow-list for unknown-key rejection.
 var knownTopLevel = map[string]bool{
 	"apiVersion": true, "kind": true, "metadata": true, "project": true,
 	"extends": true, "profiles": true, "scanners": true, "policy": true,
 	"baseline": true, "exceptions": true, "outputs": true, "runtime": true,
-	"publish": true, "ai": true,
+	"publish": true, "ai": true, "endpoints": true,
 }
 
 // Defaults returns compiled safe defaults (PRD layer 1).
@@ -227,6 +247,7 @@ func Defaults() *ScanConfiguration {
 		Runtime:    Runtime{CacheDirectory: ".cache/sdt", TemporaryDirectory: ".cache/sdt/tmp", UpdateMode: "database", Network: "updates-only"},
 		Publish:    Publish{Enabled: false, Provider: "auto"},
 		AI:         AI{Enabled: false, Mode: "explain-only", SourceContextLines: 20},
+		Endpoints:  EndpointsCfg{MinRoutes: DefaultMinRoutes, Majority: DefaultMajority},
 	}
 }
 
@@ -443,6 +464,17 @@ func Validate(cfg *ScanConfiguration) error {
 	if cfg.Baseline.OnIncompatibleFingerprintVersion != "" && cfg.Baseline.OnIncompatibleFingerprintVersion != "fail" {
 		return fmt.Errorf("baseline.onIncompatibleFingerprintVersion %q unsupported (want fail)", cfg.Baseline.OnIncompatibleFingerprintVersion)
 	}
+	if cfg.Endpoints.MinRoutes < 0 {
+		return fmt.Errorf("endpoints.minRoutes %d is negative", cfg.Endpoints.MinRoutes)
+	}
+	if cfg.Endpoints.Majority < 0 || cfg.Endpoints.Majority > 1 {
+		return fmt.Errorf("endpoints.majority %v must be between 0 and 1", cfg.Endpoints.Majority)
+	}
+	for _, p := range append(append([]string{}, cfg.Endpoints.PublicPaths...), cfg.Endpoints.SensitivePaths...) {
+		if _, err := regexp.Compile(p); err != nil {
+			return fmt.Errorf("endpoints: invalid path regex %q: %v", p, err)
+		}
+	}
 	return nil
 }
 
@@ -533,6 +565,26 @@ func Merge(base, over *ScanConfiguration) *ScanConfiguration {
 		}
 		out.AI = a
 	}
+	// Endpoint lists are additive extras: a config only names its own gates
+	// and patterns, the built-in lists stay in force. Thresholds override
+	// individually so setting one keeps the other's default.
+	ep := out.Endpoints
+	if len(over.Endpoints.AuthGates) > 0 {
+		ep.AuthGates = over.Endpoints.AuthGates
+	}
+	if len(over.Endpoints.PublicPaths) > 0 {
+		ep.PublicPaths = over.Endpoints.PublicPaths
+	}
+	if len(over.Endpoints.SensitivePaths) > 0 {
+		ep.SensitivePaths = over.Endpoints.SensitivePaths
+	}
+	if over.Endpoints.MinRoutes != 0 {
+		ep.MinRoutes = over.Endpoints.MinRoutes
+	}
+	if over.Endpoints.Majority != 0 {
+		ep.Majority = over.Endpoints.Majority
+	}
+	out.Endpoints = ep
 	return &out
 }
 

@@ -1,0 +1,20 @@
+[
+  {
+    "rule": "scp.endpoints.unprotected-among-protected",
+    "file": "main.go",
+    "line": 21,
+    "endpoint": "POST /api/funds/transfer"
+  },
+  {
+    "rule": "scp.endpoints.sensitive-route-public",
+    "file": "main.go",
+    "line": 23,
+    "endpoint": "GET /api/admin/users"
+  },
+  {
+    "rule": "scp.endpoints.sensitive-route-without-role",
+    "file": "main.go",
+    "line": 24,
+    "endpoint": "PUT /api/admin/roles/{id}"
+  }
+]
