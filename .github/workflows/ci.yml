@@ -73,6 +73,8 @@ jobs:
       - run: go build -o sdt ./cmd/sdt
       - name: sdt rules verify
         run: ./sdt rules verify
+      - name: detection test (planted weaknesses and safe look-alikes)
+        run: go test ./internal/scanner -run TestRulePackFindsThePlantedWeaknesses -count=1 -v
 
   tools:
     name: offline tools (syntax)

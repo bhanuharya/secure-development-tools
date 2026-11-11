@@ -14,6 +14,7 @@ report may carry and who must find it. `go test ./internal/scanner -run
 TestRulePackFindsThePlantedWeaknesses` fails when a sample the rule pack is responsible
 for is not reported by a rule of the right weakness class. A sample flagged for some
 other reason does not count.
+CI runs it on every pull request, in the rule bundle job.
 
 **Safe look-alikes** (`testdata/detection/java/lookalike`, `by` = `none`). Code that
 resembles a weakness but is safe: a URI built only for a `Location` header, a file name
