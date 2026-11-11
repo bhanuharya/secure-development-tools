@@ -103,7 +103,7 @@ kotlin/RecoverablePin.kt	stored PIN decrypted back to clear text	257,916	rules
 dart/api_config.dart	client secret compiled into the app	798,321	rules
 dart/saved_login.dart	saved password decrypted on the device	257,522	rules
 dart/keys_lookalike.dart	field names and hints (not hard-coded secrets)	798,321	none
-config/prod/.env.production	database password in a production environment file	798,260	rules
-config/default/.env	token signing key left at a well-known placeholder	1392,798	rules
+config/prod/production.env	database password in a production environment file	798,260	rules
+config/default/app.env	token signing key left at a well-known placeholder	1392,798	rules
 config/registry.yaml	registry address with a literal password	798,522	rules
-config/lookalike/.env.production	values injected by the platform, address without credentials	798,260,1392,522	none
+config/lookalike/production.env	values injected by the platform, address without credentials	798,260,1392,522	none
