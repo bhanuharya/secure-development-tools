@@ -109,14 +109,19 @@ config/registry.yaml	registry address with a literal password	798,522	rules
 config/lookalike/production.env	values injected by the platform, address without credentials	798,260,1392,522	none
 java/HardcodedSecretField.java	hard-coded secret constant in Java code	798,321	rules
 java/lookalike/SecretFieldNames.java	field, header and placeholder names (not hard-coded secrets)	798,321	none
+java/lookalike/SecretConfigKeys.java	configuration keys, message keys and URL paths (not hard-coded secrets)	798,321	none
 kotlin/HardcodedSecretField.kt	hard-coded secret constant in Kotlin code	798,321	rules
 kotlin/lookalike/SecretFieldNames.kt	field, header and placeholder names (not hard-coded secrets)	798,321	none
+kotlin/lookalike/SecretConfigKeys.kt	configuration keys, message keys and URL paths (not hard-coded secrets)	798,321	none
 node/secret-constant.js	hard-coded secret constant in JavaScript	798,321	rules
 node/lookalike/secret-constant-names.js	field, header and placeholder names (not hard-coded secrets)	798,321	none
+node/lookalike/secret-config-keys.js	configuration keys, message keys and URL paths (not hard-coded secrets)	798,321	none
 go/secret_constant.go	hard-coded secret constant in Go code	798,321	rules
 go/lookalike/secret_constant_names.go	field, header and placeholder names (not hard-coded secrets)	798,321	none
+go/lookalike/secret_config_keys.go	configuration keys, message keys and URL paths (not hard-coded secrets)	798,321	none
 python/secret_constant.py	hard-coded secret constant in Python code	798,321	rules
 python/lookalike/secret_constant_names.py	field, header and placeholder names (not hard-coded secrets)	798,321	none
+python/lookalike/secret_config_keys.py	configuration keys, message keys and URL paths (not hard-coded secrets)	798,321	none
 infra/k8s-service-public-lb.yaml	internal service registry published through a public load balancer	668	rules
 infra/k8s-ingress-actuator.yaml	ingress for the actuator management endpoints	668	rules
 infra/consul-acl-disabled.hcl	Consul agent with ACLs disabled and default allow	306	rules

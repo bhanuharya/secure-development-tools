@@ -114,3 +114,15 @@ const TOKEN = 'abc123456789';
 const PRIVATE_KEY = '-----BEGIN PRIVATE KEY-----';
 // ok: scp.javascript.secrets.hardcoded-secret
 const API_SECRET = 'https://example.com/oauth/token';
+
+// A JWT-shaped value is still material: the segments hold uppercase letters.
+// ruleid: scp.javascript.secrets.hardcoded-secret
+const JWT_TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJvcmRlcnMifQ.c2lnbmF0dXJl';
+// ok: scp.javascript.secrets.hardcoded-secret
+const KEY_ORDERS_API_KEY = 'orders.apikey';
+// ok: scp.javascript.secrets.hardcoded-secret
+const KEY_JWT_PRIVATE_KEY = 'auth.jwt.private_key_path';
+// ok: scp.javascript.secrets.hardcoded-secret
+const MSG_SUCCESS_TOKEN = 'success.token_issued';
+// ok: scp.javascript.secrets.hardcoded-secret
+const VERIFY_PASSWORD = '/services/orders/api/authenticate';

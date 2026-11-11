@@ -116,3 +116,19 @@ const privateKey = "-----BEGIN PRIVATE KEY-----"
 
 // ok: scp.go.secrets.hardcoded-secret
 const apiSecret = "https://example.com/oauth/token"
+
+// A JWT-shaped value is still material: the segments hold uppercase letters.
+// ruleid: scp.go.secrets.hardcoded-secret
+const jwtToken = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJvcmRlcnMifQ.c2lnbmF0dXJl"
+
+// ok: scp.go.secrets.hardcoded-secret
+const KeyOrdersApiKey = "orders.apikey"
+
+// ok: scp.go.secrets.hardcoded-secret
+const KeyJwtPrivateKey = "auth.jwt.private_key_path"
+
+// ok: scp.go.secrets.hardcoded-secret
+const MsgSuccessToken = "success.token_issued"
+
+// ok: scp.go.secrets.hardcoded-secret
+const verifyPassword = "/services/orders/api/authenticate"

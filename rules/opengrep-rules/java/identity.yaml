@@ -199,7 +199,8 @@ rules:
     paths:
       exclude: ["**/src/test/**", "**/src/it/**"]
     # A declaration whose name ends in a secret word and whose value is a string literal.
-    # The value filter drops placeholders, names of headers/fields/properties/paths, hint
-    # text and short values, so only material meant to stay private is reported.
+    # The value filter drops placeholders, names of headers/fields/properties, configuration
+    # and message keys, URL paths, hint text and short values, so only material meant to stay
+    # private is reported.
     pattern-regex: >-
-      (?m)^[ \t]*(?:(?i:public|private|protected|static|final|transient|volatile)[ \t]+)*(?:(?i:String|CharSequence)[ \t]+|var[ \t]+)(?:\w*(?i:client_?secret|api_?secret|secret_?key|signing_?key|encryption_?key|aes_?key|hmac_?key|private_?key|jwt_?secret|api_?key|passphrase|password|passwd|secret)\b|\w*_(?i:token)\b|\w*Token\b)[ \t]*=[ \t]*"(?=[^"'\n]*\d|[^"'\n]{20,})(?![^"'\n]*(?:\$\{|\$\(|%[sdv]|\{\{))(?![^"'\n]*<[^>]*>)(?!-{5}(?:BEGIN|END))(?![a-z][a-z0-9+.-]*://)(?!(?i:(?:changeme|change[-_ ]?me|changeit|password|passwd|secret|token|key|your[-_ ][^"'\n]*|xxx+|x{3,}|\*+|todo|fixme|tbd|none|null|nil|undefined|example|dummy|sample|placeholder)[^"'\n]*["']))(?!(?i:/?[a-z0-9]*(?:[._/-][a-z0-9]+)*[._/-](?:secret|password|passwd|token|key)["']))(?!(?i:[a-z0-9]*(?:secret|password|passwd|token|key)["']))(?!(?i:[a-z]+(?:[ \t]+[a-z]+)+["']))[^"'\n$]{8,}"[ \t]*;
+      (?m)^[ \t]*(?:(?i:public|private|protected|static|final|transient|volatile)[ \t]+)*(?:(?i:String|CharSequence)[ \t]+|var[ \t]+)(?:\w*(?i:client_?secret|api_?secret|secret_?key|signing_?key|encryption_?key|aes_?key|hmac_?key|private_?key|jwt_?secret|api_?key|passphrase|password|passwd|secret)\b|\w*_(?i:token)\b|\w*Token\b)[ \t]*=[ \t]*"(?=[^"'\n]*\d|[^"'\n]{20,})(?![^"'\n]*(?:\$\{|\$\(|%[sdv]|\{\{))(?![^"'\n]*<[^>]*>)(?!-{5}(?:BEGIN|END))(?![a-z][a-z0-9+.-]*://)(?![a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+")(?!/[A-Za-z0-9_./{}:-]*")(?!(?i:(?:changeme|change[-_ ]?me|changeit|password|passwd|secret|token|key|your[-_ ][^"'\n]*|xxx+|x{3,}|\*+|todo|fixme|tbd|none|null|nil|undefined|example|dummy|sample|placeholder)[^"'\n]*["']))(?!(?i:/?[a-z0-9]*(?:[._/-][a-z0-9]+)*[._/-](?:secret|password|passwd|token|key)["']))(?!(?i:[a-z0-9]*(?:secret|password|passwd|token|key)["']))(?!(?i:[a-z]+(?:[ \t]+[a-z]+)+["']))[^"'\n$]{8,}"[ \t]*;

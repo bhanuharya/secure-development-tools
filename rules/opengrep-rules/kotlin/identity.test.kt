@@ -60,3 +60,17 @@ object SecretLookalikes {
     // ok: scp.kotlin.secrets.hardcoded-secret
     private val passwordHint = "At least eight characters"
 }
+
+object SecretJwtAndKeys {
+    // A JWT-shaped value is still material: the segments hold uppercase letters.
+    // ruleid: scp.kotlin.secrets.hardcoded-secret
+    private const val JWT_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJvcmRlcnMifQ.c2lnbmF0dXJl"
+    // ok: scp.kotlin.secrets.hardcoded-secret
+    private const val KEY_ORDERS_API_KEY = "orders.apikey"
+    // ok: scp.kotlin.secrets.hardcoded-secret
+    private const val KEY_JWT_PRIVATE_KEY = "auth.jwt.private_key_path"
+    // ok: scp.kotlin.secrets.hardcoded-secret
+    private const val MSG_SUCCESS_TOKEN = "success.token_issued"
+    // ok: scp.kotlin.secrets.hardcoded-secret
+    private const val VERIFY_PASSWORD = "/services/orders/api/authenticate"
+}

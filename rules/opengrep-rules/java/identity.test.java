@@ -166,3 +166,17 @@ class SecretLookalikes {
     // ok: scp.java.secrets.hardcoded-secret
     private static final String API_SECRET = "https://example.com/oauth/token";
 }
+
+class SecretJwtAndKeys {
+    // A JWT-shaped value is still material: the segments hold uppercase letters.
+    // ruleid: scp.java.secrets.hardcoded-secret
+    private static final String JWT_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJvcmRlcnMifQ.c2lnbmF0dXJl";
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String KEY_ORDERS_API_KEY = "orders.apikey";
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String KEY_JWT_PRIVATE_KEY = "auth.jwt.private_key_path";
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String MSG_SUCCESS_TOKEN = "success.token_issued";
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String VERIFY_PASSWORD = "/services/orders/api/authenticate";
+}

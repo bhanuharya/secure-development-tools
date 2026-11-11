@@ -113,3 +113,15 @@ token = "abc123456789"
 private_key = "-----BEGIN PRIVATE KEY-----"
 # ok: scp.python.secrets.hardcoded-secret
 api_secret = "https://example.com/oauth/token"
+
+# A JWT-shaped value is still material: the segments hold uppercase letters.
+# ruleid: scp.python.secrets.hardcoded-secret
+JWT_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJvcmRlcnMifQ.c2lnbmF0dXJl"
+# ok: scp.python.secrets.hardcoded-secret
+KEY_ORDERS_API_KEY = "orders.apikey"
+# ok: scp.python.secrets.hardcoded-secret
+KEY_JWT_PRIVATE_KEY = "auth.jwt.private_key_path"
+# ok: scp.python.secrets.hardcoded-secret
+MSG_SUCCESS_TOKEN = "success.token_issued"
+# ok: scp.python.secrets.hardcoded-secret
+VERIFY_PASSWORD = "/services/orders/api/authenticate"
