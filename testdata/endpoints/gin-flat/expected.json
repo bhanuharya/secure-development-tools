@@ -1,0 +1,82 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "GET",
+      "path": "/api/v1/health",
+      "handler": "health",
+      "file": "main.go",
+      "line": 11,
+      "protection": "public",
+      "evidence": ["main.go:11 no gate middleware on the route"],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/v1/login",
+      "handler": "login",
+      "file": "main.go",
+      "line": 13,
+      "protection": "public",
+      "evidence": ["main.go:13 no gate middleware on the route"],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "GET",
+      "path": "/api/v1/orders",
+      "handler": "listOrders",
+      "file": "main.go",
+      "line": 8,
+      "protection": "authenticated",
+      "evidence": ["main.go:8 middleware AuthMiddleware"],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/v1/orders",
+      "handler": "createOrder",
+      "file": "main.go",
+      "line": 9,
+      "protection": "authenticated",
+      "evidence": ["main.go:9 middleware AuthMiddleware"],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "DELETE",
+      "path": "/api/v1/orders/{id}",
+      "handler": "deleteOrder",
+      "file": "main.go",
+      "line": 12,
+      "protection": "public",
+      "evidence": ["main.go:12 no gate middleware on the route"],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "PUT",
+      "path": "/api/v1/orders/{id}",
+      "handler": "updateOrder",
+      "file": "main.go",
+      "line": 10,
+      "protection": "authenticated",
+      "evidence": ["main.go:10 middleware AuthMiddleware"],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 3,
+    "public": 3
+  }
+}

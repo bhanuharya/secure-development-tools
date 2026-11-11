@@ -1,0 +1,54 @@
+# Fact rules for Go HTTP routers (T02: gin flat routes; groups/Use in T03).
+#
+# Fact rules are ordinary Opengrep rules whose id starts with "fact." and whose
+# metadata.fact names the kind. They are NOT part of the scan rule pack: they
+# live here so they never become scan findings and rules/manifest.yaml stays
+# untouched. `sdt endpoints` runs only this directory.
+#
+# Every rule matches "any receiver" ($R): the inventory does not require the
+# router variable to be named r/engine/router.
+rules:
+  - id: fact.go.route
+    languages: [go]
+    severity: INFO
+    message: Go route registration
+    metadata:
+      fact: route
+    patterns:
+      - pattern: $R.$METHOD("$PATH", ..., $HANDLER)
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: ^(GET|POST|PUT|PATCH|DELETE|Any)$
+
+  # gin's Handle takes the HTTP verb as its first argument, so it needs its own
+  # shape: $R.Handle("GET", "/path", ..., handler).
+  - id: fact.go.route_handle
+    languages: [go]
+    severity: INFO
+    message: Go route registration via Handle
+    metadata:
+      fact: route
+    pattern: $R.Handle($VERB, "$PATH", ..., $HANDLER)
+
+  # One fact per middleware call argument between the path and the handler.
+  # The fact carries the route's line, which is how the resolver ties it back
+  # to the route it guards.
+  - id: fact.go.route_middleware
+    languages: [go]
+    severity: INFO
+    message: Middleware on a Go route registration
+    metadata:
+      fact: route_middleware
+    patterns:
+      - pattern: $R.$METHOD("$PATH", ..., $MW(...), ..., $HANDLER)
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: ^(GET|POST|PUT|PATCH|DELETE|Any)$
+
+  - id: fact.go.route_handle_middleware
+    languages: [go]
+    severity: INFO
+    message: Middleware on a Go route registration via Handle
+    metadata:
+      fact: route_middleware
+    pattern: $R.Handle($VERB, "$PATH", ..., $MW(...), ..., $HANDLER)
