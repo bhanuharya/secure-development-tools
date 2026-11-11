@@ -1,0 +1,145 @@
+# Identity and credentials for Node services: who may change another person's password or
+# e-mail, whether a stored password can be turned back into clear text, and secrets in logs.
+rules:
+  - id: scp.javascript.authz.credential-change-by-request-id
+    languages: [javascript, typescript]
+    message: >-
+      This route changes or resets a password, PIN, e-mail or phone number for the account named
+      in the URL, and the handler never looks at the caller (req.user, session, a role check).
+      Any caller who reaches it with any valid token can take over any account by changing its
+      password or e-mail. Take the account from the verified token, or require an administrator
+      role, and ask for the old password or a one-time code before the change.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-639", "CWE-620"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/__tests__/**", "**/__mocks__/**", "*.spec.*", "*.test.*", "*.min.js"]
+    patterns:
+      - pattern-either:
+          - pattern: $APP.$METHOD("$PATH", ..., ($REQ, $RES, ...) => { ... })
+          - pattern: $APP.$METHOD("$PATH", ..., async ($REQ, $RES, ...) => { ... })
+          - pattern: $APP.$METHOD("$PATH", ..., function ($REQ, $RES, ...) { ... })
+          - pattern: $APP.$METHOD("$PATH", ..., async function ($REQ, $RES, ...) { ... })
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: ^(put|post|patch|delete)$
+      - metavariable-regex:
+          metavariable: $PATH
+          regex: (?i)^(?=.*:\w+)(?=.*((reset|change|update|set|new)[-_/]?(password|passwd|pwd|pin|e?-?mail|mobile|phone)|(password|passwd|pwd|pin|e?-?mail|mobile|phone)[-_/](reset|change|update)|/(password|pin|email)/?$)).*
+      # A handler that looks at the caller, or a route behind a role or ownership check, has made
+      # a decision. Authentication alone has not: every logged-in user passes it.
+      - pattern-not-regex: (?i)\b(req|request|ctx)\.(user|auth|session|currentUser|principal|state)\b|\bres\.locals\b|\b(authorize\w*|require(Admin|Role|Permission|Owner)\w*|is(Admin|Owner|Self)\w*|has(Role|Permission)\w*|check(Role|Permission|Owner)\w*|permit\w*|adminOnly|onlyAdmin|ownerOnly|sameUser|roles?)\s*\(|\b(isAdmin|adminOnly|onlyAdmin|ownerOnly|sameUser|requireAdmin|isOwner)\b
+
+  - id: scp.javascript.crypto.recoverable-password
+    languages: [javascript, typescript]
+    message: >-
+      A stored password or PIN is decrypted back to clear text. Passwords kept in a reversible
+      form are all exposed at once when the database and the key leak, and every log line or
+      dump that carries the stored value is as good as the password. Store a salted one-way hash
+      (bcrypt, scrypt, Argon2) and compare hashes.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-257", "CWE-916"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/__tests__/**", "**/__mocks__/**", "*.spec.*", "*.test.*", "*.min.js"]
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern: $F(..., $O.$P, ...)
+                  - pattern: $C.$F(..., $O.$P, ...)
+              - metavariable-regex:
+                  metavariable: $P
+                  regex: (?i)^(user)?(password|passwd|pwd|pin)(enc\w*|cipher\w*)?$
+          - patterns:
+              - pattern-either:
+                  - pattern: $F(..., $V, ...)
+                  - pattern: $C.$F(..., $V, ...)
+              - metavariable-regex:
+                  metavariable: $V
+                  regex: (?i)^(encrypted|stored|encoded|current|db|saved)(password|passwd|pwd|pin)$
+      - metavariable-regex:
+          metavariable: $F
+          regex: (?i)^(decrypt|decipher)\w*$|^decode(password|pin)\w*$
+
+  - id: scp.javascript.logging.secret-in-log
+    languages: [javascript, typescript]
+    message: >-
+      A password, token, PIN, OTP or other secret is passed to a logger. Log lines reach files,
+      log platforms and support staff; anyone who reads them can replay the token or use the
+      password. Log an identifier or a masked value instead.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-532"]
+      owasp: ["A09:2021 - Security Logging and Monitoring Failures"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/__tests__/**", "**/__mocks__/**", "*.spec.*", "*.test.*", "*.min.js"]
+    patterns:
+      - pattern-either:
+          - pattern: $LOG.$M(..., $X, ...)
+          - pattern: $LOG.$M(..., `...${$X}...`, ...)
+          - pattern: $LOG.$M(..., <... $A + $X ...>, ...)
+          - pattern: $LOG.$M(..., <... $X + $B ...>, ...)
+          - pattern: '$LOG.$M(..., {..., $K: $X, ...}, ...)'
+      - metavariable-regex:
+          metavariable: $LOG
+          regex: (?i)^(this\.)?_?(logger|log|winston|pino|bunyan|loggerService)$
+      - metavariable-regex:
+          metavariable: $M
+          regex: ^(log|info|debug|warn|error|trace|verbose|silly|fatal)$
+      - metavariable-regex:
+          metavariable: $X
+          regex: ^(?![A-Z0-9_.]+$)(?!.*(?i:fcm|push|device|page|cancel|csrf))(?:(?:[A-Za-z_$][\w$]*\.)*(?:(?i:[a-z0-9_$]*(?:password|passwd|pwd|secret|apikey|api_key|otp))|token|[a-z][A-Za-z0-9]*Token|pin|[a-z][A-Za-z0-9]*Pin))$
+
+  - id: scp.javascript.authz.route-without-auth-middleware
+    languages: [javascript, typescript]
+    message: >-
+      This route changes state and is registered without an authentication middleware, while
+      other routes on the same router carry one. Unless the whole router is protected elsewhere,
+      anyone who can reach the service can call it: no token, no session. Add the same
+      middleware as its neighbours (or mount the route under a protected router), and check in
+      the handler that the account in the request belongs to the caller.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-306", "CWE-862"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/__tests__/**", "**/__mocks__/**", "*.spec.*", "*.test.*", "*.min.js"]
+    patterns:
+      # Evidence that this router protects routes one by one: a sibling, before or after, with
+      # a middleware whose name says authentication.
+      - pattern-either:
+          - pattern-inside: |
+              $R.$M2($P2, $AUTH, $H2);
+              ...
+          - pattern-inside: |
+              $R.$M2($P2, $AUTH(...), $H2);
+              ...
+          - pattern-inside: |
+              $R.$METHOD("$PATH", $HANDLER);
+              ...
+              $R.$M2($P2, $AUTH, $H2);
+          - pattern-inside: |
+              $R.$METHOD("$PATH", $HANDLER);
+              ...
+              $R.$M2($P2, $AUTH(...), $H2);
+      - metavariable-regex:
+          metavariable: $AUTH
+          regex: (?i).*(auth|jwt|bearer|protect|guard|session|verifytoken|requirelogin|loginrequired|passport)
+      - pattern: $R.$METHOD("$PATH", $HANDLER)
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: ^(post|put|patch|delete)$
+      - metavariable-regex:
+          metavariable: $PATH
+          regex: (?i)^(?!.*(login|logout|signin|sign-in|signup|sign-up|register|authenticate|[-/]auth(/|$)|/token|refresh|forgot|otp|callback|webhook|notify|health|ping|public|captcha|metrics)).*$

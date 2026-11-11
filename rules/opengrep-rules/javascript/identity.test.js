@@ -1,0 +1,80 @@
+// Annotated tests for javascript/identity.yaml.
+const router = require('express').Router();
+
+// ---- credential-change-by-request-id
+// ruleid: scp.javascript.authz.credential-change-by-request-id
+router.put('/users/:id/reset-password', authenticate, async (req, res) => {
+  await users.updatePassword(req.params.id, req.body.password);
+  res.json({ ok: true });
+});
+
+// ruleid: scp.javascript.authz.credential-change-by-request-id, scp.javascript.authz.route-without-auth-middleware
+router.post('/accounts/:accountId/update-email', function (req, res) {
+  users.updateEmail(req.params.accountId, req.body.email);
+  res.send('ok');
+});
+
+// ok: scp.javascript.authz.credential-change-by-request-id
+router.put('/users/:id/change-password', authenticate, async (req, res) => {
+  if (req.user.id !== req.params.id) return res.status(403).end();
+  await users.changePassword(req.params.id, req.body.oldPassword, req.body.password);
+  res.json({ ok: true });
+});
+
+// ok: scp.javascript.authz.credential-change-by-request-id
+router.put('/admin/users/:id/reset-password', authenticate, requireRole('admin'), async (req, res) => {
+  await users.resetPassword(req.params.id);
+  res.json({ ok: true });
+});
+
+// ok: scp.javascript.authz.credential-change-by-request-id
+router.put('/users/:id/preferences', authenticate, async (req, res) => {
+  await users.updatePreferences(req.params.id, req.body);
+  res.json({ ok: true });
+});
+
+// ---- recoverable-password
+function checkPin(account, pin) {
+  // ruleid: scp.javascript.crypto.recoverable-password
+  return decrypt(account.pin) === pin;
+}
+function checkPassword(user, password, key) {
+  // ruleid: scp.javascript.crypto.recoverable-password
+  return CryptoJS.AES.decrypt(user.password, key).toString() === password;
+}
+function readDocument(doc, key) {
+  // ok: scp.javascript.crypto.recoverable-password
+  return decrypt(doc.content, key);
+}
+function checkHash(user, password) {
+  // ok: scp.javascript.crypto.recoverable-password
+  return bcrypt.compare(password, user.password);
+}
+
+// ---- secret-in-log
+function login(username, password, otp, session) {
+  // ruleid: scp.javascript.logging.secret-in-log
+  logger.info('login attempt', username, password);
+  // ruleid: scp.javascript.logging.secret-in-log
+  logger.debug(`otp for ${username} is ${otp}`);
+  // ruleid: scp.javascript.logging.secret-in-log
+  logger.info({ user: username, token: session.accessToken });
+  // ok: scp.javascript.logging.secret-in-log
+  logger.info('login attempt', username);
+  // ok: scp.javascript.logging.secret-in-log
+  logger.debug(`token length ${session.accessToken.length}`);
+  // ok: scp.javascript.logging.secret-in-log
+  logger.info('next page', session.nextPageToken);
+}
+
+// ---- route-without-auth-middleware
+const api = require('express').Router();
+api.post('/orders', verifyJwt, orders.create);
+// ruleid: scp.javascript.authz.route-without-auth-middleware
+api.post('/funds/transfer', funds.transfer);
+// ok: scp.javascript.authz.route-without-auth-middleware
+api.post('/login', auth.login);
+// ok: scp.javascript.authz.route-without-auth-middleware
+api.get('/quotes', quotes.list);
+// ok: scp.javascript.authz.route-without-auth-middleware
+api.put('/profile', verifyJwt, profile.update);

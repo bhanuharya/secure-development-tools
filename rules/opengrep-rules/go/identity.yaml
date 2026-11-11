@@ -1,0 +1,140 @@
+# Credentials in Go services: secrets in logs and stored passwords that can be decrypted.
+rules:
+  - id: scp.go.logging.secret-in-log
+    languages: [go]
+    message: >-
+      A password, token, PIN, OTP or other secret is passed to a log call. Log lines reach files,
+      log platforms and support staff; anyone who reads them can replay the token or use the
+      password. Log an identifier or a masked value instead.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-532"]
+      owasp: ["A09:2021 - Security Logging and Monitoring Failures"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["*_test.go"]
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern: $LOG.$M(..., $X, ...)
+              - pattern: $LOG.$M(..., <... $A + $X ...>, ...)
+              - pattern: $LOG.$M(..., <... $X + $B ...>, ...)
+          - metavariable-regex:
+              metavariable: $LOG
+              regex: (?i)^(?:[\w]+\.)*(?:log|logger|logrus|sugar|slog|zlog|lg)$
+          - metavariable-regex:
+              metavariable: $M
+              regex: ^(Print|Printf|Println|Fatal|Fatalf|Fatalln|Panic|Panicf|Panicln|Info|Infof|Infow|Infoln|Debug|Debugf|Debugw|Debugln|Warn|Warnf|Warnw|Warnln|Warning|Warningf|Error|Errorf|Errorw|Errorln|Trace|Tracef|Log|Logf)$
+          - metavariable-regex:
+              metavariable: $X
+              regex: ^(?!.*(?i:fcm|push|device|page|cancel|csrf|type|expir|ttl|length|header))(?!(?:\w+\.)*(?i:err))(?:\w+\.)*(?i:\w*(?:password|passwd|pwd|secret|apikey|api_key|otp)|\w*token|pin|\w+_pin|[a-z]\w*Pin)$
+      - patterns:
+          - pattern: fmt.$P(..., $X, ...)
+          - metavariable-regex:
+              metavariable: $P
+              regex: ^(Print|Printf|Println)$
+          - metavariable-regex:
+              metavariable: $X
+              regex: ^(?!.*(?i:fcm|push|device|page|cancel|csrf|type|expir|ttl|length|header))(?!(?:\w+\.)*(?i:err))(?:\w+\.)*(?i:\w*(?:password|passwd|pwd|secret|apikey|api_key|otp)|\w*token|pin|\w+_pin|[a-z]\w*Pin)$
+      # Structured fields: the key says what the value is.
+      - patterns:
+          - pattern-either:
+              - pattern: zap.$T("$K", ...)
+              - pattern: slog.$T("$K", ...)
+              - pattern: $E.WithField("$K", ...)
+              - pattern: $E.Str("$K", ...)
+          - metavariable-regex:
+              metavariable: $K
+              regex: (?i)^(password|passwd|pwd|secret|client_?secret|api_?key|otp|pin|token|access_?token|refresh_?token|authorization)$
+
+  - id: scp.go.crypto.recoverable-password
+    languages: [go]
+    message: >-
+      A stored password or PIN is decrypted back to clear text. Passwords kept in a reversible
+      form are all exposed at once when the database and the key leak, and every log line or
+      dump that carries the stored value is as good as the password. Store a salted one-way hash
+      (bcrypt, scrypt, Argon2) and compare hashes.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-257", "CWE-916"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["*_test.go"]
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern: $F(..., $O.$P, ...)
+                  - pattern: $C.$F(..., $O.$P, ...)
+              - metavariable-regex:
+                  metavariable: $P
+                  regex: (?i)^(user)?(password|passwd|pwd|pin)(enc\w*|cipher\w*)?$
+          - patterns:
+              - pattern-either:
+                  - pattern: $F(..., $V, ...)
+                  - pattern: $C.$F(..., $V, ...)
+              - metavariable-regex:
+                  metavariable: $V
+                  regex: (?i)^(encrypted|stored|encoded|current|db|saved)(password|passwd|pwd|pin)$
+      - metavariable-regex:
+          metavariable: $F
+          regex: (?i)^(decrypt|decipher)\w*$|^decode(password|pin)\w*$
+
+  - id: scp.go.authz.route-without-auth-middleware
+    languages: [go]
+    message: >-
+      This route changes state and is registered without an authentication middleware, while
+      other routes on the same router carry one. Unless the whole router is protected elsewhere,
+      anyone who can reach the service can call it: no token, no session. Add the same
+      middleware as its neighbours (or move the route into a protected group), and check in the
+      handler that the account in the request belongs to the caller.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-306", "CWE-862"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["*_test.go"]
+    patterns:
+      # Evidence that this router protects routes one by one: a sibling with a middleware whose
+      # name says authentication. gin and fiber put it before the handler, echo after.
+      - pattern-either:
+          - pattern-inside: |
+              func $FN(...) $RET {
+                ...
+                $E.$M2($P2, $AUTH(...), $H2)
+                ...
+              }
+          - pattern-inside: |
+              func $FN(...) {
+                ...
+                $E.$M2($P2, $AUTH(...), $H2)
+                ...
+              }
+          - pattern-inside: |
+              func $FN(...) $RET {
+                ...
+                $E.$M2($P2, $H2, $AUTH(...))
+                ...
+              }
+          - pattern-inside: |
+              func $FN(...) {
+                ...
+                $E.$M2($P2, $H2, $AUTH(...))
+                ...
+              }
+      - metavariable-regex:
+          metavariable: $AUTH
+          regex: (?i).*(auth|jwt|bearer|protect|guard|session|verifytoken|requirelogin|loginrequired)
+      - pattern: $E.$METHOD("$PATH", $HANDLER)
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: ^(POST|PUT|PATCH|DELETE|Post|Put|Patch|Delete)$
+      # Routes that are public by nature.
+      - metavariable-regex:
+          metavariable: $PATH
+          regex: (?i)^(?!.*(login|logout|signin|sign-in|signup|sign-up|register|authenticate|[-/]auth(/|$)|/token|refresh|forgot|otp|callback|webhook|notify|health|ping|public|captcha|metrics)).*$
