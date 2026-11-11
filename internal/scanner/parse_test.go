@@ -133,6 +133,37 @@ func TestOpengrepCorrectnessClassification(t *testing.T) {
 	}
 }
 
+// Every opengrep finding carries the rule's metadata.confidence, normalized to
+// high|medium|low. A rule without one stays unset; an unknown label is never
+// guessed into a level.
+func TestOpengrepConfidenceFromMetadata(t *testing.T) {
+	a := &OpengrepAdapter{}
+	payload := func(metadata string) []byte {
+		extra := `"message": "m", "severity": "ERROR"`
+		if metadata != "" {
+			extra += `, "metadata": ` + metadata
+		}
+		return []byte(`{"results": [{"check_id": "scp.test.rule", "path": "/repo/app.go", "start": {"line": 1}, "end": {"line": 1}, "extra": {` + extra + `}}]}`)
+	}
+	cases := []struct{ metadata, want string }{
+		{`{"confidence": "HIGH"}`, "high"},
+		{`{"confidence": " Medium "}`, "medium"},
+		{`{"confidence": "low"}`, "low"},
+		{`{"confidence": "certain"}`, ""},
+		{`{}`, ""},
+		{``, ""},
+	}
+	for _, c := range cases {
+		pr := a.Parse("1.29.0", "/repo", payload(c.metadata), "", 1)
+		if len(pr.Findings) != 1 {
+			t.Fatalf("metadata %q: want 1 finding, got %d", c.metadata, len(pr.Findings))
+		}
+		if got := pr.Findings[0].Confidence; got != c.want {
+			t.Fatalf("metadata %q: confidence %q, want %q", c.metadata, got, c.want)
+		}
+	}
+}
+
 // B1: gitleaks --redact uniformizes match text, so distinct leaks at distinct
 // lines of one file must not collapse into one fingerprint.
 func TestGitleaksDistinctLinesDistinctFingerprints(t *testing.T) {

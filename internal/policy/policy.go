@@ -101,6 +101,9 @@ func matchRule(r config.PolicyRule, f *finding.Finding) bool {
 	if len(m.Severities) > 0 && !contains(m.Severities, f.Severity.Canonical) {
 		return false
 	}
+	if len(m.Confidence) > 0 && !contains(m.Confidence, findingConfidence(f)) {
+		return false
+	}
 	if len(m.BaselineStates) > 0 && !contains(m.BaselineStates, f.BaselineState) {
 		return false
 	}
@@ -130,4 +133,13 @@ func contains(list []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// findingConfidence treats an unset confidence as medium: a finding a scanner
+// did not label must not be silently skipped by a confidence match.
+func findingConfidence(f *finding.Finding) string {
+	if f.Confidence == "" {
+		return "medium"
+	}
+	return f.Confidence
 }

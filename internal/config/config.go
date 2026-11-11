@@ -130,6 +130,10 @@ type PolicyMatch struct {
 	Severities     []string `yaml:"severities,omitempty" json:"severities,omitempty"`
 	BaselineStates []string `yaml:"baselineStates,omitempty" json:"baselineStates,omitempty"`
 	FixAvailable   *bool    `yaml:"fixAvailable,omitempty" json:"fixAvailable,omitempty"`
+	// Confidence matches finding confidence ("high" | "medium" | "low").
+	// A finding without confidence counts as "medium", so a confidence match
+	// never silently skips data a scanner did not label.
+	Confidence []string `yaml:"confidence,omitempty" json:"confidence,omitempty"`
 	// Reachable matches dependency reachability states ("reachable" |
 	// "unreachable" | "unknown"). Findings with unknown/unanalyzed
 	// reachability match only an explicit "unknown", so uncertainty can never
@@ -437,6 +441,13 @@ func Validate(cfg *ScanConfiguration) error {
 			case "new", "existing", "resolved-reference", "unknown":
 			default:
 				return fmt.Errorf("policy rule %q: unknown baselineState %q", r.ID, s)
+			}
+		}
+		for _, c := range r.Match.Confidence {
+			switch c {
+			case "high", "medium", "low":
+			default:
+				return fmt.Errorf("policy rule %q: unknown confidence %q (want high|medium|low)", r.ID, c)
 			}
 		}
 		for _, v := range r.Match.Reachable {
