@@ -1,0 +1,177 @@
+# Annotated tests for gateway-routes.yaml. The engine's test mode ignores path
+# filters, so Kong, Zuul, Spring Cloud Gateway and NGINX cases share this file.
+_format_version: "3.0"
+services:
+  - name: accounts
+    url: http://accounts:8080
+    routes:
+      - name: management
+        # ruleid: scp.yaml.kong.sensitive-path-routed
+        paths:
+          - /management
+      - name: actuator
+        # ruleid: scp.yaml.kong.sensitive-path-routed
+        paths: ["/actuator/env"]
+      - name: docs
+        # ruleid: scp.yaml.kong.sensitive-path-routed
+        paths: ["/v3/api-docs", "/accounts"]
+      - name: health
+        # ok: scp.yaml.kong.sensitive-path-routed
+        paths:
+          - /health
+      - name: accounts
+        # ok: scp.yaml.kong.sensitive-path-routed
+        paths:
+          - /accounts
+      - name: management-health
+        # ok: scp.yaml.kong.sensitive-path-routed
+        paths:
+          - /management/health
+      - name: default
+        # ruleid: scp.yaml.kong.catch-all-route
+        paths:
+          - /
+      - name: default-inline
+        # ruleid: scp.yaml.kong.catch-all-route
+        paths: ["/"]
+      - name: accounts-wildcard
+        # ok: scp.yaml.kong.catch-all-route
+        paths: ["/accounts/*"]
+      - name: accounts-list
+        # ok: scp.yaml.kong.catch-all-route
+        paths:
+          - /accounts
+      - name: health-only
+        # ok: scp.yaml.kong.catch-all-route
+        paths:
+          - /health
+      - name: default-quoted
+        # ruleid: scp.yaml.kong.catch-all-route
+        paths: '/'
+
+# ok: scp.yaml.zuul.all-services-routed
+zuul:
+  ignored-services: "*"
+  routes:
+    accounts:
+      path: /accounts/**
+
+# ruleid: scp.yaml.zuul.all-services-routed
+zuul:
+  routes:
+    accounts:
+      path: /accounts/**
+
+# ruleid: scp.yaml.zuul.all-services-routed
+zuul:
+  ignored-services: "internal-service"
+  routes:
+    accounts:
+      path: /accounts/**
+
+# ok: scp.yaml.zuul.all-services-routed
+zuul:
+  routes:
+    accounts:
+      path: /accounts/**
+  ignored-services: '*'
+
+# ok: scp.yaml.zuul.all-services-routed
+zuul:
+  prefix: /services
+
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: management
+          uri: http://accounts:8080
+          predicates:
+            # ruleid: scp.yaml.gateway.sensitive-path-routed
+            - Path=/management/**
+        - id: docs
+          uri: http://accounts:8080
+          predicates:
+            # ruleid: scp.yaml.gateway.sensitive-path-routed
+            - Path=/v3/api-docs
+        - id: health
+          uri: http://accounts:8080
+          predicates:
+            # ok: scp.yaml.gateway.sensitive-path-routed
+            - Path=/health
+        - id: accounts
+          uri: http://accounts:8080
+          predicates:
+            # ok: scp.yaml.gateway.sensitive-path-routed
+            - Path=/accounts/**
+
+zuul:
+  ignored-services: "*"
+  routes:
+    registry:
+      # ruleid: scp.yaml.gateway.sensitive-path-routed
+      path: /eureka/**
+    accounts:
+      # ok: scp.yaml.gateway.sensitive-path-routed
+      path: /accounts/**
+
+server {
+    listen 443 ssl;
+    # ruleid: scp.generic.nginx.sensitive-location-proxied
+    location /management/ {
+        proxy_pass http://service-registry:8080/;
+    }
+    # ruleid: scp.generic.nginx.sensitive-location-proxied
+    location ~ ^/admin/ {
+        proxy_set_header Host $host;
+        proxy_pass http://accounts:8080;
+    }
+    # ok: scp.generic.nginx.sensitive-location-proxied
+    location /actuator/ {
+        deny all;
+        proxy_pass http://accounts:8080/;
+    }
+    # ok: scp.generic.nginx.sensitive-location-proxied
+    location /eureka/ {
+        allow 10.0.0.0/8;
+        deny all;
+        proxy_pass http://service-registry:8761/;
+    }
+    # ok: scp.generic.nginx.sensitive-location-proxied
+    location /internal/ {
+        internal;
+        proxy_pass http://accounts:8080/;
+    }
+    # ok: scp.generic.nginx.sensitive-location-proxied
+    location /health {
+        proxy_pass http://accounts:8080/;
+    }
+}
+
+server {
+    listen 8080;
+    # ruleid: scp.generic.nginx.sensitive-location-proxied
+    location ^~ /internal/ {
+        proxy_pass http://accounts:8080;
+    }
+    # ruleid: scp.generic.nginx.sensitive-location-proxied
+    location ~* ^/admin/ {
+        proxy_pass http://accounts:8080;
+    }
+    # ok: scp.generic.nginx.sensitive-location-proxied
+    location = /actuator {
+        deny all;
+        proxy_pass http://accounts:8080;
+    }
+    # ok: scp.generic.nginx.sensitive-location-proxied
+    location ^~ /eureka/ {
+        allow 192.168.0.0/16;
+        deny all;
+        proxy_pass http://service-registry:8761/;
+    }
+    # ok: scp.generic.nginx.sensitive-location-proxied
+    location /feign/ {
+        proxy_pass http://accounts:8080/;
+        deny all;
+    }
+}

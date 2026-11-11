@@ -126,3 +126,10 @@ infra/firewall-open.tf	internet firewall open to infrastructure ports	284	rules
 infra/lookalike/internal-load-balancer.yaml	internal load balancer and restricted source ranges (not public)	668	none
 infra/lookalike/clusterip-acls.yaml	ClusterIP service and Consul ACLs enabled (not exposed)	306,668	none
 infra/dev/consul-agent-dev.yaml	Consul development agent under a dev path (not a deployment)	306	none
+gateway/kong-management.yaml	kong route to the management endpoints	284	rules
+gateway/kong-catch-all.yaml	kong catch-all route	284	rules
+gateway/zuul/application.yml	zuul routes every registered service	441	rules
+gateway/scg/application.yml	gateway route to the management endpoints	284	rules
+gateway/nginx/nginx.conf	nginx proxies the management endpoints without a restriction	284	rules
+gateway/lookalike/kong-health.yaml	kong route to health only (not a sensitive route)	284,441	none
+gateway/lookalike/application.yml	zuul ignores every service and the gateway routes health only (not exposure)	284,441	none

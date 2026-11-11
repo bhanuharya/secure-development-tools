@@ -1,0 +1,10 @@
+# A Kong route that forwards every path of a service.
+_format_version: "3.0"
+services:
+  - name: accounts
+    url: http://accounts:8080
+    routes:
+      - name: every-path
+        paths:
+          - /
+        strip_path: false
