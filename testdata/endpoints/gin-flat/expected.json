@@ -11,7 +11,9 @@
       "file": "main.go",
       "line": 11,
       "protection": "public",
-      "evidence": ["main.go:11 no gate middleware on the route"],
+      "evidence": [
+        "main.go:11 no gate middleware on the route"
+      ],
       "confidence": "high"
     },
     {
@@ -23,7 +25,9 @@
       "file": "main.go",
       "line": 13,
       "protection": "public",
-      "evidence": ["main.go:13 no gate middleware on the route"],
+      "evidence": [
+        "main.go:13 no gate middleware on the route"
+      ],
       "confidence": "high"
     },
     {
@@ -35,7 +39,9 @@
       "file": "main.go",
       "line": 8,
       "protection": "authenticated",
-      "evidence": ["main.go:8 middleware AuthMiddleware"],
+      "evidence": [
+        "main.go:8 middleware AuthMiddleware"
+      ],
       "confidence": "high"
     },
     {
@@ -47,7 +53,9 @@
       "file": "main.go",
       "line": 9,
       "protection": "authenticated",
-      "evidence": ["main.go:9 middleware AuthMiddleware"],
+      "evidence": [
+        "main.go:9 middleware AuthMiddleware"
+      ],
       "confidence": "high"
     },
     {
@@ -59,7 +67,9 @@
       "file": "main.go",
       "line": 12,
       "protection": "public",
-      "evidence": ["main.go:12 no gate middleware on the route"],
+      "evidence": [
+        "main.go:12 no gate middleware on the route"
+      ],
       "confidence": "high"
     },
     {
@@ -71,7 +81,9 @@
       "file": "main.go",
       "line": 10,
       "protection": "authenticated",
-      "evidence": ["main.go:10 middleware AuthMiddleware"],
+      "evidence": [
+        "main.go:10 middleware AuthMiddleware"
+      ],
       "confidence": "high"
     }
   ],

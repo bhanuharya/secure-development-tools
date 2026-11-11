@@ -109,6 +109,9 @@ func RunFacts(dir string) ([]Fact, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = absDir
+	// opengrep 1.29 dropped --metrics; the env var is the equivalent for the
+	// semgrep fallback and keeps the run offline (SPEC §3).
+	cmd.Env = append(os.Environ(), "SEMGREP_SEND_METRICS=off")
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
