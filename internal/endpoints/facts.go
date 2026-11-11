@@ -195,7 +195,7 @@ func BuildInventory(dir string) (*Inventory, error) {
 	if err != nil {
 		return nil, err
 	}
-	routes, unresolved := resolveGo(facts, absDir)
+	routes, unresolved := resolveFacts(facts, absDir)
 	sort.Slice(routes, func(i, j int) bool {
 		a, b := routes[i], routes[j]
 		if a.Service != b.Service {

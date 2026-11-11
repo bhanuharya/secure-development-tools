@@ -19,12 +19,23 @@ var (
 	slashRe  = regexp.MustCompile(`/{2,}`)
 )
 
+// resolveFacts sends each fact file to the resolver for its language. Facts
+// are always resolved per file, so one dispatcher keeps both families apart.
+func resolveFacts(facts []Fact, root string) ([]Route, []string) {
+	goRoutes, goUnresolved := resolveGo(facts, root)
+	springRoutes, springUnresolved := resolveSpring(facts, root)
+	return append(goRoutes, springRoutes...), append(goUnresolved, springUnresolved...)
+}
+
 // resolveGo turns Go route facts into routes. Groups, Use and the same-file
 // scope model live in resolve_go_scope.go; this file interprets each
 // framework's argument order and decides protection.
 func resolveGo(facts []Fact, root string) ([]Route, []string) {
 	byFile := map[string][]Fact{}
 	for _, f := range facts {
+		if !strings.HasSuffix(f.File, ".go") {
+			continue // Java and Python facts belong to their own resolvers
+		}
 		byFile[f.File] = append(byFile[f.File], f)
 	}
 	files := make([]string, 0, len(byFile))
@@ -280,17 +291,20 @@ func normalizePath(p string) string {
 	return p
 }
 
-// serviceOf returns the directory of the nearest go.mod at or above the file,
-// relative to the scanned root ("." for the root service).
+// serviceOf returns the directory of the nearest module file at or above the
+// file, relative to the scanned root ("." for the root service).
 func serviceOf(root, file string) string {
+	markers := []string{"go.mod", "package.json", "pom.xml", "build.gradle", "build.gradle.kts", "pyproject.toml"}
 	dir := filepath.Dir(file)
 	for {
-		if _, err := os.Stat(filepath.Join(root, dir, "go.mod")); err == nil {
-			dir = filepath.ToSlash(filepath.Clean(dir))
-			if dir == "" {
-				return "."
+		for _, marker := range markers {
+			if _, err := os.Stat(filepath.Join(root, dir, marker)); err == nil {
+				dir = filepath.ToSlash(filepath.Clean(dir))
+				if dir == "" {
+					return "."
+				}
+				return dir
 			}
-			return dir
 		}
 		if dir == "." || dir == "" || dir == string(filepath.Separator) {
 			return "."

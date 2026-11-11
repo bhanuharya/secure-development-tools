@@ -1,0 +1,149 @@
+# Fact rules for Spring MVC controllers (Java).
+#
+# Fact rules are ordinary Opengrep rules whose id starts with "fact." and whose
+# metadata.fact names the kind. They are NOT part of the scan rule pack: they
+# live here so they never become scan findings and rules/manifest.yaml stays
+# untouched. `sdt endpoints` runs only this directory.
+#
+# A class-level mapping and a class-level gate live directly in the class body;
+# a method-level one lives inside a method. The resolver joins them by class
+# name and by "Class.method", so every fact carries those names.
+rules:
+  # Class-level @RequestMapping prefix. The pattern-not-inside clause keeps the
+  # method-level mapping of the same annotation out (both are inside the class).
+  - id: fact.java.class_prefix
+    languages: [java]
+    severity: INFO
+    message: Spring class-level request mapping prefix
+    metadata:
+      fact: class_prefix
+    patterns:
+      - pattern-inside: |
+          class $C { ... }
+      - pattern-not-inside: |
+          $RET $M(...) { ... }
+      - pattern-either:
+          - pattern: '@RequestMapping("$P")'
+          - pattern: '@RequestMapping(value = "$P")'
+          - pattern: '@RequestMapping(path = "$P")'
+
+  # Shorthand method mappings: @GetMapping, @PostMapping, ...
+  - id: fact.java.route
+    languages: [java]
+    severity: INFO
+    message: Spring MVC shorthand method mapping
+    metadata:
+      fact: route
+    patterns:
+      - pattern-inside: |
+          class $C { ... }
+      - pattern-either:
+          - pattern: |
+              @$VERB("$PATH")
+              $RET $M(...) { ... }
+          - pattern: |
+              @$VERB(value = "$PATH")
+              $RET $M(...) { ... }
+          - pattern: |
+              @$VERB(path = "$PATH")
+              $RET $M(...) { ... }
+      - metavariable-regex:
+          metavariable: $VERB
+          regex: ^(Get|Post|Put|Patch|Delete)Mapping$
+
+  # Bare method mapping: @PostMapping means the class prefix itself.
+  - id: fact.java.route_bare
+    languages: [java]
+    severity: INFO
+    message: Spring MVC method mapping without a path
+    metadata:
+      fact: route
+    patterns:
+      - pattern-inside: |
+          class $C { ... }
+      - pattern: |
+          @$VERB
+          $RET $M(...) { ... }
+      - metavariable-regex:
+          metavariable: $VERB
+          regex: ^(Get|Post|Put|Patch|Delete)Mapping$
+
+  # @RequestMapping with a verb: @RequestMapping(value = "/x", method = RequestMethod.POST).
+  # Opengrep matches named annotation elements regardless of their order.
+  - id: fact.java.request_route
+    languages: [java]
+    severity: INFO
+    message: Spring MVC request mapping with an HTTP method
+    metadata:
+      fact: route
+    patterns:
+      - pattern-inside: |
+          class $C { ... }
+      - pattern-either:
+          - pattern: |
+              @RequestMapping(value = "$PATH", method = RequestMethod.$VERB)
+              $RET $M(...) { ... }
+          - pattern: |
+              @RequestMapping(path = "$PATH", method = RequestMethod.$VERB)
+              $RET $M(...) { ... }
+
+  # @RequestMapping without a verb accepts every method (ANY).
+  - id: fact.java.request_route_any
+    languages: [java]
+    severity: INFO
+    message: Spring MVC request mapping without an HTTP method
+    metadata:
+      fact: route
+    patterns:
+      - pattern-inside: |
+          class $C { ... }
+      - pattern-either:
+          - pattern: |
+              @RequestMapping("$PATH")
+              $RET $M(...) { ... }
+          - pattern: |
+              @RequestMapping(value = "$PATH")
+              $RET $M(...) { ... }
+          - pattern: |
+              @RequestMapping(path = "$PATH")
+              $RET $M(...) { ... }
+
+  # Class-level method security. Spraying @PreAuthorize on a whole controller is
+  # common, so the resolver applies it to every method without its own gate.
+  - id: fact.java.class_gate
+    languages: [java]
+    severity: INFO
+    message: Spring class-level method security annotation
+    metadata:
+      fact: class_gate
+    patterns:
+      - pattern-inside: |
+          class $C { ... }
+      - pattern-not-inside: |
+          $RET $M(...) { ... }
+      - pattern-either:
+          - pattern: '@$ANNOTATION("$EXPR")'
+          - pattern: '@$ANNOTATION($EXPR)'
+      - metavariable-regex:
+          metavariable: $ANNOTATION
+          regex: ^(PreAuthorize|Secured|RolesAllowed)$
+
+  # Method-level method security: @PreAuthorize("..."), @Secured(...),
+  # @RolesAllowed(...). Roles come from the expression (resolve_spring.go).
+  - id: fact.java.method_gate
+    languages: [java]
+    severity: INFO
+    message: Spring method-level security annotation
+    metadata:
+      fact: method_gate
+    patterns:
+      - pattern-inside: |
+          class $C { ... }
+      - pattern-inside: |
+          $RET $M(...) { ... }
+      - pattern-either:
+          - pattern: '@$ANNOTATION("$EXPR")'
+          - pattern: '@$ANNOTATION($EXPR)'
+      - metavariable-regex:
+          metavariable: $ANNOTATION
+          regex: ^(PreAuthorize|Secured|RolesAllowed)$

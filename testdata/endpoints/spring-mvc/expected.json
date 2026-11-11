@@ -1,0 +1,186 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "ANY",
+      "path": "/api/v1/accounts/legacy",
+      "handler": "AccountsController.legacy",
+      "file": "AccountsController.java",
+      "line": 33,
+      "protection": "authenticated",
+      "evidence": [
+        "AccountsController.java:10 @PreAuthorize(\"isAuthenticated()\") on class AccountsController"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/api/v1/accounts/{id}",
+      "handler": "AccountsController.get",
+      "file": "AccountsController.java",
+      "line": 12,
+      "protection": "authenticated",
+      "evidence": [
+        "AccountsController.java:10 @PreAuthorize(\"isAuthenticated()\") on class AccountsController"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/api/v1/accounts/{id}/audit",
+      "handler": "AccountsController.audit",
+      "file": "AccountsController.java",
+      "line": 28,
+      "protection": "authenticated",
+      "evidence": [
+        "AccountsController.java:10 @PreAuthorize(\"isAuthenticated()\") on class AccountsController"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/api/v1/accounts/{id}/close",
+      "handler": "AccountsController.close",
+      "file": "AccountsController.java",
+      "line": 17,
+      "protection": "role",
+      "roles": [
+        "ADMIN",
+        "SUPPORT"
+      ],
+      "evidence": [
+        "AccountsController.java:18 @PreAuthorize(\"hasAnyRole('ADMIN', 'SUPPORT')\") on close"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/api/v1/accounts/{id}/history",
+      "handler": "AccountsController.history",
+      "file": "AccountsController.java",
+      "line": 23,
+      "protection": "authenticated",
+      "evidence": [
+        "AccountsController.java:10 @PreAuthorize(\"isAuthenticated()\") on class AccountsController"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/api/v1/orders",
+      "handler": "OrdersController.list",
+      "file": "OrdersController.java",
+      "line": 13,
+      "protection": "unknown",
+      "evidence": [
+        "OrdersController.java:13 no method-level security annotation; decided by security configuration (T05)"
+      ],
+      "confidence": "low"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/api/v1/orders",
+      "handler": "OrdersController.create",
+      "file": "OrdersController.java",
+      "line": 23,
+      "protection": "role",
+      "roles": [
+        "ADMIN"
+      ],
+      "evidence": [
+        "OrdersController.java:24 @PreAuthorize(\"hasRole('ADMIN')\") on create"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "DELETE",
+      "path": "/api/v1/orders/{id}",
+      "handler": "OrdersController.delete",
+      "file": "OrdersController.java",
+      "line": 35,
+      "protection": "role",
+      "roles": [
+        "ADMIN",
+        "AUDITOR"
+      ],
+      "evidence": [
+        "OrdersController.java:36 @RolesAllowed({\"ROLE_ADMIN\", \"ROLE_AUDITOR\"}) on delete"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/api/v1/orders/{id}",
+      "handler": "OrdersController.get",
+      "file": "OrdersController.java",
+      "line": 18,
+      "protection": "unknown",
+      "evidence": [
+        "OrdersController.java:18 no method-level security annotation; decided by security configuration (T05)"
+      ],
+      "confidence": "low"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "PUT",
+      "path": "/api/v1/orders/{id}",
+      "handler": "OrdersController.update",
+      "file": "OrdersController.java",
+      "line": 29,
+      "protection": "role",
+      "roles": [
+        "orders.write"
+      ],
+      "evidence": [
+        "OrdersController.java:30 @PreAuthorize(\"hasAuthority('orders.write')\") on update"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "PATCH",
+      "path": "/api/v1/orders/{id}/status",
+      "handler": "OrdersController.updateStatus",
+      "file": "OrdersController.java",
+      "line": 41,
+      "protection": "role",
+      "roles": [
+        "OPERATOR"
+      ],
+      "evidence": [
+        "OrdersController.java:42 @Secured(\"ROLE_OPERATOR\") on updateStatus"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 4,
+    "role": 5,
+    "unknown": 2
+  },
+  "unresolved": [
+    "OrdersController.java:13 OrdersController.list: protection decided by security configuration (T05)",
+    "OrdersController.java:18 OrdersController.get: protection decided by security configuration (T05)"
+  ]
+}
