@@ -7,13 +7,14 @@ One report per repository scan (a branch or a pull request), by kind of finding,
                        occurrence (file, line, status) and the code around it;
   2. Secret Leaks    - every secret: type, file, line, commit, still in code or history only;
   3. Dependencies &  - one row per vulnerable package with its advisories, fixed version and
-     Configuration     reachability, plus Trivy configuration checks.
+     Configuration     reachability, plus Trivy configuration checks;
+  4. Endpoints       - the route inventory's protection counts and the routes worth a look.
 
 Every finding has a priority, P1 to P4 (tools/sdt_priority.py, ADR 0009): its severity, moved
 by what is known about it and about the service (--inventory / SDT_INVENTORY, --exposure).
 Each section lists the most urgent first; Fix First lists the open P1 and P2 findings.
-When the scan wrote an endpoints.json next to findings.json, an Endpoints section
-follows the summary with the protection counts and the routes worth a look.
+When the scan wrote an endpoints.json next to findings.json, section 4 adds the protection
+counts and the routes worth a look.
 
 Code findings and review states come from SonarQube (--sonar-url); secrets and dependencies
 from the SDT findings.json (--findings), which knows commits, versions and reachability.
@@ -69,6 +70,9 @@ ENDPOINT_SENSITIVE_PATH = re.compile(
     r"|reset-password|change-password|update-password|update-email|bank-account|/users/init")
 ENDPOINT_STATE_CHANGING = {"POST", "PUT", "PATCH", "DELETE", "ANY"}
 ENDPOINT_PROTECTIONS = ["public", "authenticated", "role", "denied", "unknown"]
+# Sensitive routes worth a look in the report: the protection is absent, only logged-in, or unresolved.
+# In this order, so a public route is never buried under one that merely lacks a role.
+ENDPOINT_SENSITIVE_REVIEW = ("public", "authenticated", "unknown")
 # Reference-list entries ("OWASP - Top 10 2021 Category A3", "CWE - CWE-79 ...") are citations, not steps.
 REFERENCE = re.compile(r"^(OWASP|CWE|MITRE|SANS|NIST|PCI|STIG|CERT|ASVS|MASVS)\b[\s:-]", re.I)
 # Link titles from a rule's resources ("Vue.js - Security - Injecting HTML") are not steps either.
@@ -234,6 +238,14 @@ class EndpointsInventory:
 
     def sensitive(self) -> list[EndpointRoute]:
         return [r for r in self.routes if ENDPOINT_SENSITIVE_PATH.search(r.path)]
+
+    def sensitive_to_review(self) -> list[EndpointRoute]:
+        """Sensitive routes a role does not already protect, public first."""
+        return sorted((r for r in self.sensitive() if r.protection in ENDPOINT_SENSITIVE_REVIEW),
+                      key=lambda r: ENDPOINT_SENSITIVE_REVIEW.index(r.protection))
+
+    def sensitive_with_role(self) -> list[EndpointRoute]:
+        return [r for r in self.sensitive() if r.protection == "role"]
 
 
 @dataclass
@@ -1166,9 +1178,29 @@ def endpoint_rows(routes: list[EndpointRoute]) -> list[list]:
     return [[r.method, r.path, r.protection, f"{r.file}:{r.line}"] for r in routes]
 
 
+def role_note(count: int) -> str:
+    """What the sensitive table leaves out because a role already protects it."""
+    if not count:
+        return "No sensitive route requires a role."
+    return (f"{plural(count, 'sensitive route')} {'requires' if count == 1 else 'require'} a role and "
+            f"{'is' if count == 1 else 'are'} not listed.")
+
+
+def sensitive_block(inv: EndpointsInventory) -> list[str]:
+    """The rows to review, or one sentence when a role already protects every sensitive route."""
+    rows, role = inv.sensitive_to_review(), len(inv.sensitive_with_role())
+    if rows:
+        return [data_table([("Method", 1000), ("Path", 3380), ("Protection", 1400), ("File", 4300)],
+                           endpoint_rows(rows)), para(run(role_note(role)))]
+    if role:
+        note = role_note(role)
+        return [para(run(f"No sensitive route needs review; {note[0].lower()}{note[1:]}"))]
+    return [para(run("No sensitive route needs review."))]
+
+
 def endpoints_section(inv: EndpointsInventory) -> list[str]:
     """The Endpoints section: counts, then the routes that deserve a look despite their protection."""
-    parts = [section_heading("Endpoints", 1, "sec_endpoints"),
+    parts = [section_heading("4. Endpoints", 1, "sec_endpoints", page_break=True),
              para(run("The route inventory from the endpoints adapter, with the protection each route "
                       "effectively has. Unknown routes are counted but never reported as findings."))]
     parts.append(para(run("Routes per protection", bold=True), before=140))
@@ -1178,12 +1210,11 @@ def endpoints_section(inv: EndpointsInventory) -> list[str]:
     parts.append(para(run("POST, PUT, PATCH, DELETE and ANY routes that need no authentication."), before=0))
     parts.append(data_table([("Method", 1000), ("Path", 3380), ("Protection", 1400), ("File", 4300)],
                             endpoint_rows(public)) if public else para(run("None.")))
-    sensitive = inv.sensitive()
     parts.append(para(run("Sensitive routes", bold=True), before=160))
     parts.append(para(run("Routes whose path matches the default sensitive list (administration, internal, "
-                          "roles, money movement, credentials), whatever their method or protection."), before=0))
-    parts.append(data_table([("Method", 1000), ("Path", 3380), ("Protection", 1400), ("File", 4300)],
-                            endpoint_rows(sensitive)) if sensitive else para(run("None.")))
+                          "roles, money movement, credentials) and that no role already protects, public "
+                          "first."), before=0))
+    parts += sensitive_block(inv)
     return parts
 
 
@@ -1235,9 +1266,6 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
                              ("Highest Priority", 1500), ("Needs Decision", 1500)], rows, severity_col=3,
                             priority_col=4, total=["", "TOTAL", total, "", "", sum(n for _, _, n in counts.values())]))
 
-    if report.endpoints:
-        parts += endpoints_section(report.endpoints)
-
     if report.trend:
         parts.append(section_heading("Changes Since Previous Scan", 1, "sec_trend"))
         parts.append(para(run(f"Compared with the scan of {report.previous}, finding by finding: the same rule on the "
@@ -1252,14 +1280,14 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
     parts.append(section_heading("Contents", 1, "sec_contents"))
     parts.append('<w:p><w:r><w:fldChar w:fldCharType="begin" w:dirty="true"/></w:r><w:r><w:instrText xml:space="preserve">'
                  ' TOC \\o "1-2" \\h \\z \\u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r></w:p>')
-    if report.endpoints:
-        parts.append(internal_link("Endpoints", "sec_endpoints"))
     parts.append(internal_link("Fix First", "sec_fix_first"))
     parts.append(internal_link("1. Code Security", "sec_code"))
     parts += [internal_link(f"1.{n} {g.name} [{rule_ref(g.rule)}] ({len(g.occurrences)})", f"sec_code_{n}", indent=360)
               for n, g in enumerate(report.code, 1)]
     parts.append(internal_link("2. Secret Leaks", "sec_secrets"))
     parts.append(internal_link("3. Dependencies & Configuration (Trivy)", "sec_dependencies"))
+    if report.endpoints:
+        parts.append(internal_link("4. Endpoints", "sec_endpoints"))
     if report.resolved and any(report.resolved.values()):
         parts.append(internal_link("Resolved in SonarQube", "sec_resolved"))
     parts.append(internal_link("How Priority Is Set", "sec_priority"))
@@ -1436,6 +1464,10 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
                                 [[i, c.check, c.path or "-", c.line or "-", c.severity,
                                   c.priority.level if c.priority else "-", c.message[:200], c.status]
                                  for i, c in enumerate(report.config, 1)], severity_col=4, priority_col=5))
+
+    # ------------------------------------------------ 4. endpoints
+    if report.endpoints:
+        parts += endpoints_section(report.endpoints)
 
     if report.resolved and any(report.resolved.values()):
         rows = resolved_rows(report.resolved)

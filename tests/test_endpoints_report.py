@@ -19,11 +19,11 @@ INVENTORY = {
         {"service": ".", "framework": "gin", "method": "POST", "path": "/api/notifications",
          "handler": "sendNotification", "file": "main.go", "line": 16, "protection": "public",
          "confidence": "high", "evidence": []},
-        {"service": ".", "framework": "gin", "method": "GET", "path": "/api/admin/users",
-         "handler": "listUsers", "file": "main.go", "line": 23, "protection": "public",
-         "confidence": "high", "evidence": []},
         {"service": ".", "framework": "gin", "method": "PUT", "path": "/api/admin/roles/{id}",
          "handler": "updateRole", "file": "main.go", "line": 24, "protection": "authenticated",
+         "confidence": "high", "evidence": []},
+        {"service": ".", "framework": "gin", "method": "GET", "path": "/api/admin/users",
+         "handler": "listUsers", "file": "main.go", "line": 23, "protection": "public",
          "confidence": "high", "evidence": []},
         {"service": ".", "framework": "gin", "method": "POST", "path": "/api/orders",
          "handler": "createOrder", "file": "main.go", "line": 10, "protection": "authenticated",
@@ -37,8 +37,11 @@ INVENTORY = {
         {"service": ".", "framework": "gin", "method": "POST", "path": "/api/jobs",
          "handler": "startJob", "file": "main.go", "line": 30, "protection": "unknown",
          "confidence": "low", "evidence": []},
+        {"service": ".", "framework": "gin", "method": "GET", "path": "/api/admin/audit",
+         "handler": "auditLog", "file": "main.go", "line": 40, "protection": "role",
+         "confidence": "high", "evidence": []},
     ],
-    "summary": {"public": 4, "authenticated": 2, "unknown": 1},
+    "summary": {"public": 4, "authenticated": 2, "role": 1, "unknown": 1},
 }
 
 
@@ -66,21 +69,45 @@ def _report(tmp_path, endpoints=None):
 def test_inventory_is_read_and_the_section_lists_the_routes_that_matter(tmp_path):
     inventory = sdt_to_docx.load_endpoints(_inventory(tmp_path))
     assert sdt_to_docx.protection_rows(inventory) == [
-        ["Public", 4], ["Authenticated", 2], ["Role", 0], ["Denied", 0], ["Unknown", 1], ["TOTAL", 7]]
+        ["Public", 4], ["Authenticated", 2], ["Role", 1], ["Denied", 0], ["Unknown", 1], ["TOTAL", 8]]
     # Onboarding is public by design and is not listed as an unprotected route.
     assert [r.path for r in inventory.public_state_changing()] == ["/api/notifications"]
-    assert [r.path for r in inventory.sensitive()] == ["/api/admin/users", "/api/admin/roles/{id}"]
+    # A public sensitive route comes first even when the inventory lists it last.
+    assert [r.path for r in inventory.sensitive_to_review()] == ["/api/admin/users", "/api/admin/roles/{id}"]
+    assert [r.path for r in inventory.sensitive_with_role()] == ["/api/admin/audit"]
 
     text = _report(tmp_path, inventory)
-    assert text.index("Findings Summary") < text.index("Endpoints") < text.index("1. Code Security")
+    assert text.count("4. Endpoints") == 2  # contents entry and heading
+    assert text.rindex("3. Dependencies & Configuration (Trivy)") < text.rindex("4. Endpoints") \
+        < text.rindex("How Priority Is Set")
     for expected in ("Routes per protection", "Public state-changing routes", "Sensitive routes",
                      "POST", "/api/notifications", "main.go:16",
                      "GET", "/api/admin/users", "PUT", "/api/admin/roles/{id}", "authenticated",
-                     "main.go:23", "main.go:24"):
+                     "main.go:23", "main.go:24",
+                     "1 sensitive route requires a role and is not listed"):
         assert expected in text
     # Unknown routes are counted and never listed as a route to review.
     assert "startJob" not in text
     assert "/api/v1/registration" not in text
+    # A role already protects this sensitive route, so the table leaves it out.
+    assert "/api/admin/audit" not in text
+
+
+def test_a_role_protected_sensitive_route_replaces_the_table_with_one_sentence(tmp_path):
+    inventory = {
+        "schema": "sdt-endpoints/v1",
+        "root": ".",
+        "routes": [{"service": ".", "framework": "gin", "method": "GET", "path": "/api/admin/audit",
+                    "handler": "auditLog", "file": "main.go", "line": 40, "protection": "role",
+                    "confidence": "high", "evidence": []}],
+        "summary": {"role": 1},
+    }
+    path = tmp_path / "endpoints.json"
+    path.write_text(json.dumps(inventory))
+
+    text = _report(tmp_path, sdt_to_docx.load_endpoints(path))
+    assert "No sensitive route needs review; 1 sensitive route requires a role and is not listed." in text
+    assert "/api/admin/audit" not in text
 
 
 def test_section_is_absent_without_an_inventory(tmp_path):
