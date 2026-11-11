@@ -1,0 +1,2 @@
+# The registry password is written into the address.
+registry-url: "https://admin:Ex4mple-Pass-91@registry.internal/eureka/apps/"

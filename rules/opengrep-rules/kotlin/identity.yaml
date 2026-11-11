@@ -1,0 +1,70 @@
+# Credentials in Kotlin code: secrets in logs and stored passwords that can be decrypted.
+rules:
+  - id: scp.kotlin.logging.secret-in-log
+    languages: [kotlin]
+    message: >-
+      A password, token, PIN, OTP or other secret is written to the log. On a phone, logcat is
+      readable over USB and in bug reports; on a server, log lines reach files, log platforms and
+      support staff. Log an identifier or a masked value instead.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-532"]
+      owasp: ["A09:2021 - Security Logging and Monitoring Failures"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/src/test/**", "**/src/androidTest/**"]
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern-either:
+                      - pattern: $LOG.$M(..., $X, ...)
+                      - pattern: $LOG.$M(..., <... $A + $X ...>, ...)
+                  - metavariable-regex:
+                      metavariable: $LOG
+                      regex: ^(Log|Timber|log|logger|LOG|LOGGER)$
+                  - metavariable-regex:
+                      metavariable: $M
+                      regex: ^(d|i|e|w|v|wtf|trace|debug|info|warn|error)$
+              - pattern: println($X)
+          - metavariable-regex:
+              metavariable: $X
+              regex: ^(?![A-Z0-9_.]+$)(?!.*(?i:fcm|push|device|page|cancel|csrf))(?:\w+\.)*(?:(?i:\w*(?:password|passwd|pwd|secret|apikey|api_key|otp))|token|[a-z]\w*Token|pin|[a-z]\w*Pin)$
+      # String templates: "token=$token", "pin ${user.pin}".
+      - pattern-regex: (?i)\b(?:Log\.[dievw]|Timber\.[dievw]|println|log(?:ger)?\.(?:trace|debug|info|warn|error))\s*\([^\n]*\$\{?(?:\w+\.)*\w*(?:password|passwd|pwd|secret|otp|(?<![a-z])pin|(?<!fcm)(?<!push)(?<!device)token)\}?(?![\w.(])
+
+  - id: scp.kotlin.crypto.recoverable-password
+    languages: [kotlin]
+    message: >-
+      A stored password or PIN is decrypted back to clear text. Passwords kept in a reversible
+      form are all exposed at once when the storage and the key leak. Store a salted one-way
+      hash (bcrypt, scrypt, Argon2) and compare hashes; on a device, do not store the password
+      at all, keep a token in the platform key store.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: ["CWE-257", "CWE-916"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/src/test/**", "**/src/androidTest/**"]
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern: $F(..., $O.$P, ...)
+                  - pattern: $C.$F(..., $O.$P, ...)
+              - metavariable-regex:
+                  metavariable: $P
+                  regex: (?i)^(user)?(password|passwd|pwd|pin)(enc\w*|cipher\w*)?$
+          - patterns:
+              - pattern-either:
+                  - pattern: $F(..., $V, ...)
+                  - pattern: $C.$F(..., $V, ...)
+              - metavariable-regex:
+                  metavariable: $V
+                  regex: (?i)^(encrypted|stored|encoded|current|db|saved)(password|passwd|pwd|pin)$
+      - metavariable-regex:
+          metavariable: $F
+          regex: (?i)^(decrypt|decipher)\w*$|^decode(password|pin)\w*$
