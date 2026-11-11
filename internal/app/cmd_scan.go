@@ -81,6 +81,7 @@ func planTasksFull(cfg *config.ScanConfiguration, profile string, ctx *sdtctx.Sc
 			Adapter: t.Adapter, Tool: t.Tool, Executable: t.Executable, Args: t.Args,
 			Targets: t.Targets, TimeoutSeconds: t.TimeoutSeconds, Mode: t.Mode, RuleBundle: t.RuleBundle,
 			RuleChecksums: t.RuleChecksums, Excludes: t.SkippedFiles, Note: t.Note, ExecArgs: t.ExecArgs,
+			Stdout: t.Stdout,
 		})
 		// stash report path via parallel slice hack: re-lookup after build.
 		pendingReportPaths[t.Adapter] = t.ReportPath
@@ -269,6 +270,7 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 		execTasks = append(execTasks, execute.Task{
 			Adapter: t.Adapter, Executable: t.Executable, Args: args,
 			TimeoutSeconds: t.TimeoutSeconds, Dir: scanRoot, ReportPath: pendingReportPaths[t.Adapter],
+			Stdout: t.Stdout,
 		})
 	}
 	// A request to stop sdt (Ctrl-C, or SIGTERM from the CI server) stops the
@@ -291,6 +293,9 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 	health := map[string]string{}
 	taskRecords := []report.TaskRecord{}
 	diagnostics := []string{}
+	// Adapter artifacts (e.g. the endpoint inventory) are written by the
+	// same finalization path as the built-in reports.
+	var extra []extraArtifact
 	n := 0
 	for _, r := range results {
 		a := adapters[r.Adapter]
@@ -328,6 +333,9 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 			n++
 			f.ID = fmt.Sprintf("%s:%05d", r.Adapter, n)
 			findings = append(findings, f)
+		}
+		for _, art := range pr.Artifacts {
+			extra = append(extra, extraArtifact{name: art.Name, data: art.Data, media: art.MediaType, schema: art.Schema})
 		}
 		// Clean up temp report files.
 		if rp := pendingReportPaths[r.Adapter]; rp != "" {
@@ -419,7 +427,6 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 	// SBOM evidence (Bet 4): trivy CycloneDX inventory, generated only on
 	// request via outputs.formats. Never gates: failures become diagnostics.
 	// Staged mode has no trivy run, so there is nothing to inventory.
-	var extra []extraArtifact
 	if wantsFormat(cfg, "sbom") {
 		if ctx.Staged {
 			diagnostics = append(diagnostics, "sbom skipped in staged mode (trivy deferred to CI)")

@@ -33,8 +33,8 @@
         "type": "object",
         "properties": {
           "mode": {"enum": ["changed", "repository"]},
-          "scanners": {"type": "array", "items": {"enum": ["opengrep", "gitleaks", "trivy-fs", "trivy-image"]}},
-          "requiredScanners": {"type": "array", "items": {"enum": ["opengrep", "gitleaks", "trivy-fs", "trivy-image"]}},
+          "scanners": {"type": "array", "items": {"enum": ["opengrep", "gitleaks", "trivy-fs", "trivy-image", "endpoints"]}},
+          "requiredScanners": {"type": "array", "items": {"enum": ["opengrep", "gitleaks", "trivy-fs", "trivy-image", "endpoints"]}},
           "timeout": {"type": "string"},
           "parallelism": {"type": "integer", "minimum": 1},
           "missingHistory": {"enum": ["fail", "warn", "fallback"]},

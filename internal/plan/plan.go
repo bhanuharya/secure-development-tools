@@ -35,6 +35,10 @@ type Task struct {
 	UpdateMode        string   `json:"updateMode,omitempty"`
 	Note              string   `json:"note,omitempty"`
 	ExecArgs          []string `json:"execArgs,omitempty"`
+	// Stdout is a native report an in-process adapter produced during
+	// planning. It is deliberately not serialized: the plan describes the
+	// invocation, not its result, and the digest stays content-free.
+	Stdout []byte `json:"-"`
 }
 
 // Skip records a capability-based skip with reason.

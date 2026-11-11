@@ -88,3 +88,28 @@ func TestEndpointsRejectsInvalidValues(t *testing.T) {
 		})
 	}
 }
+
+// The inventory is a full-profile scanner only: it reads a whole service and
+// is too slow for a changed-file scan (SPEC §8).
+func TestEndpointsScannerOnlyInFullProfile(t *testing.T) {
+	cfg := Defaults()
+	has := func(list []string, want string) bool {
+		for _, s := range list {
+			if s == want {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(cfg.Profiles["full"].Scanners, "endpoints") || !has(cfg.Profiles["full"].RequiredScanners, "endpoints") {
+		t.Fatal("full profile must select and require endpoints")
+	}
+	for _, name := range []string{"pr", "release"} {
+		if has(cfg.Profiles[name].Scanners, "endpoints") {
+			t.Fatalf("profile %s must not select endpoints", name)
+		}
+	}
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("defaults with endpoints do not validate: %v", err)
+	}
+}

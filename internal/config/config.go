@@ -221,8 +221,8 @@ func Defaults() *ScanConfiguration {
 				Timeout:          "15m", Parallelism: 3, MissingHistory: "fail",
 			},
 			"full": {
-				Mode: "repository", Scanners: []string{"opengrep", "gitleaks", "trivy-fs"},
-				RequiredScanners: []string{"opengrep", "gitleaks", "trivy-fs"},
+				Mode: "repository", Scanners: []string{"opengrep", "gitleaks", "trivy-fs", "endpoints"},
+				RequiredScanners: []string{"opengrep", "gitleaks", "trivy-fs", "endpoints"},
 				Timeout:          "45m", Parallelism: 3, MissingHistory: "fail",
 			},
 			"release": {
@@ -348,7 +348,7 @@ func Validate(cfg *ScanConfiguration) error {
 		}
 		for _, s := range append(append([]string{}, p.Scanners...), p.RequiredScanners...) {
 			switch s {
-			case "opengrep", "gitleaks", "trivy-fs", "trivy-image":
+			case "opengrep", "gitleaks", "trivy-fs", "trivy-image", "endpoints":
 			default:
 				return fmt.Errorf("profile %q: unknown scanner %q", name, s)
 			}

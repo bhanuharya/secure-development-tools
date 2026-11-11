@@ -133,3 +133,5 @@ gateway/scg/application.yml	gateway route to the management endpoints	284	rules
 gateway/nginx/nginx.conf	nginx proxies the management endpoints without a restriction	284	rules
 gateway/lookalike/kong-health.yaml	kong route to health only (not a sensitive route)	284,441	none
 gateway/lookalike/application.yml	zuul ignores every service and the gateway routes health only (not exposure)	284,441	none
+endpoints/transfer/main.go	state-changing route without the auth middleware its neighbours use	306,862	rules
+endpoints/lookalike/main.go	public login and health next to protected state-changing routes (not missing auth)	306,862,284,285	none

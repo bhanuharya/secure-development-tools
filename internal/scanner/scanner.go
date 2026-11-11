@@ -50,6 +50,19 @@ type Task struct {
 	// ExecArgs, when set, is what runs in place of Args: an equivalent
 	// invocation that is cheaper to execute (see mergedRules).
 	ExecArgs []string
+	// Stdout, when set, is the native report an in-process adapter produced
+	// during Plan. The orchestrator skips spawning a process and hands these
+	// bytes to Parse.
+	Stdout []byte
+}
+
+// Artifact is an extra file an adapter contributes to the run's artifact
+// directory (for example the endpoint inventory next to findings.json).
+type Artifact struct {
+	Name      string
+	Data      []byte
+	MediaType string
+	Schema    string
 }
 
 // ParseResult is adapter parse output.
@@ -57,6 +70,8 @@ type ParseResult struct {
 	Findings    []*finding.Finding
 	Diagnostics []string
 	Health      Health
+	// Artifacts are written next to findings.json when the run finalizes.
+	Artifacts []Artifact
 }
 
 // Adapter implements identify/validate/detect/plan/parse/redact.
