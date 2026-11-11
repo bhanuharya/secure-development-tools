@@ -28,6 +28,9 @@ INVENTORY = {
         {"service": ".", "framework": "gin", "method": "POST", "path": "/api/orders",
          "handler": "createOrder", "file": "main.go", "line": 10, "protection": "authenticated",
          "confidence": "high", "evidence": []},
+        {"service": ".", "framework": "gin", "method": "POST", "path": "/api/v1/registration",
+         "handler": "register", "file": "main.go", "line": 31, "protection": "public",
+         "confidence": "high", "evidence": []},
         {"service": ".", "framework": "gin", "method": "GET", "path": "/api/health",
          "handler": "health", "file": "main.go", "line": 7, "protection": "public",
          "confidence": "high", "evidence": []},
@@ -35,7 +38,7 @@ INVENTORY = {
          "handler": "startJob", "file": "main.go", "line": 30, "protection": "unknown",
          "confidence": "low", "evidence": []},
     ],
-    "summary": {"public": 3, "authenticated": 2, "unknown": 1},
+    "summary": {"public": 4, "authenticated": 2, "unknown": 1},
 }
 
 
@@ -63,7 +66,8 @@ def _report(tmp_path, endpoints=None):
 def test_inventory_is_read_and_the_section_lists_the_routes_that_matter(tmp_path):
     inventory = sdt_to_docx.load_endpoints(_inventory(tmp_path))
     assert sdt_to_docx.protection_rows(inventory) == [
-        ["Public", 3], ["Authenticated", 2], ["Role", 0], ["Denied", 0], ["Unknown", 1], ["TOTAL", 6]]
+        ["Public", 4], ["Authenticated", 2], ["Role", 0], ["Denied", 0], ["Unknown", 1], ["TOTAL", 7]]
+    # Onboarding is public by design and is not listed as an unprotected route.
     assert [r.path for r in inventory.public_state_changing()] == ["/api/notifications"]
     assert [r.path for r in inventory.sensitive()] == ["/api/admin/users", "/api/admin/roles/{id}"]
 
@@ -76,6 +80,7 @@ def test_inventory_is_read_and_the_section_lists_the_routes_that_matter(tmp_path
         assert expected in text
     # Unknown routes are counted and never listed as a route to review.
     assert "startJob" not in text
+    assert "/api/v1/registration" not in text
 
 
 def test_section_is_absent_without_an_inventory(tmp_path):

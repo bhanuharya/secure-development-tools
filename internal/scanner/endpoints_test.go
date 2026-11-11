@@ -30,7 +30,7 @@ func TestEndpointsAdapterPlansInProcess(t *testing.T) {
 	if parsed.Health != HealthCompleted {
 		t.Fatalf("Parse health = %s: %v", parsed.Health, parsed.Diagnostics)
 	}
-	if len(parsed.Findings) != 1 || parsed.Findings[0].Rule.ID != endpoints.RuleUnprotectedAmongProtected {
+	if len(parsed.Findings) != 1 || parsed.Findings[0].Rule.ID != endpoints.RuleSensitiveRoutePublic {
 		t.Fatalf("findings = %+v", parsed.Findings)
 	}
 	if len(parsed.Artifacts) != 1 || parsed.Artifacts[0].Name != "endpoints.json" {

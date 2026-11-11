@@ -18,15 +18,21 @@ const (
 )
 
 // Default path lists from SPEC §7. Config entries are extras added to these.
+// registration covers onboarding flows (POST /api/v1/registration), which are
+// public by design just like register, login and password recovery.
 const (
-	defaultPublicPathRegex    = `(?i)(login|logout|signin|sign-in|signup|sign-up|register$|authenticate|/auth(/|$)|/token|refresh|forgot|otp|callback|webhook|notify|health|ping|public|captcha|metrics|/swagger|/docs)`
+	defaultPublicPathRegex    = `(?i)(login|logout|signin|sign-in|signup|sign-up|register$|registration|authenticate|/auth(/|$)|/token|refresh|forgot|otp|callback|webhook|notify|health|ping|public|captcha|metrics|/swagger|/docs)`
 	defaultSensitivePathRegex = `(?i)/(admin|management|backoffice|back-office|internal|feign|actuator|registry|eureka|debug|test)(/|$)|register/bo|update-cif|/roles?(/|$)|authorit|disburs|transfer|withdraw|inject|approve|reject|reset-password|change-password|update-password|update-email|bank-account|/users/init`
 )
 
+// selfServicePath is the part of a sensitive route a logged-in user may change
+// for their own account (SPEC §6 rule 3).
+var selfServiceRe = regexp.MustCompile(`(?i)(change-password|update-password|update-email)`)
+
 // Analyze applies the SPEC §6 convention rules to an inventory and returns
-// findings in file, line order. A route produces at most one finding: the
-// first applicable rule wins (rule 1, then 2, then 3), so a public
-// state-changing route is reported once, not once per matching rule.
+// findings in file, line order. A route produces at most one finding: the most
+// severe applicable rule wins (rule 2, then 1, then 3), so a public sensitive
+// route is an error even when rule 1 also applies.
 func Analyze(inv *Inventory, cfg config.EndpointsCfg) ([]*finding.Finding, error) {
 	if inv == nil {
 		return nil, fmt.Errorf("analyze: nil inventory")
@@ -129,6 +135,26 @@ func (r *conventionRules) sensitiveMatch(path string) string {
 	return ""
 }
 
+// selfServicePath reports a route where a signed-in user acts on their own
+// credentials: the only sensitive match is a password or email change and no
+// {param} names another account. Such routes still need authentication, but
+// any logged-in user is the right audience (SPEC §6 rule 3).
+func (r *conventionRules) selfServicePath(path string) bool {
+	if strings.Contains(path, "{") {
+		return false // /users/{id}/change-password acts on another account
+	}
+	found := false
+	for _, re := range append([]*regexp.Regexp{r.sensitive}, r.sensitiveExtra...) {
+		for _, m := range re.FindAllString(path, -1) {
+			if !selfServiceRe.MatchString(strings.TrimRight(m, "/")) {
+				return false
+			}
+			found = true
+		}
+	}
+	return found
+}
+
 // serviceConvention holds the per-service counts and the peers' gate evidence
 // that rules 1 and 3 quote in their messages.
 type serviceConvention struct {
@@ -171,23 +197,21 @@ func (c *serviceConvention) findingFor(rt Route) *finding.Finding {
 	if rt.Protection == ProtUnknown {
 		return nil // uncertainty is counted, never reported as a violation
 	}
+	sensitive := c.rules.sensitiveMatch(rt.Path) != ""
+	if sensitive && rt.Protection == ProtPublic {
+		return c.sensitivePublicFinding(rt)
+	}
 	if c.ruleOneApplies(rt) {
 		return c.unprotectedFinding(rt)
 	}
-	if c.rules.sensitiveMatch(rt.Path) == "" {
-		return nil
-	}
-	switch rt.Protection {
-	case ProtPublic:
-		return c.sensitivePublicFinding(rt)
-	case ProtAuthenticated:
-		if c.hasRole {
-			return c.sensitiveWithoutRoleFinding(rt)
-		}
+	if sensitive && rt.Protection == ProtAuthenticated && c.hasRole && !c.rules.selfServicePath(rt.Path) {
+		return c.sensitiveWithoutRoleFinding(rt)
 	}
 	return nil
 }
 
+// ruleOneApplies counts only state-changing routes that are not public by
+// design. Rule 2 still reports those paths when their names are sensitive.
 func (c *serviceConvention) ruleOneApplies(rt Route) bool {
 	if rt.Protection != ProtPublic || !isStateChanging(rt.Method) || c.rules.isPublicPath(rt.Path) {
 		return false

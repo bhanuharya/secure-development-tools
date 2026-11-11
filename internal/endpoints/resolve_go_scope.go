@@ -78,6 +78,7 @@ type fileResolver struct {
 	file      string
 	root      string
 	framework string
+	matcher   *gateMatcher
 	engines   map[string]bool
 	groups    []Fact
 	chis      []Fact
@@ -93,8 +94,8 @@ var routerParamRe = regexp.MustCompile(`(?i)(gin\.(RouterGroup|Engine|IRouter|IR
 
 // newFileResolver indexes one file's facts and its Go syntax (functions and
 // calls) for same-file scope resolution.
-func newFileResolver(file string, facts []Fact, root string) *fileResolver {
-	fr := &fileResolver{file: file, root: root, engines: map[string]bool{}}
+func newFileResolver(file string, facts []Fact, root string, gates *gateMatcher) *fileResolver {
+	fr := &fileResolver{file: file, root: root, matcher: gates, engines: map[string]bool{}}
 	var imports []string
 	for _, f := range facts {
 		switch f.Kind {

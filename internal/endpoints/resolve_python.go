@@ -57,6 +57,7 @@ type pyState struct {
 type pyResolver struct {
 	file, root string
 	framework  string
+	matcher    *gateMatcher
 	defs       map[string]*pyDef
 	mounts     []pyMount
 	routes     []Fact
@@ -66,7 +67,7 @@ type pyResolver struct {
 }
 
 // resolvePython sends each Python file to the Flask/FastAPI resolver.
-func resolvePython(facts []Fact, root string) ([]Route, []string) {
+func resolvePython(facts []Fact, root string, gates *gateMatcher) ([]Route, []string) {
 	byFile := map[string][]Fact{}
 	var files []string
 	for _, f := range facts {
@@ -83,7 +84,7 @@ func resolvePython(facts []Fact, root string) ([]Route, []string) {
 	var routes []Route
 	var unresolved []string
 	for _, file := range files {
-		py := newPyResolver(file, byFile[file], root)
+		py := newPyResolver(file, byFile[file], root, gates)
 		fileRoutes, fileUnresolved := py.resolve()
 		routes = append(routes, fileRoutes...)
 		unresolved = append(unresolved, fileUnresolved...)
@@ -91,8 +92,8 @@ func resolvePython(facts []Fact, root string) ([]Route, []string) {
 	return routes, unresolved
 }
 
-func newPyResolver(file string, facts []Fact, root string) *pyResolver {
-	py := &pyResolver{file: file, root: root, framework: "flask", defs: map[string]*pyDef{}, gates: map[string][]pyGate{}, routeDeps: map[string][]pyGate{}}
+func newPyResolver(file string, facts []Fact, root string, gates *gateMatcher) *pyResolver {
+	py := &pyResolver{file: file, root: root, framework: "flask", matcher: gates, defs: map[string]*pyDef{}, gates: map[string][]pyGate{}, routeDeps: map[string][]pyGate{}}
 	mounts := map[string]*pyMount{}
 	for _, f := range facts {
 		name := f.Metavars["$R"]
@@ -350,7 +351,7 @@ func (py *pyResolver) decide(f Fact, handler string, state *pyState) (Protection
 	var evidence, roles []string
 	authenticated, role := false, false
 	for _, gate := range chain {
-		if !gateRe.MatchString(gate.expr) {
+		if !py.matcher.re.MatchString(gate.expr) {
 			continue
 		}
 		authenticated = true
@@ -372,7 +373,7 @@ func (py *pyResolver) decide(f Fact, handler string, state *pyState) (Protection
 	}
 	evidence = append(evidence, fmt.Sprintf("%s:%d no gate decorator or dependency on the route", py.file, f.Line))
 	for _, gate := range chain {
-		if !gateRe.MatchString(gate.expr) {
+		if !py.matcher.re.MatchString(gate.expr) {
 			evidence = append(evidence, gate.evidence+" (does not match the gate list)")
 		}
 	}

@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/bhanuharya/secure-development-tools/internal/config"
 )
 
 // Fact is one engine result: what kind of fact, where, and its metavariables.
@@ -191,7 +193,9 @@ func tail(s string, n int) string {
 }
 
 // BuildInventory runs the facts, resolves them into routes, and sorts the result.
-func BuildInventory(dir string) (*Inventory, error) {
+// cfg supplies the extra gate names, so a middleware unknown to the defaults
+// can still protect a route (SPEC §7).
+func BuildInventory(dir string, cfg config.EndpointsCfg) (*Inventory, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
@@ -200,7 +204,7 @@ func BuildInventory(dir string) (*Inventory, error) {
 	if err != nil {
 		return nil, err
 	}
-	routes, unresolved := resolveFacts(facts, absDir)
+	routes, unresolved := resolveFacts(facts, absDir, newGateMatcher(cfg.AuthGates))
 	sort.Slice(routes, func(i, j int) bool {
 		a, b := routes[i], routes[j]
 		if a.Service != b.Service {

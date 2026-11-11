@@ -1,0 +1,20 @@
+[
+  {
+    "rule": "scp.endpoints.sensitive-route-without-role",
+    "file": "main.go",
+    "line": 14,
+    "endpoint": "POST /api/users/{id}/change-password"
+  },
+  {
+    "rule": "scp.endpoints.sensitive-route-public",
+    "file": "main.go",
+    "line": 23,
+    "endpoint": "POST /api/v1/auth/reset-password"
+  },
+  {
+    "rule": "scp.endpoints.unprotected-among-protected",
+    "file": "main.go",
+    "line": 24,
+    "endpoint": "POST /api/reports"
+  }
+]

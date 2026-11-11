@@ -17,7 +17,7 @@ import (
 // NestJS and Express never share a file: the controller fact decides.
 // Frontend, test and asset files register calls too, but they are not a
 // service's server routes (T15, SPEC §5).
-func resolveJS(facts []Fact, root string) ([]Route, []string) {
+func resolveJS(facts []Fact, root string, gates *gateMatcher) ([]Route, []string) {
 	byFile := map[string][]Fact{}
 	var files []string
 	for _, f := range facts {
@@ -39,7 +39,7 @@ func resolveJS(facts []Fact, root string) ([]Route, []string) {
 		if jsFileExcluded(file) || hasFact(fileFacts, "frontend_import") {
 			continue
 		}
-		js := newJSResolver(file, fileFacts, root)
+		js := newJSResolver(file, fileFacts, root, gates)
 		fileRoutes, fileUnresolved := js.resolve(global)
 		routes = append(routes, fileRoutes...)
 		unresolved = append(unresolved, fileUnresolved...)
@@ -128,6 +128,7 @@ type jsState struct {
 
 type jsResolver struct {
 	file, root  string
+	matcher     *gateMatcher
 	engines     map[string]bool
 	routers     map[string]bool
 	routerCalls map[string]bool
@@ -148,9 +149,9 @@ type jsResolver struct {
 	unresolved []string
 }
 
-func newJSResolver(file string, facts []Fact, root string) *jsResolver {
+func newJSResolver(file string, facts []Fact, root string, gates *gateMatcher) *jsResolver {
 	js := &jsResolver{
-		file: file, root: root,
+		file: file, root: root, matcher: gates,
 		engines: map[string]bool{}, routers: map[string]bool{}, routerCalls: map[string]bool{},
 		controllers:  map[string]string{},
 		classGates:   map[string][]jsFactValue{},
@@ -459,7 +460,7 @@ func (js *jsResolver) decide(line int, routeMW []mwRef, state *jsState) (Protect
 	var evidence, roles []string
 	authenticated, role := false, false
 	for _, mw := range chain {
-		if !gateRe.MatchString(mw.expr) {
+		if !js.matcher.re.MatchString(mw.expr) {
 			continue
 		}
 		authenticated = true
@@ -481,7 +482,7 @@ func (js *jsResolver) decide(line int, routeMW []mwRef, state *jsState) (Protect
 	}
 	evidence = append(evidence, fmt.Sprintf("%s:%d no gate middleware on the route", js.file, line))
 	for _, mw := range chain {
-		if !gateRe.MatchString(mw.expr) {
+		if !js.matcher.re.MatchString(mw.expr) {
 			evidence = append(evidence, evidenceLine(mw)+" (does not match the gate list)")
 		}
 	}

@@ -79,9 +79,13 @@ dependencies are matched by name.
 
 ## The three findings
 
-A route produces at most one finding; the first rule that applies wins. The
-first rule counts only state-changing routes (POST, PUT, PATCH, DELETE, ANY);
-the other two count every method. Unknown routes are counted, never reported.
+A route produces at most one finding: the most severe applicable rule wins
+(`sensitive-route-public`, then `unprotected-among-protected`, then
+`sensitive-route-without-role`). Rule 1 counts only state-changing routes (POST,
+PUT, PATCH, DELETE, ANY) and leaves out public-by-design paths; the other two
+count every method. A public-by-design path is skipped by rule 1 only: a
+sensitive name such as `/auth/reset-password` is still an error when public.
+Unknown routes are counted, never reported.
 
 **`scp.endpoints.unprotected-among-protected`** (warning, CWE-306, CWE-862).
 The service has at least `minRoutes` state-changing routes, at least `majority`
@@ -107,6 +111,10 @@ operation.
 
 **`scp.endpoints.sensitive-route-without-role`** (warning, CWE-285). A sensitive
 route is `authenticated` while the same service has at least one `role` route.
+A self-service route with no `{param}` segment whose only sensitive match is
+`change-password`, `update-password` or `update-email` is not reported: any
+logged-in user is the right audience for changing their own password or email.
+`/users/{id}/change-password` still is, because it acts on another account.
 
 ```text
 PUT /api/admin/roles/{id} only requires a logged-in user, but this service also
@@ -129,10 +137,12 @@ endpoints:
 ```
 
 `publicPaths` and `sensitivePaths` are regular expressions added to the built-in
-lists. The defaults cover login, health, docs, webhooks and callbacks on the
-public side, and administration, internal, roles, transfer, withdrawal,
-approval and password reset on the sensitive side. `authGates` is read and
-validated but not yet applied: the resolvers still use the built-in gate list.
+lists. The defaults cover login, registration, health, docs, webhooks and
+callbacks on the public side, and administration, internal, roles, transfer,
+withdrawal, approval and password reset on the sensitive side. `authGates`
+lists literal middleware or dependency names added to the built-in gate list,
+so a gate unknown to the defaults (`checkCaller`) protects Go, JavaScript and
+Python routes too.
 
 ## Limits
 
@@ -140,10 +150,11 @@ validated but not yet applied: the resolvers still use the built-in gate list.
   file gives `unknown`, with a sentence in `unresolved`. A flow through several
   files is not followed.
 - **Names, not data flow.** A gate with a name the list does not know can be
-  missed; a middleware whose name looks like a gate can be taken for one.
+  missed; add it under `endpoints.authGates`. A middleware whose name looks
+  like a gate can be taken for one.
 - **Build and test trees are skipped:** `node_modules`, `vendor`, `dist`,
   `build`, test directories, `*_test.go`, `*.spec.*` and `*.test.*`.
 - **Frameworks not covered:** Kotlin and Ktor, Django, Rails and ASP.NET. The
   scanner needs Opengrep and the rules under `rules/endpoint-facts/`.
-- **The Word report uses the default sensitive list.** It reads `endpoints.json`,
+- **The Word report uses the default path lists.** It reads `endpoints.json`,
   which does not record paths added in configuration.

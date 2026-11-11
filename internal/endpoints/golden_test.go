@@ -56,7 +56,8 @@ func TestGoldenInventories(t *testing.T) {
 			if err := json.Unmarshal(raw, &want); err != nil {
 				t.Fatalf("expected.json: %v", err)
 			}
-			got, err := endpoints.BuildInventory(dir)
+			cfg := goldenConfig(t, dir)
+			got, err := endpoints.BuildInventory(dir, cfg)
 			if err != nil {
 				t.Fatalf("BuildInventory: %v", err)
 			}
@@ -68,9 +69,24 @@ func TestGoldenInventories(t *testing.T) {
 				w, _ := json.MarshalIndent(want, "", "  ")
 				t.Fatalf("inventory mismatch\n--- got ---\n%s\n--- want ---\n%s", g, w)
 			}
-			compareFindings(t, dir, got)
+			compareFindings(t, dir, got, cfg)
 		})
 	}
+}
+
+// goldenConfig reads the optional config.json a fixture ships to exercise
+// endpoints.authGates; without it the built-in defaults apply.
+func goldenConfig(t *testing.T, dir string) config.EndpointsCfg {
+	t.Helper()
+	cfg := config.Defaults().Endpoints
+	raw, err := os.ReadFile(filepath.Join(dir, "config.json"))
+	if err != nil {
+		return cfg
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("config.json: %v", err)
+	}
+	return cfg
 }
 
 // TestGoldenPathsHaveNoQuotes guards the path contract for every golden
@@ -102,7 +118,7 @@ func TestGoldenPathsHaveNoQuotes(t *testing.T) {
 	}
 }
 
-func compareFindings(t *testing.T, dir string, inv *endpoints.Inventory) {
+func compareFindings(t *testing.T, dir string, inv *endpoints.Inventory, cfg config.EndpointsCfg) {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(dir, "expected-findings.json"))
 	if err != nil {
@@ -112,7 +128,7 @@ func compareFindings(t *testing.T, dir string, inv *endpoints.Inventory) {
 	if err := json.Unmarshal(raw, &want); err != nil {
 		t.Fatalf("expected-findings.json: %v", err)
 	}
-	findings, err := endpoints.Analyze(inv, config.Defaults().Endpoints)
+	findings, err := endpoints.Analyze(inv, cfg)
 	if err != nil {
 		t.Fatalf("Analyze: %v", err)
 	}

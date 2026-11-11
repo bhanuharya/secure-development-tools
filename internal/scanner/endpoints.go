@@ -38,7 +38,7 @@ func (a *EndpointsAdapter) Detect(root string, languages []string) Applicability
 }
 
 func (a *EndpointsAdapter) Plan(ctx *sdtctx.ScanContext, cfg *config.ScanConfiguration, root string) (Task, error) {
-	inv, err := endpoints.BuildInventory(root)
+	inv, err := endpoints.BuildInventory(root, cfg.Endpoints)
 	if err != nil {
 		return Task{}, fmt.Errorf("endpoint inventory: %w", err)
 	}

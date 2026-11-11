@@ -118,6 +118,66 @@ func TestAnalyzeExtraSensitivePathAndUnknown(t *testing.T) {
 	}
 }
 
+func TestAnalyzeMostSevereRuleWins(t *testing.T) {
+	fs := analyzeDefault(t,
+		testRoute("POST", "/api/orders", endpoints.ProtAuthenticated, 10, testGate),
+		testRoute("PUT", "/api/orders/{id}", endpoints.ProtAuthenticated, 11, testGate),
+		testRoute("PATCH", "/api/orders/{id}", endpoints.ProtAuthenticated, 12, testGate),
+		testRoute("DELETE", "/api/orders/{id}", endpoints.ProtAuthenticated, 13, testGate),
+		testRoute("POST", "/api/accounts", endpoints.ProtAuthenticated, 14, testGate),
+		testRoute("POST", "/api/funds/transfer", endpoints.ProtPublic, 20),
+	)
+	if len(fs) != 1 || fs[0].Rule.ID != endpoints.RuleSensitiveRoutePublic {
+		t.Fatalf("public transfer must be the ERROR, not rule 1: %+v", fs)
+	}
+	if got := fs[0].Metadata["endpoint"]; got != "POST /api/funds/transfer" {
+		t.Fatalf("metadata endpoint = %v", got)
+	}
+}
+
+func TestAnalyzePublicByDesignSkipsOnlyRuleOne(t *testing.T) {
+	fs := analyzeDefault(t,
+		testRoute("POST", "/api/orders", endpoints.ProtAuthenticated, 10, testGate),
+		testRoute("PUT", "/api/orders/{id}", endpoints.ProtAuthenticated, 11, testGate),
+		testRoute("PATCH", "/api/orders/{id}", endpoints.ProtAuthenticated, 12, testGate),
+		testRoute("DELETE", "/api/orders/{id}", endpoints.ProtAuthenticated, 13, testGate),
+		testRoute("POST", "/api/accounts", endpoints.ProtAuthenticated, 14, testGate),
+		testRoute("POST", "/api/v1/registration", endpoints.ProtPublic, 20),
+		testRoute("POST", "/api/v2/registration", endpoints.ProtPublic, 21),
+		testRoute("POST", "/registration/validate-account", endpoints.ProtPublic, 22),
+		testRoute("POST", "/api/v1/auth/reset-password", endpoints.ProtPublic, 23),
+		testRoute("POST", "/api/reports", endpoints.ProtPublic, 24),
+	)
+	if len(fs) != 2 {
+		t.Fatalf("want rule 1 for reports and rule 2 for reset-password, got %+v", fs)
+	}
+	if fs[0].Rule.ID != endpoints.RuleSensitiveRoutePublic || *fs[0].Location.StartLine != 23 {
+		t.Fatalf("public-by-design sensitive path must stay rule 2: %+v", fs[0])
+	}
+	if fs[1].Rule.ID != endpoints.RuleUnprotectedAmongProtected || *fs[1].Location.StartLine != 24 {
+		t.Fatalf("onboarding must not silence rule 1 for other routes: %+v", fs[1])
+	}
+}
+
+func TestAnalyzeSelfServiceWithoutParameterHasNoFinding(t *testing.T) {
+	fs := analyzeDefault(t,
+		testRoute("DELETE", "/api/admin/sessions", endpoints.ProtRole, 18,
+			`main.go:18 middleware RequireRole("admin") on group /admin`),
+		testRoute("POST", "/api/account/change-password", endpoints.ProtAuthenticated, 20, testGate),
+		testRoute("POST", "/api/account/update-email", endpoints.ProtAuthenticated, 21, testGate),
+		testRoute("POST", "/api/users/{id}/change-password", endpoints.ProtAuthenticated, 22, testGate),
+		testRoute("POST", "/api/admin/change-password", endpoints.ProtAuthenticated, 23, testGate),
+	)
+	if len(fs) != 2 {
+		t.Fatalf("want only the two routes that act on another account, got %+v", fs)
+	}
+	for i, line := range []int{22, 23} {
+		if fs[i].Rule.ID != endpoints.RuleSensitiveRouteWithoutRole || *fs[i].Location.StartLine != line {
+			t.Fatalf("finding %d = %+v", i, fs[i])
+		}
+	}
+}
+
 func TestAnalyzeRoleRuleNeedsARoleRoute(t *testing.T) {
 	fs := analyzeDefault(t,
 		testRoute("PUT", "/api/admin/roles/{id}", endpoints.ProtAuthenticated, 24, testGate),

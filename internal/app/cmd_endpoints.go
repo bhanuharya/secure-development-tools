@@ -8,7 +8,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bhanuharya/secure-development-tools/internal/config"
 	"github.com/bhanuharya/secure-development-tools/internal/endpoints"
 )
 
@@ -47,18 +46,15 @@ func newEndpointsCmd() *cobra.Command {
 				return failf(ExitInvalidInput, "unknown format %q (want json|csv|table)", format)
 			}
 
-			// Convention thresholds come from the same repo config sdt scan
-			// reads (--config, else .secure-dev.yaml when present).
-			convCfg := config.Defaults().Endpoints
-			if findingsPath != "" {
-				cfg, _, _, _, err := effectiveConfig()
-				if err != nil {
-					return err
-				}
-				convCfg = cfg.Endpoints
+			// Convention thresholds and gate names come from the same repo
+			// config sdt scan reads (--config, else .secure-dev.yaml when present).
+			cfg, _, _, _, err := effectiveConfig()
+			if err != nil {
+				return err
 			}
+			convCfg := cfg.Endpoints
 
-			inv, err := endpoints.BuildInventory(dir)
+			inv, err := endpoints.BuildInventory(dir, convCfg)
 			if err != nil {
 				// Engine/config failures are execution failures (exit 3), not
 				// bad user input: the directory was valid.

@@ -166,6 +166,21 @@
       "service": ".",
       "framework": "gin",
       "method": "POST",
+      "path": "/api/reports",
+      "handler": "buildReport",
+      "file": "main.go",
+      "line": 25,
+      "protection": "public",
+      "evidence": [
+        "main.go:25 no gate middleware on the route",
+        "main.go:7 middleware Logger on router (does not match the gate list)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
       "path": "/api/v1/login",
       "handler": "login",
       "file": "main.go",
@@ -180,7 +195,7 @@
   ],
   "summary": {
     "authenticated": 8,
-    "public": 3,
+    "public": 4,
     "role": 1
   }
 }

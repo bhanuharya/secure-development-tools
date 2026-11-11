@@ -22,4 +22,5 @@ func main() {
 	r.POST("/api/v1/login", login)
 	r.GET("/api/admin/users", listUsers)
 	r.PUT("/api/admin/roles/:id", AuthMiddleware(), updateRole)
+	r.POST("/api/reports", buildReport)
 }

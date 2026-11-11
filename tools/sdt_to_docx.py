@@ -56,6 +56,11 @@ HOTSPOT_STATUS = {("TO_REVIEW", ""): "To review", ("REVIEWED", "FIXED"): "Fixed"
 ISSUE_STATUS = {"OPEN": "Open", "CONFIRMED": "Confirmed", "REOPENED": "Open", "ACCEPTED": "Accepted",
                 "FALSE_POSITIVE": "False positive", "FIXED": "Fixed", "RESOLVED": "Resolved"}
 TEST_PATH = re.compile(r"(^|/)(test|tests|spec|__tests__|integration_test)(/|$)|[._-](test|spec)\.[a-z]+$", re.I)
+# The default public-by-design list of internal/endpoints/analyze.go (SPEC §7): these POST routes
+# are intentionally reachable without a session, so the report does not count them as unprotected.
+ENDPOINT_PUBLIC_PATH = re.compile(
+    r"(?i)(login|logout|signin|sign-in|signup|sign-up|register$|registration|authenticate|/auth(/|$)"
+    r"|/token|refresh|forgot|otp|callback|webhook|notify|health|ping|public|captcha|metrics|/swagger|/docs)")
 # The default sensitive path list of internal/endpoints/analyze.go (SPEC §7). endpoints.json does
 # not record configured extra paths, so the report applies the default list.
 ENDPOINT_SENSITIVE_PATH = re.compile(
@@ -223,7 +228,9 @@ class EndpointsInventory:
     routes: list[EndpointRoute]
 
     def public_state_changing(self) -> list[EndpointRoute]:
-        return [r for r in self.routes if r.protection == "public" and r.method in ENDPOINT_STATE_CHANGING]
+        return [r for r in self.routes
+                if r.protection == "public" and r.method in ENDPOINT_STATE_CHANGING
+                and not ENDPOINT_PUBLIC_PATH.search(r.path)]
 
     def sensitive(self) -> list[EndpointRoute]:
         return [r for r in self.routes if ENDPOINT_SENSITIVE_PATH.search(r.path)]

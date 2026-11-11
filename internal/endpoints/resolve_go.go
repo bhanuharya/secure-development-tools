@@ -9,9 +9,8 @@ import (
 	"strings"
 )
 
-// Default gate list from SPEC §5; config overrides arrive in T08.
+// Role list from SPEC §5; the gate list lives in gates.go.
 var (
-	gateRe   = regexp.MustCompile(`(?i)(auth|jwt|bearer|token|protect|guard|session|login|verify|permission|rbac|acl|role|admin|require)`)
 	roleRe   = regexp.MustCompile(`(?i)(role|authority|adminonly|admin_only|admin-only)`)
 	quotedRe = regexp.MustCompile(`"([^"]+)"`)
 	colonRe  = regexp.MustCompile(`(^|/):([A-Za-z_][A-Za-z0-9_]*)`)
@@ -21,11 +20,11 @@ var (
 
 // resolveFacts sends each fact file to the resolver for its language. Facts
 // are always resolved per file, so one dispatcher keeps both families apart.
-func resolveFacts(facts []Fact, root string) ([]Route, []string) {
-	goRoutes, goUnresolved := resolveGo(facts, root)
+func resolveFacts(facts []Fact, root string, gates *gateMatcher) ([]Route, []string) {
+	goRoutes, goUnresolved := resolveGo(facts, root, gates)
 	springRoutes, springUnresolved := resolveSpring(facts, root)
-	jsRoutes, jsUnresolved := resolveJS(facts, root)
-	pyRoutes, pyUnresolved := resolvePython(facts, root)
+	jsRoutes, jsUnresolved := resolveJS(facts, root, gates)
+	pyRoutes, pyUnresolved := resolvePython(facts, root, gates)
 	routes := append(append(append(goRoutes, springRoutes...), jsRoutes...), pyRoutes...)
 	return routes, append(append(append(goUnresolved, springUnresolved...), jsUnresolved...), pyUnresolved...)
 }
@@ -33,7 +32,7 @@ func resolveFacts(facts []Fact, root string) ([]Route, []string) {
 // resolveGo turns Go route facts into routes. Groups, Use and the same-file
 // scope model live in resolve_go_scope.go; this file interprets each
 // framework's argument order and decides protection.
-func resolveGo(facts []Fact, root string) ([]Route, []string) {
+func resolveGo(facts []Fact, root string, gates *gateMatcher) ([]Route, []string) {
 	byFile := map[string][]Fact{}
 	for _, f := range facts {
 		if !strings.HasSuffix(f.File, ".go") {
@@ -50,7 +49,7 @@ func resolveGo(facts []Fact, root string) ([]Route, []string) {
 	var routes []Route
 	var unresolved []string
 	for _, file := range files {
-		fr := newFileResolver(file, byFile[file], root)
+		fr := newFileResolver(file, byFile[file], root, gates)
 		routes = append(routes, fr.resolveRoutes()...)
 		unresolved = append(unresolved, fr.unknown...)
 	}
@@ -176,7 +175,7 @@ func decide(fr *fileResolver, line int, routeMW []mwRef, state *routeState) (Pro
 	var evidence, roles []string
 	authenticated, role := false, false
 	for _, mw := range chain {
-		if !gateRe.MatchString(mw.expr) {
+		if !fr.matcher.re.MatchString(mw.expr) {
 			continue
 		}
 		authenticated = true
@@ -198,7 +197,7 @@ func decide(fr *fileResolver, line int, routeMW []mwRef, state *routeState) (Pro
 	}
 	evidence = append(evidence, fmt.Sprintf("%s:%d no gate middleware on the route", fr.file, line))
 	for _, mw := range chain {
-		if !gateRe.MatchString(mw.expr) {
+		if !fr.matcher.re.MatchString(mw.expr) {
 			evidence = append(evidence, evidenceLine(mw)+" (does not match the gate list)")
 		}
 	}

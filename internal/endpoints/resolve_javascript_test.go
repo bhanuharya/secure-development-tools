@@ -81,7 +81,7 @@ func TestJSKeepsOnlyServerReceivers(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			routes, _ := resolveJS(tc.facts, t.TempDir())
+			routes, _ := resolveJS(tc.facts, t.TempDir(), defaultGates)
 			if len(routes) != tc.routes {
 				t.Fatalf("got %d routes, want %d", len(routes), tc.routes)
 			}
@@ -102,7 +102,7 @@ func TestJSSkipsFrontendAndTestFiles(t *testing.T) {
 	for _, file := range files {
 		t.Run(file, func(t *testing.T) {
 			facts := []Fact{jsRouteFact(file, 5, "api", "get", "'/items'")}
-			routes, unresolved := resolveJS(facts, t.TempDir())
+			routes, unresolved := resolveJS(facts, t.TempDir(), defaultGates)
 			if len(routes) != 0 || len(unresolved) != 0 {
 				t.Fatalf("got %d routes and %d sentences, want 0 and 0", len(routes), len(unresolved))
 			}
@@ -113,13 +113,13 @@ func TestJSSkipsFrontendAndTestFiles(t *testing.T) {
 			{Kind: "frontend_import", File: "account.ts", Line: 1},
 			jsRouteFact("account.ts", 5, "api", "get", "'/items'"),
 		}
-		if routes, _ := resolveJS(facts, t.TempDir()); len(routes) != 0 {
+		if routes, _ := resolveJS(facts, t.TempDir(), defaultGates); len(routes) != 0 {
 			t.Fatalf("got %d routes, want 0", len(routes))
 		}
 	})
 	t.Run("server file is kept", func(t *testing.T) {
 		facts := []Fact{jsRouteFact("internal/orders.ts", 5, "api", "get", "'/items'")}
-		if routes, _ := resolveJS(facts, t.TempDir()); len(routes) != 1 {
+		if routes, _ := resolveJS(facts, t.TempDir(), defaultGates); len(routes) != 1 {
 			t.Fatalf("got %d routes, want 1", len(routes))
 		}
 	})
@@ -164,7 +164,7 @@ func TestNestGlobalGuard(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			routes, unresolved := resolveJS(tc.facts, t.TempDir())
+			routes, unresolved := resolveJS(tc.facts, t.TempDir(), defaultGates)
 			if len(routes) != 1 {
 				t.Fatalf("got %d routes, want 1", len(routes))
 			}
