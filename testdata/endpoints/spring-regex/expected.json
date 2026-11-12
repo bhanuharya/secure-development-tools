@@ -12,7 +12,7 @@
       "line": 13,
       "protection": "unknown",
       "evidence": [
-        "Security.java:9 .antMatchers(\"/archive/{id:[0-9}\").authenticated() (constraint cannot be evaluated)"
+        "Security.java:9 .antMatchers(...).authenticated(...) (constraint cannot be evaluated)"
       ],
       "confidence": "low"
     },
@@ -26,7 +26,7 @@
       "line": 10,
       "protection": "authenticated",
       "evidence": [
-        "Security.java:8 .antMatchers(\"/internal/{id:[0-9]+}\").authenticated()"
+        "Security.java:8 .antMatchers(...).authenticated(...)"
       ],
       "confidence": "high"
     },
@@ -40,7 +40,7 @@
       "line": 7,
       "protection": "public",
       "evidence": [
-        "Security.java:10 .anyRequest().permitAll()"
+        "Security.java:10 .anyRequest(...).permitAll(...)"
       ],
       "confidence": "high"
     }

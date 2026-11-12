@@ -15,7 +15,7 @@
         "admin:write"
       ],
       "evidence": [
-        "SecurityConfig.java:10 .antMatchers(\"/api/admin/**\").hasAuthority(\"admin:write\")"
+        "SecurityConfig.java:10 .antMatchers(...).hasAuthority(...)"
       ],
       "confidence": "high"
     },
@@ -32,7 +32,7 @@
         "admin:write"
       ],
       "evidence": [
-        "SecurityConfig.java:10 .antMatchers(\"/api/admin/**\").hasAuthority(\"admin:write\")"
+        "SecurityConfig.java:10 .antMatchers(...).hasAuthority(...)"
       ],
       "confidence": "high"
     },
@@ -46,7 +46,7 @@
       "line": 16,
       "protection": "public",
       "evidence": [
-        "SecurityConfig.java:13 .antMatchers(\"/api/catalog/**\").permitAll()"
+        "SecurityConfig.java:13 .antMatchers(...).permitAll(...)"
       ],
       "confidence": "high"
     },
@@ -60,7 +60,7 @@
       "line": 11,
       "protection": "authenticated",
       "evidence": [
-        "SecurityConfig.java:14 .antMatchers(\"/api/**\").authenticated()"
+        "SecurityConfig.java:14 .antMatchers(...).authenticated(...)"
       ],
       "confidence": "high"
     },
@@ -74,7 +74,7 @@
       "line": 17,
       "protection": "authenticated",
       "evidence": [
-        "SecurityConfig.java:14 .antMatchers(\"/api/**\").authenticated()"
+        "SecurityConfig.java:14 .antMatchers(...).authenticated(...)"
       ],
       "confidence": "high"
     },
@@ -91,7 +91,7 @@
         "ADMIN"
       ],
       "evidence": [
-        "OrdersController.java:21 @PreAuthorize(\"hasRole('ADMIN')\") on cancel"
+        "OrdersController.java:21 @PreAuthorize(...) on cancel"
       ],
       "confidence": "high"
     },
@@ -105,7 +105,7 @@
       "line": 14,
       "protection": "authenticated",
       "evidence": [
-        "SecurityConfig.java:14 .antMatchers(\"/api/**\").authenticated()"
+        "SecurityConfig.java:14 .antMatchers(...).authenticated(...)"
       ],
       "confidence": "high"
     },
@@ -119,7 +119,7 @@
       "line": 13,
       "protection": "authenticated",
       "evidence": [
-        "SecurityConfig.java:14 .antMatchers(\"/api/**\").authenticated()"
+        "SecurityConfig.java:14 .antMatchers(...).authenticated(...)"
       ],
       "confidence": "high"
     },
@@ -133,7 +133,7 @@
       "line": 10,
       "protection": "public",
       "evidence": [
-        "SecurityConfig.java:11 .antMatchers(HttpMethod.POST, \"/api/register\").permitAll()"
+        "SecurityConfig.java:11 .antMatchers(...).permitAll(...)"
       ],
       "confidence": "high"
     },
@@ -147,7 +147,7 @@
       "line": 19,
       "protection": "authenticated",
       "evidence": [
-        "SecurityConfig.java:14 .antMatchers(\"/api/**\").authenticated()"
+        "SecurityConfig.java:14 .antMatchers(...).authenticated(...)"
       ],
       "confidence": "high"
     },
@@ -161,7 +161,7 @@
       "line": 8,
       "protection": "authenticated",
       "evidence": [
-        "SecurityConfig.java:15 .anyRequest().authenticated()"
+        "SecurityConfig.java:15 .anyRequest(...).authenticated(...)"
       ],
       "confidence": "high"
     },
@@ -175,7 +175,7 @@
       "line": 8,
       "protection": "public",
       "evidence": [
-        "SecurityConfig.java:12 .antMatchers(\"/management/health\").permitAll()"
+        "SecurityConfig.java:12 .antMatchers(...).permitAll(...)"
       ],
       "confidence": "high"
     },
@@ -189,7 +189,7 @@
       "line": 11,
       "protection": "public",
       "evidence": [
-        "SecurityConfig.java:12 .antMatchers(\"/management/info\").permitAll()"
+        "SecurityConfig.java:12 .antMatchers(...).permitAll(...)"
       ],
       "confidence": "high"
     }

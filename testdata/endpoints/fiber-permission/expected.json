@@ -12,7 +12,7 @@
       "line": 13,
       "protection": "role",
       "evidence": [
-        "main.go:13 middleware RequirePermission(config.PermissionTransfer)"
+        "main.go:13 middleware RequirePermission(...)"
       ],
       "confidence": "high"
     }

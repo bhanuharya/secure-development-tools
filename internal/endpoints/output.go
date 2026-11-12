@@ -2,17 +2,18 @@ package endpoints
 
 import (
 	"encoding/csv"
-	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/bhanuharya/secure-development-tools/internal/report"
 )
 
 // WriteJSON writes the inventory as indented JSON.
 func WriteJSON(w io.Writer, inv *Inventory) error {
-	raw, err := json.MarshalIndent(sanitizeInventory(inv), "", "  ")
+	raw, err := report.MarshalRedacted(sanitizeInventory(inv))
 	if err != nil {
 		return err
 	}

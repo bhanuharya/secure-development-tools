@@ -221,12 +221,12 @@ func decide(fr *fileResolver, line int, routePath string, routeMW []mwRef, state
 
 func evidenceLine(mw mwRef) string {
 	if mw.place == "wraps the handler" {
-		return fmt.Sprintf("%s:%d handler %s wraps the route handler", mw.file, mw.line, mw.expr)
+		return fmt.Sprintf("%s:%d handler %s wraps the route handler", mw.file, mw.line, omitCallArguments(mw.expr))
 	}
 	if mw.place != "" {
-		return fmt.Sprintf("%s:%d middleware %s %s", mw.file, mw.line, displayMW(mw.expr), mw.place)
+		return fmt.Sprintf("%s:%d middleware %s %s", mw.file, mw.line, omitCallArguments(displayMW(mw.expr)), mw.place)
 	}
-	return fmt.Sprintf("%s:%d middleware %s", mw.file, mw.line, displayMW(mw.expr))
+	return fmt.Sprintf("%s:%d middleware %s", mw.file, mw.line, omitCallArguments(displayMW(mw.expr)))
 }
 
 // displayMW drops the parentheses of zero-argument middleware so evidence

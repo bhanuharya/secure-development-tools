@@ -609,7 +609,7 @@ func (js *jsResolver) rolesFor(class, key string) ([]string, []string) {
 	var names, evidence []string
 	for _, r := range roles {
 		names = append(names, r.values...)
-		evidence = append(evidence, fmt.Sprintf("%s:%d @Roles(%s) on %s %s", js.file, r.line, quoteList(r.values), scope, owner))
+		evidence = append(evidence, fmt.Sprintf("%s:%d @Roles(%s) on %s %s", js.file, r.line, "...", scope, owner))
 	}
 	return dedupe(names), evidence
 }
@@ -617,7 +617,7 @@ func (js *jsResolver) rolesFor(class, key string) ([]string, []string) {
 func guardEvidence(file string, gates []jsFactValue, scope, owner string) []string {
 	var out []string
 	for _, g := range gates {
-		out = append(out, fmt.Sprintf("%s:%d @UseGuards(%s) on %s %s", file, g.line, strings.Join(g.values, ", "), scope, owner))
+		out = append(out, fmt.Sprintf("%s:%d @UseGuards(%s) on %s %s", file, g.line, "...", scope, owner))
 	}
 	return out
 }

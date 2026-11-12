@@ -13,7 +13,7 @@
       "protection": "public",
       "evidence": [
         "app.js:27 no gate middleware on the route",
-        "app.js:10 middleware express.json on app (does not match the gate list)"
+        "app.js:10 middleware express.json on app (...)"
       ],
       "confidence": "high"
     },
@@ -56,7 +56,7 @@
       "protection": "public",
       "evidence": [
         "app.js:16 no gate middleware on the route",
-        "app.js:10 middleware express.json on app (does not match the gate list)"
+        "app.js:10 middleware express.json on app (...)"
       ],
       "confidence": "high"
     },
@@ -71,7 +71,7 @@
       "protection": "public",
       "evidence": [
         "app.js:17 no gate middleware on the route",
-        "app.js:10 middleware express.json on app (does not match the gate list)"
+        "app.js:10 middleware express.json on app (...)"
       ],
       "confidence": "high"
     },
@@ -116,7 +116,7 @@
         "admin"
       ],
       "evidence": [
-        "app.js:23 middleware requireRole('admin')",
+        "app.js:23 middleware requireRole(...)",
         "app.js:20 middleware verifyJwt on mount /api/orders"
       ],
       "confidence": "high"
@@ -146,7 +146,7 @@
       "protection": "public",
       "evidence": [
         "app.js:12 no gate middleware on the route",
-        "app.js:10 middleware express.json on app (does not match the gate list)"
+        "app.js:10 middleware express.json on app (...)"
       ],
       "confidence": "high"
     }

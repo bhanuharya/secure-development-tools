@@ -564,7 +564,7 @@ def merge(sonar: dict, sdt: dict | None) -> dict:
 # ------------------------------------------------------------------------ helpers
 def _shown(lines: list[str], numbers: range, path: str, flagged: set, credential: bool) -> dict[int, str]:
     """The source lines of one excerpt as the report shows them: no credential value, whatever kind of file."""
-    shown = sdt_advisory.redact_lines({n: lines[n - 1].rstrip() for n in numbers}, path, flagged if credential else set())
+    shown = sdt_advisory.redact_lines(dict(enumerate(lines, 1)), path, flagged if credential else set())
     return {n: text[:160] for n, text in shown.items()}
 
 
@@ -1615,8 +1615,27 @@ def retheme(theme: str) -> str:
     return re.sub(r'(<a:minorFont>\s*<a:latin typeface=")[^"]*', rf"\g<1>{BODY_FONT}", theme)
 
 
+def _redact_report(report: Report, src_root: Path | None) -> tuple[Report, set]:
+    withheld: set = set()
+    # Complete files retain credential context even when a rendered snippet starts inside a map.
+    if src_root:
+        root = src_root.resolve()
+        for path in {o.path for g in report.code for o in g.occurrences}:
+            target = (root / path).resolve()
+            if root in target.parents and target.is_file():
+                sdt_advisory.redact(target.read_text(encoding="utf-8", errors="replace"), path, withheld)
+    return sdt_advisory.redact_tree(report, withheld), withheld
+
+
+def _safe_xml(data: str, withheld: set) -> str:
+    # Run after XML escaping as well, including headers, footers and link attributes.
+    return sdt_advisory.scrub(data, {escaped for value in withheld
+                                   for escaped in (escape(value), escape(value, {chr(34): "&quot;"}))})
+
+
 def write_docx(report: Report, src_root: Path | None, out: Path, template: Path = TEMPLATE,
                logo: Path | None = LOGO) -> None:
+    report, withheld = _redact_report(report, src_root)
     logo_data = logo.read_bytes() if logo and logo.is_file() else b""
     size = png_size(logo_data) if logo_data else None
     markup, links = body(report, src_root, logo_run("rIdLogo", size, 2.2, 101) if size else "")
@@ -1659,8 +1678,8 @@ def write_docx(report: Report, src_root: Path | None, out: Path, template: Path 
                                                 '"application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/></Types>')
                 if size and 'Extension="png"' not in data:
                     data = data.replace("<Default ", '<Default Extension="png" ContentType="image/png"/><Default ', 1)
-            dst.writestr(item, data)
-        dst.writestr("word/header1.xml", header)
+            dst.writestr(item, _safe_xml(data, withheld))
+        dst.writestr("word/header1.xml", _safe_xml(header, withheld))
         if size:
             dst.writestr("word/media/logo.png", logo_data)
             dst.writestr("word/_rels/header1.xml.rels",

@@ -15,7 +15,7 @@
         "admin"
       ],
       "evidence": [
-        "app.py:32 decorator @roles_required(\"admin\") on create_user"
+        "app.py:32 decorator @roles_required(...) on create_user"
       ],
       "confidence": "high"
     },
@@ -117,7 +117,7 @@
         "operator"
       ],
       "evidence": [
-        "app.py:44 decorator @roles_required(\"admin\", \"operator\") on update_roles"
+        "app.py:44 decorator @roles_required(...) on update_roles"
       ],
       "confidence": "high"
     }

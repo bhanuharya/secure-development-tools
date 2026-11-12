@@ -604,7 +604,7 @@ func writeArtifacts(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.P
 		RunID:         runID, PlanID: p.PlanID, Status: status,
 		Findings: findings, Policy: out, GeneratedAt: report.NowUTC(),
 	}
-	cJSON, _ := json.MarshalIndent(canonical, "", "  ")
+	cJSON, _ := report.MarshalRedacted(canonical)
 	sarif := report.ToSARIF(findings)
 
 	var tools []report.ToolIdentity

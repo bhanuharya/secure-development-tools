@@ -2,13 +2,13 @@ package app
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/bhanuharya/secure-development-tools/internal/endpoints"
+	"github.com/bhanuharya/secure-development-tools/internal/report"
 )
 
 func newEndpointsCmd() *cobra.Command {
@@ -65,7 +65,7 @@ func newEndpointsCmd() *cobra.Command {
 				if err != nil {
 					return failf(ExitInvalidInput, "endpoint convention config: %v", err)
 				}
-				raw, err := json.MarshalIndent(findings, "", "  ")
+				raw, err := report.MarshalRedacted(findings)
 				if err != nil {
 					return failf(ExitInternalError, "render convention findings: %v", err)
 				}

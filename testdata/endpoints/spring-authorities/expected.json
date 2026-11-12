@@ -16,7 +16,7 @@
         "AuthoritiesConstants.CS"
       ],
       "evidence": [
-        "Controller.java:9 @PreAuthorize(\"hasAnyAuthority(\\\"\"+AuthoritiesConstants.ADMIN+\"\\\", \\\"\"+AuthoritiesConstants.CS+\"\\\")\") on accounts"
+        "Controller.java:9 @PreAuthorize(...) on accounts"
       ],
       "confidence": "medium"
     },
@@ -33,7 +33,7 @@
         "AuthoritiesConstants.ADMIN"
       ],
       "evidence": [
-        "Controller.java:13 @PreAuthorize(\"hasAuthority(\\\"\"+AuthoritiesConstants.ADMIN+\"\\\")\") on audit"
+        "Controller.java:13 @PreAuthorize(...) on audit"
       ],
       "confidence": "medium"
     },
@@ -47,7 +47,7 @@
       "line": 16,
       "protection": "authenticated",
       "evidence": [
-        "Controller.java:17 @PreAuthorize(\"isAuthenticated()\") on transfer"
+        "Controller.java:17 @PreAuthorize(...) on transfer"
       ],
       "confidence": "high"
     }

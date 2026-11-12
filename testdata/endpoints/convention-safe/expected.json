@@ -29,7 +29,7 @@
         "admin"
       ],
       "evidence": [
-        "main.go:18 middleware RequireRole(\"admin\") on group /admin",
+        "main.go:18 middleware RequireRole(...) on group /admin",
         "main.go:9 middleware AuthMiddleware on group /api"
       ],
       "confidence": "high"
@@ -47,7 +47,7 @@
         "admin"
       ],
       "evidence": [
-        "main.go:18 middleware RequireRole(\"admin\") on group /admin",
+        "main.go:18 middleware RequireRole(...) on group /admin",
         "main.go:9 middleware AuthMiddleware on group /api"
       ],
       "confidence": "high"
@@ -65,7 +65,7 @@
         "admin"
       ],
       "evidence": [
-        "main.go:18 middleware RequireRole(\"admin\") on group /admin",
+        "main.go:18 middleware RequireRole(...) on group /admin",
         "main.go:9 middleware AuthMiddleware on group /api"
       ],
       "confidence": "high"
@@ -165,7 +165,7 @@
       "protection": "public",
       "evidence": [
         "main.go:24 no gate middleware on the route",
-        "main.go:7 middleware Logger on router (does not match the gate list)"
+        "main.go:7 middleware Logger on router (...)"
       ],
       "confidence": "high"
     },
@@ -180,7 +180,7 @@
       "protection": "public",
       "evidence": [
         "main.go:25 no gate middleware on the route",
-        "main.go:7 middleware Logger on router (does not match the gate list)"
+        "main.go:7 middleware Logger on router (...)"
       ],
       "confidence": "high"
     }

@@ -12,7 +12,7 @@
       "line": 17,
       "protection": "authenticated",
       "evidence": [
-        "main.py:8 APIRouter dependencies [Depends(verify_token)] on router router"
+        "main.py:8 APIRouter dependencies [Depends(...)] on router router"
       ],
       "confidence": "high"
     },
@@ -29,9 +29,9 @@
         "admin"
       ],
       "evidence": [
-        "main.py:27 route dependencies [Depends(require_admin)] on create_item",
-        "main.py:27 parameter user=Depends(require_user) on create_item",
-        "main.py:8 APIRouter dependencies [Depends(verify_token)] on router router"
+        "main.py:27 route dependencies [Depends(...)] on create_item",
+        "main.py:27 parameter user=Depends(...) on create_item",
+        "main.py:8 APIRouter dependencies [Depends(...)] on router router"
       ],
       "confidence": "high"
     },
@@ -48,8 +48,8 @@
         "admin"
       ],
       "evidence": [
-        "main.py:32 parameter user=Security(require_admin) on delete_item",
-        "main.py:8 APIRouter dependencies [Depends(verify_token)] on router router"
+        "main.py:32 parameter user=Security(...) on delete_item",
+        "main.py:8 APIRouter dependencies [Depends(...)] on router router"
       ],
       "confidence": "high"
     },
@@ -63,7 +63,7 @@
       "line": 22,
       "protection": "authenticated",
       "evidence": [
-        "main.py:8 APIRouter dependencies [Depends(verify_token)] on router router"
+        "main.py:8 APIRouter dependencies [Depends(...)] on router router"
       ],
       "confidence": "high"
     },
@@ -77,8 +77,8 @@
       "line": 37,
       "protection": "authenticated",
       "evidence": [
-        "main.py:37 parameter user=Depends(require_user) on update_widget",
-        "main.py:48 include_router dependencies [Depends(require_api_key)] on mount /beta"
+        "main.py:37 parameter user=Depends(...) on update_widget",
+        "main.py:48 include_router dependencies [Depends(...)] on mount /beta"
       ],
       "confidence": "high"
     },

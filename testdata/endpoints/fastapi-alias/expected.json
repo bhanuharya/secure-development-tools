@@ -26,7 +26,7 @@
       "line": 7,
       "protection": "authenticated",
       "evidence": [
-        "main.py:7 route dependencies [Depends(require_auth)] on update"
+        "main.py:7 route dependencies [Depends(...)] on update"
       ],
       "confidence": "high"
     }

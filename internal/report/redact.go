@@ -23,7 +23,7 @@ var credentialPatterns = []*regexp.Regexp{
 
 // Redact replaces credential-like values and exact secret tokens.
 func Redact(text string, secrets ...string) string {
-	out := text
+	out := redactSource(text, nil)
 	for _, s := range secrets {
 		if len(s) >= 4 && strings.Contains(out, s) {
 			out = strings.ReplaceAll(out, s, "[REDACTED]")

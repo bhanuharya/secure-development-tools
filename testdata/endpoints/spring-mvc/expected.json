@@ -12,7 +12,7 @@
       "line": 33,
       "protection": "authenticated",
       "evidence": [
-        "AccountsController.java:10 @PreAuthorize(\"isAuthenticated()\") on class AccountsController"
+        "AccountsController.java:10 @PreAuthorize(...) on class AccountsController"
       ],
       "confidence": "high"
     },
@@ -26,7 +26,7 @@
       "line": 12,
       "protection": "authenticated",
       "evidence": [
-        "AccountsController.java:10 @PreAuthorize(\"isAuthenticated()\") on class AccountsController"
+        "AccountsController.java:10 @PreAuthorize(...) on class AccountsController"
       ],
       "confidence": "high"
     },
@@ -40,7 +40,7 @@
       "line": 28,
       "protection": "authenticated",
       "evidence": [
-        "AccountsController.java:10 @PreAuthorize(\"isAuthenticated()\") on class AccountsController"
+        "AccountsController.java:10 @PreAuthorize(...) on class AccountsController"
       ],
       "confidence": "high"
     },
@@ -58,7 +58,7 @@
         "SUPPORT"
       ],
       "evidence": [
-        "AccountsController.java:18 @PreAuthorize(\"hasAnyRole('ADMIN', 'SUPPORT')\") on close"
+        "AccountsController.java:18 @PreAuthorize(...) on close"
       ],
       "confidence": "high"
     },
@@ -72,7 +72,7 @@
       "line": 23,
       "protection": "authenticated",
       "evidence": [
-        "AccountsController.java:10 @PreAuthorize(\"isAuthenticated()\") on class AccountsController"
+        "AccountsController.java:10 @PreAuthorize(...) on class AccountsController"
       ],
       "confidence": "high"
     },
@@ -103,7 +103,7 @@
         "ADMIN"
       ],
       "evidence": [
-        "OrdersController.java:24 @PreAuthorize(\"hasRole('ADMIN')\") on create"
+        "OrdersController.java:24 @PreAuthorize(...) on create"
       ],
       "confidence": "high"
     },
@@ -121,7 +121,7 @@
         "AUDITOR"
       ],
       "evidence": [
-        "OrdersController.java:36 @RolesAllowed({\"ROLE_ADMIN\", \"ROLE_AUDITOR\"}) on delete"
+        "OrdersController.java:36 @RolesAllowed(...) on delete"
       ],
       "confidence": "high"
     },
@@ -152,7 +152,7 @@
         "orders.write"
       ],
       "evidence": [
-        "OrdersController.java:30 @PreAuthorize(\"hasAuthority('orders.write')\") on update"
+        "OrdersController.java:30 @PreAuthorize(...) on update"
       ],
       "confidence": "high"
     },
@@ -169,7 +169,7 @@
         "OPERATOR"
       ],
       "evidence": [
-        "OrdersController.java:42 @Secured(\"ROLE_OPERATOR\") on updateStatus"
+        "OrdersController.java:42 @Secured(...) on updateStatus"
       ],
       "confidence": "high"
     }

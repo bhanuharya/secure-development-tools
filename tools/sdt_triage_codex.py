@@ -45,7 +45,7 @@ DEFAULT_MODEL = "gpt-6.1-sol"
 VERDICTS = ("likely_true_positive", "likely_false_positive", "needs_context")
 CONFIDENCE = ("low", "medium", "high")
 CONTEXT_LINES = 64  # lines of surrounding code: enough to see where a flagged value comes from and how it is sanitised
-PROMPT_VERSION = "6"  # part of every remembered verdict: change it when the prompt or context changes
+PROMPT_VERSION = "7"  # part of every remembered verdict: change it when the prompt or context changes
 MAX_REASON = 400
 MAX_PER_CALL = 6
 GUIDANCE_TEXT = ("impact", "verify_fix")
@@ -79,7 +79,7 @@ RESPONSE_SCHEMA = {
     },
 }
 
-from sdt_advisory import CREDENTIAL_RULE, redact, redact_lines, scrub  # noqa: E402  (one redaction for prompts and reports)
+from sdt_advisory import CREDENTIAL_RULE, redact, redact_evidence, redact_lines, redact_tree, scrub  # noqa: E402  (one redaction for prompts and reports)
 
 
 MAX_BLOCK_LINES = 200
@@ -186,8 +186,7 @@ def context(src_root: Path | None, occurrence: sdt_to_docx.Occurrence, credentia
     else:
         start, end = max(0, index - CONTEXT_LINES), min(len(lines) - 1, index + CONTEXT_LINES)
     related = related_lines(lines, index, start, end)
-    wanted = [n for low, high in [(start, end)] + related for n in range(low, high + 1)]
-    shown = redact_lines({n: lines[n].rstrip() for n in wanted}, occurrence.path, {index} if credential else set(),
+    shown = redact_lines(dict(enumerate(lines)), occurrence.path, {index} if credential else set(),
                          withheld)
 
     def numbered(low: int, high: int) -> list[str]:
@@ -232,6 +231,7 @@ def evidence_context(src_root: Path | None, evidence: list[str], withheld: set |
     Values withheld here join `withheld`, so evidence and the answer cannot give them away."""
     if not src_root:
         return ""
+    evidence = [redact_evidence(item, withheld) for item in evidence]
     root, seen, blocks = src_root.resolve(), set(), []
     for path, number in EVIDENCE_LOCATION.findall("\n".join(evidence)):
         line = int(number)
@@ -246,7 +246,7 @@ def evidence_context(src_root: Path | None, evidence: list[str], withheld: set |
         if not 1 <= line <= len(lines):
             continue
         indices = range(max(0, line - 4), min(len(lines), line + 3))
-        shown = redact_lines({n: lines[n] for n in indices}, path, withheld=withheld)
+        shown = redact_lines(dict(enumerate(lines)), path, withheld=withheld)
         blocks.append(f"// {path}:{line}\n" + "\n".join(
             f"{'>' if n == line - 1 else ' '}{n + 1:>5}  {shown[n][:200]}" for n in indices))
     return "\n\nEvidence the scanner used:\n" + redact("\n\n".join(blocks)) if blocks else ""
@@ -272,7 +272,7 @@ def sanitise_review(item: dict, path: str = "", withheld: set | None = None) -> 
         for part in GUIDANCE_TEXT + ("fix_steps", "fix_example"):
             if part in result:
                 result[part] = [] if part == "fix_steps" else ""
-    return result
+    return redact_tree(result, withheld)
 
 
 def load_memory(path: Path | None) -> dict:
@@ -297,7 +297,9 @@ def default_memory_path(project: str, environ) -> Path:
 def save_memory(path: Path, entries: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    safe = {key: sanitise_review(value) for key, value in entries.items() if isinstance(value, dict)}
+    hidden: set = set()
+    safe = redact_tree(entries, hidden)
+    safe = {key: sanitise_review(value, withheld=hidden) for key, value in safe.items() if isinstance(value, dict)}
     temporary.write_text(json.dumps({"version": 1, "entries": safe}, indent=1) + "\n")
     temporary.replace(path)
 
@@ -316,7 +318,7 @@ def build_prompt(group: sdt_to_docx.Group, items: list[tuple[str, sdt_to_docx.Oc
     """The review question. Every field is redacted and `withheld` scrubs values the excerpt
     removed, so a scanner message or rule description cannot carry them into the prompt."""
     def clean(text: str) -> str:
-        return scrub(redact(text), withheld)
+        return scrub(redact(text, withheld=withheld), withheld)
 
     risk = clean(" ".join(group.risk)[:1200]) or "(no rule description available)"
     fixes = clean("; ".join(group.fixes)[:600])
@@ -502,19 +504,27 @@ def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, m
               "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
               "calls": 0, "failed_calls": 0, "remembered": 0, "stopped": "", "results": []}
     memory = {} if memory is None else memory
+    all_hidden: set = set()
     evidence = finding_evidence(findings or {})
+
+    def finish():
+        safe_memory = redact_tree(memory, all_hidden)
+        memory.clear()
+        memory.update(safe_memory)
+        return redact_tree(report, all_hidden)
     for group in groups[:max_rules]:
         remaining = budget - (clock() - started)
         if remaining < 10:
             report["stopped"] = "time budget spent"
             break
         items, keys, shown, withheld = collect_reviews(group, src_root, model, max_per_rule, memory, report, evidence)
+        all_hidden.update(set().union(*withheld.values()))
         for offset in range(0, len(items), MAX_PER_CALL):
             # Account for time spent in every batch, even when a rule spans several calls.
             remaining = budget - (clock() - started)
             if remaining < 10:
                 report["stopped"] = "time budget spent"
-                return report
+                return finish()
             report["calls"] += 1
             try:
                 review_batch(group, items[offset:offset + MAX_PER_CALL], keys, shown, memory, report,
@@ -526,13 +536,13 @@ def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, m
                 print(f"sdt_triage_codex: {group.rule}: {reason}", file=sys.stderr)
                 if failures >= max_failures:
                     report["stopped"] = f"{failures} consecutive failed calls (last: {reason[:200]})"
-                    return report
+                    return finish()
                 continue
             failures = 0
         if confirm:
             second_opinions(group, shown, memory, report, codex, model, call,
                             min(per_call_timeout, budget - (clock() - started)), clock=clock, withheld=withheld)
-    return report
+    return finish()
 
 
 def second_opinions(group, shown: dict, memory: dict, report: dict, codex: str, model: str, call, timeout: float,
@@ -620,7 +630,7 @@ def main() -> int:
                     budget=args.budget, max_rules=args.max_rules, max_per_rule=args.max_per_rule,
                     max_failures=args.max_failures, memory=memory, confirm=args.confirm, findings=findings)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(report, indent=2) + "\n")
+    args.out.write_text(json.dumps(redact_tree(report), indent=2) + "\n")
     try:
         save_memory(memory_path, memory)
     except OSError as exc:

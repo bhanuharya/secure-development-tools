@@ -40,7 +40,7 @@
       "line": 8,
       "protection": "authenticated",
       "evidence": [
-        "main.go:8 handler authWrap(listOrders) wraps the route handler"
+        "main.go:8 handler authWrap(...) wraps the route handler"
       ],
       "confidence": "high"
     },

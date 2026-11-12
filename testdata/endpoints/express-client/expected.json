@@ -43,7 +43,7 @@
         "admin"
       ],
       "evidence": [
-        "server.js:15 middleware requireRole('admin')",
+        "server.js:15 middleware requireRole(...)",
         "server.js:10 middleware verifyJwt on mount /api"
       ],
       "confidence": "high"
@@ -73,7 +73,7 @@
       "protection": "public",
       "evidence": [
         "server.js:17 no gate middleware on the route",
-        "server.js:9 middleware express.json on app (does not match the gate list)"
+        "server.js:9 middleware express.json on app (...)"
       ],
       "confidence": "high"
     }

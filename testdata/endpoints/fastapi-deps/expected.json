@@ -12,7 +12,7 @@
       "line": 13,
       "protection": "authenticated",
       "evidence": [
-        "main.py:4 FastAPI application dependencies [Depends(require_auth)] on app"
+        "main.py:4 FastAPI application dependencies [Depends(...)] on app"
       ],
       "confidence": "high"
     },
@@ -26,8 +26,8 @@
       "line": 8,
       "protection": "authenticated",
       "evidence": [
-        "main.py:5 APIRouter dependencies [Depends(require_auth)] on router router",
-        "main.py:4 FastAPI application dependencies [Depends(require_auth)] on app"
+        "main.py:5 APIRouter dependencies [Depends(...)] on router router",
+        "main.py:4 FastAPI application dependencies [Depends(...)] on app"
       ],
       "confidence": "high"
     }

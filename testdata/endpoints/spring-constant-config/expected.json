@@ -12,7 +12,7 @@
       "line": 3,
       "protection": "role",
       "evidence": [
-        "Security.java:6 .requestMatchers(\"/admin/**\").hasAuthority(AuthoritiesConstants.ADMIN)"
+        "Security.java:6 .requestMatchers(...).hasAuthority(...)"
       ],
       "confidence": "medium"
     },
@@ -26,7 +26,7 @@
       "line": 5,
       "protection": "authenticated",
       "evidence": [
-        "Security.java:7 .anyRequest().authenticated()"
+        "Security.java:7 .anyRequest(...).authenticated(...)"
       ],
       "confidence": "high"
     }

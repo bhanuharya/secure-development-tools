@@ -12,7 +12,7 @@
       "line": 10,
       "protection": "authenticated",
       "evidence": [
-        "main.py:10 route dependencies [Depends(require_auth)] on transfer"
+        "main.py:10 route dependencies [Depends(...)] on transfer"
       ],
       "confidence": "high"
     },

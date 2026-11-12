@@ -43,7 +43,7 @@
         "admin"
       ],
       "evidence": [
-        "main.go:16 middleware RequireRole(\"admin\") on group /admin",
+        "main.go:16 middleware RequireRole(...) on group /admin",
         "main.go:7 middleware AuthMiddleware on group /api"
       ],
       "confidence": "high"

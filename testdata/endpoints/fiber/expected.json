@@ -15,7 +15,7 @@
         "admin"
       ],
       "evidence": [
-        "main.go:11 middleware RequireRole(\"admin\") on group /admin"
+        "main.go:11 middleware RequireRole(...) on group /admin"
       ],
       "confidence": "high"
     },
@@ -44,7 +44,7 @@
       "protection": "public",
       "evidence": [
         "main.go:13 no gate middleware on the route",
-        "main.go:7 middleware RequestLogger on router (does not match the gate list)"
+        "main.go:7 middleware RequestLogger on router (...)"
       ],
       "confidence": "high"
     }

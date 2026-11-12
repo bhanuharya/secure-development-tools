@@ -13,7 +13,7 @@
       "protection": "public",
       "evidence": [
         "app.js:6 no gate middleware on the route",
-        "app.js:5 middleware cors({allowedHeaders['Authorization']}) on app (does not match the gate list)"
+        "app.js:5 middleware cors(...) on app (...)"
       ],
       "confidence": "high"
     },
@@ -28,7 +28,7 @@
       "protection": "public",
       "evidence": [
         "main.go:11 no gate middleware on the route",
-        "main.go:10 middleware cors.New(cors Config{AllowOrigins[]string{\"*\"}AllowHeaders[]string{\"Authorization\"}}) on router (does not match the gate list)"
+        "main.go:10 middleware cors.New(...) on router (...)"
       ],
       "confidence": "high"
     }

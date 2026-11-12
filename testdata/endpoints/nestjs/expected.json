@@ -16,8 +16,8 @@
         "support"
       ],
       "evidence": [
-        "accounts.controller.ts:6 @UseGuards(RolesGuard) on method remove",
-        "accounts.controller.ts:7 @Roles(\"admin\", \"support\") on method remove"
+        "accounts.controller.ts:6 @UseGuards(...) on method remove",
+        "accounts.controller.ts:7 @Roles(...) on method remove"
       ],
       "confidence": "high"
     },
@@ -59,7 +59,7 @@
       "line": 7,
       "protection": "authenticated",
       "evidence": [
-        "orders.controller.ts:5 @UseGuards(JwtAuthGuard) on class OrdersController"
+        "orders.controller.ts:5 @UseGuards(...) on class OrdersController"
       ],
       "confidence": "high"
     },
@@ -73,7 +73,7 @@
       "line": 12,
       "protection": "authenticated",
       "evidence": [
-        "orders.controller.ts:5 @UseGuards(JwtAuthGuard) on class OrdersController"
+        "orders.controller.ts:5 @UseGuards(...) on class OrdersController"
       ],
       "confidence": "high"
     },
@@ -87,7 +87,7 @@
       "line": 19,
       "protection": "public",
       "evidence": [
-        "orders.controller.ts:18 @Public() on method health"
+        "orders.controller.ts:18 @Public(...) on method health"
       ],
       "confidence": "high"
     }

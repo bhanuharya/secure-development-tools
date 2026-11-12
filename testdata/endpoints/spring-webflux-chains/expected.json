@@ -12,7 +12,7 @@
       "line": 3,
       "protection": "public",
       "evidence": [
-        "Security.java:12 .anyExchange().permitAll()"
+        "Security.java:12 .anyExchange(...).permitAll(...)"
       ],
       "confidence": "high"
     }

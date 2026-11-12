@@ -47,7 +47,7 @@ func TestMiddlewareCredentialsNeverReachInventoryOrFindings(t *testing.T) {
 	if strings.Contains(string(raw), secret) {
 		t.Fatalf("finding carries the middleware credential: %s", raw)
 	}
-	if !strings.Contains(findings[0].Message, "[REDACTED]") {
+	if !strings.Contains(findings[0].Message, "gin.BasicAuth(...)") {
 		t.Errorf("finding message does not show redaction: %s", findings[0].Message)
 	}
 

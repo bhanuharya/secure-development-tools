@@ -297,7 +297,7 @@ func (py *pyResolver) addRouteDeps(f Fact) {
 		return
 	}
 	line := pyRouteLine(f)
-	evidence := fmt.Sprintf("%s:%d route dependencies %s on %s", py.file, line, deps, handler)
+	evidence := fmt.Sprintf("%s:%d route dependencies %s on %s", py.file, line, omitCallArguments(deps), handler)
 	py.routeDeps[line] = append(py.routeDeps[line], pyGate{expr: deps, evidence: evidence, line: line})
 }
 
@@ -318,7 +318,7 @@ func (py *pyResolver) addDecorator(f Fact) {
 	if decLine := f.MetavarLines["$DEC"]; decLine > 0 {
 		line = decLine
 	}
-	evidence := fmt.Sprintf("%s:%d decorator @%s on %s", py.file, line, expr, handler)
+	evidence := fmt.Sprintf("%s:%d decorator @%s on %s", py.file, line, omitCallArguments(expr), handler)
 	py.gates[handler] = append(py.gates[handler], pyGate{expr: expr, evidence: evidence, line: line, defLine: pyDefLine(f)})
 }
 
@@ -329,7 +329,7 @@ func (py *pyResolver) addParamGate(f Fact) {
 		return
 	}
 	expr := kind + "(" + dep + ")"
-	evidence := fmt.Sprintf("%s:%d parameter %s=%s on %s", py.file, f.Line, param, expr, handler)
+	evidence := fmt.Sprintf("%s:%d parameter %s=%s on %s", py.file, f.Line, param, omitCallArguments(expr), handler)
 	line := f.Line
 	if paramLine := f.MetavarLines["$P"]; paramLine > 0 {
 		line = paramLine
@@ -457,9 +457,9 @@ func (py *pyResolver) mountPrefixes(m pyMount, def *pyDef) []string {
 func (py *pyResolver) defGates(name string, def *pyDef) []pyGate {
 	var gates []pyGate
 	for _, deps := range def.deps {
-		evidence := fmt.Sprintf("%s:%d APIRouter dependencies %s on router %s", py.file, def.line, deps, name)
+		evidence := fmt.Sprintf("%s:%d APIRouter dependencies %s on router %s", py.file, def.line, omitCallArguments(deps), name)
 		if def.kind == "engine" {
-			evidence = fmt.Sprintf("%s:%d FastAPI application dependencies %s on app", py.file, def.line, deps)
+			evidence = fmt.Sprintf("%s:%d FastAPI application dependencies %s on app", py.file, def.line, omitCallArguments(deps))
 		}
 		gates = append(gates, pyGate{expr: deps, evidence: evidence, line: def.line})
 	}
@@ -473,7 +473,7 @@ func (py *pyResolver) mountGates(m pyMount) []pyGate {
 		label = "/"
 	}
 	for _, deps := range m.deps {
-		evidence := fmt.Sprintf("%s:%d %s dependencies %s on mount %s", py.file, m.line, m.call, deps, label)
+		evidence := fmt.Sprintf("%s:%d %s dependencies %s on mount %s", py.file, m.line, m.call, omitCallArguments(deps), label)
 		gates = append(gates, pyGate{expr: deps, evidence: evidence, line: m.line})
 	}
 	return gates
