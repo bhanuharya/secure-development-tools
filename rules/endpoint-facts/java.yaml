@@ -6,8 +6,9 @@
 # untouched. `sdt endpoints` runs only this directory.
 #
 # A class-level mapping and a class-level gate live directly in the class body;
-# a method-level one lives inside a method. The resolver joins them by class
-# name and by "Class.method", so every fact carries those names.
+# a method-level one lives inside a method. The resolver joins a method gate to
+# a route by the handler declaration's end line (overloads share "Class.method",
+# their bodies do not), so both rules carry that span.
 rules:
   # Class-level @RequestMapping prefix. The pattern-not-inside clause keeps the
   # method-level mapping of the same annotation out (both are inside the class).
@@ -130,6 +131,55 @@ rules:
           regex: ^(permitAll|authenticated|hasRole|hasAnyRole|hasAuthority|hasAnyAuthority|denyAll|access|fullyAuthenticated)$
       - focus-metavariable: $PATTERN
 
+  # One SecurityFilterChain bean or WebSecurityConfigurerAdapter.configure
+  # method. The span (first annotation to closing brace) is what assigns the
+  # matcher and @Order facts of the same method to this chain.
+  - id: fact.java.security_chain
+    languages: [java]
+    severity: INFO
+    message: Spring Security filter chain
+    metadata:
+      fact: security_chain
+    patterns:
+      - pattern-inside: |
+          class $C { ... }
+      - pattern-either:
+          - pattern: |
+              SecurityFilterChain $M(HttpSecurity $HTTP) { ... }
+          - pattern: |
+              $RET configure(HttpSecurity $HTTP) { ... }
+
+  # A chain's @Order. Kept separate from the method pattern so the annotation
+  # can sit before or after @Bean and still be read.
+  - id: fact.java.security_order
+    languages: [java]
+    severity: INFO
+    message: Spring Security filter chain order
+    metadata:
+      fact: security_order
+    patterns:
+      - pattern-inside: |
+          class $C { ... }
+      - pattern: '@Order($ORDER)'
+
+  # The request scope of one chain. $OWNER is the HttpSecurity variable; the
+  # resolver only uses a scope whose owner is the chain's own parameter, so
+  # requestMatchers() inside an authorize lambda is a matcher, not a scope.
+  - id: fact.java.security_scope
+    languages: [java]
+    severity: INFO
+    message: Spring Security filter chain request matcher
+    metadata:
+      fact: security_scope
+    patterns:
+      - pattern-either:
+          - pattern: $OWNER.$SCOPE("$PATTERN")
+          - pattern: $OWNER.$SCOPE(HttpMethod.$METHOD, ..., "$PATTERN", ...)
+          - pattern: $OWNER.$SCOPE(..., "$PATTERN", ...)
+      - metavariable-regex:
+          metavariable: $SCOPE
+          regex: ^(securityMatcher|antMatcher|requestMatcher|requestMatchers)$
+
   # The fallback of a chain: anyRequest() in the servlet DSL, anyExchange() in
   # WebFlux. Focus on the access call so the fact carries its own line.
   - id: fact.java.security_default
@@ -170,6 +220,8 @@ rules:
 
   # Method-level method security: @PreAuthorize("..."), @Secured(...),
   # @RolesAllowed(...). Roles come from the expression (resolve_spring.go).
+  # The pattern includes the method body so the fact's end line identifies the
+  # declaration and never leaks onto an overload with the same name.
   - id: fact.java.method_gate
     languages: [java]
     severity: INFO
@@ -179,11 +231,13 @@ rules:
     patterns:
       - pattern-inside: |
           class $C { ... }
-      - pattern-inside: |
-          $RET $M(...) { ... }
       - pattern-either:
-          - pattern: '@$ANNOTATION("$EXPR")'
-          - pattern: '@$ANNOTATION($EXPR)'
+          - pattern: |
+              @$ANNOTATION("$EXPR")
+              $RET $M(...) { ... }
+          - pattern: |
+              @$ANNOTATION($EXPR)
+              $RET $M(...) { ... }
       - metavariable-regex:
           metavariable: $ANNOTATION
           regex: ^(PreAuthorize|Secured|RolesAllowed)$

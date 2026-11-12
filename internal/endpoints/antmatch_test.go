@@ -28,6 +28,13 @@ func TestAntMatch(t *testing.T) {
 		{"variable one segment", "/orders/{id}", "/orders/42", true},
 		{"variable not several segments", "/orders/{id}", "/orders/42/items", false},
 		{"variable not empty", "/orders/{id}/items", "/orders//items", false},
+		{"constraint numeric", "/internal/{id:[0-9]+}", "/internal/42", true},
+		{"constraint rejects letters", "/internal/{id:[0-9]+}", "/internal/export", false},
+		{"constraint anchored", "/internal/{id:[0-9]+}", "/internal/42abc", false},
+		{"constraint quantifier", "/v/{id:[0-9]{2}}", "/v/42", true},
+		{"constraint rejects other length", "/v/{id:[0-9]{2}}", "/v/4", false},
+		{"embedded constraint", "/files/report-{id:[0-9]+}.pdf", "/files/report-2024.pdf", true},
+		{"embedded constraint rejects text", "/files/report-{id:[0-9]+}.pdf", "/files/report-final.pdf", false},
 		{"star inside segment", "/files/report-*.pdf", "/files/report-2024.pdf", true},
 		{"star inside segment needs suffix", "/files/report-*.pdf", "/files/report-2024.txt", false},
 		{"trailing slash insignificant", "/api/**", "/api/", true},
@@ -45,5 +52,16 @@ func TestAntMatch(t *testing.T) {
 				t.Errorf("antMatch(%q, %q) = %v, want %v", tt.pattern, tt.path, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestAntMatchConstraintCannotCompile keeps an invalid constraint distinct
+// from a mismatch: skipping it would let a later permitAll hide the route.
+func TestAntMatchConstraintCannotCompile(t *testing.T) {
+	if got := antMatchResult("/archive/{id:[0-9}", "/archive/7"); got != antUnknown {
+		t.Fatalf("antMatchResult = %v, want unknown", got)
+	}
+	if antMatch("/archive/{id:[0-9}", "/archive/7") {
+		t.Error("antMatch reported a match for a constraint it cannot compile")
 	}
 }

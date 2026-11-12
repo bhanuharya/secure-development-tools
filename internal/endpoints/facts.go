@@ -22,6 +22,10 @@ type Fact struct {
 	Column   int // keeps several rules on one line in source order
 	EndLine  int // last line of the match; scoping facts (chi.Route) need it
 	Metavars map[string]string
+	// MetavarLines is the source line of each metavariable. A rule whose match
+	// span starts at a preceding annotation still reports the annotation's own
+	// line, which is what evidence must name.
+	MetavarLines map[string]int
 }
 
 // factRulesDir resolves rules/endpoint-facts: $SDT_HOME, then the checkout
@@ -151,6 +155,9 @@ func parseFacts(raw []byte, root string) ([]Fact, error) {
 				} `json:"metadata"`
 				Metavars map[string]struct {
 					AbstractContent string `json:"abstract_content"`
+					Start           struct {
+						Line int `json:"line"`
+					} `json:"start"`
 				} `json:"metavars"`
 			} `json:"extra"`
 		} `json:"results"`
@@ -165,10 +172,12 @@ func parseFacts(raw []byte, root string) ([]Fact, error) {
 			continue // not a fact rule result
 		}
 		mv := make(map[string]string, len(r.Extra.Metavars))
+		lines := make(map[string]int, len(r.Extra.Metavars))
 		for name, v := range r.Extra.Metavars {
 			mv[name] = v.AbstractContent
+			lines[name] = v.Start.Line
 		}
-		facts = append(facts, Fact{Kind: kind, File: relFile(root, r.Path), Line: r.Start.Line, Column: r.Start.Col, EndLine: r.End.Line, Metavars: mv})
+		facts = append(facts, Fact{Kind: kind, File: relFile(root, r.Path), Line: r.Start.Line, Column: r.Start.Col, EndLine: r.End.Line, Metavars: mv, MetavarLines: lines})
 	}
 	return facts, nil
 }

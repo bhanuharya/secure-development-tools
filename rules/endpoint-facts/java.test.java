@@ -26,25 +26,22 @@ public class OrdersController {
         return service.replace(body);
     }
 
-    // ruleid: fact.java.route
+    // ruleid: fact.java.route, fact.java.method_gate
     @DeleteMapping(path = "/orders/{id}")
-    // ruleid: fact.java.method_gate
     @RolesAllowed({"ROLE_ADMIN", "ROLE_AUDITOR"})
     public void delete(Long id) {
         service.delete(id);
     }
 
-    // ruleid: fact.java.request_route
+    // ruleid: fact.java.request_route, fact.java.method_gate
     @RequestMapping(value = "/orders/{id}", method = RequestMethod.PUT)
-    // ruleid: fact.java.method_gate
     @Secured("ROLE_OPERATOR")
     public Order update(Long id, Order body) {
         return service.update(id, body);
     }
 
-    // ruleid: fact.java.request_route
+    // ruleid: fact.java.request_route, fact.java.method_gate
     @RequestMapping(method = RequestMethod.POST, path = "/orders/import")
-    // ruleid: fact.java.method_gate
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPPORT')")
     public void importOrders() {
         service.importOrders();
@@ -61,9 +58,8 @@ public class OrdersController {
 // ruleid: fact.java.class_prefix
 @RequestMapping(value = "/accounts")
 public class AccountsController {
-    // ruleid: fact.java.route
+    // ruleid: fact.java.route, fact.java.method_gate
     @GetMapping(path = "/{id}")
-    // ruleid: fact.java.method_gate
     @PreAuthorize("hasAuthority('accounts.read')")
     public Account get(Long id) {
         return service.get(id);
@@ -76,7 +72,7 @@ class SecurityConfig {
         http.antMatchers("/api/admin/**").hasAuthority("admin:write");
         // ruleid: fact.java.security_matcher
         http.antMatchers(HttpMethod.POST, "/api/register", "/api/signup").permitAll();
-        // ruleid: fact.java.security_matcher
+        // ruleid: fact.java.security_matcher, fact.java.security_scope
         http.requestMatchers("/orders/**").access("hasRole('ADMIN')");
         // ruleid: fact.java.security_default
         http.anyRequest().authenticated();
@@ -87,5 +83,18 @@ class SecurityConfig {
         http.pathMatchers("/services/**").hasAnyAuthority("SERVICE");
         // ruleid: fact.java.security_default
         http.anyExchange().authenticated();
+    }
+}
+
+@Configuration
+class Chains {
+    // ruleid: fact.java.security_chain, fact.java.security_order
+    @Order(1)
+    SecurityFilterChain api(HttpSecurity http) {
+        // ruleid: fact.java.security_scope
+        return http.securityMatcher("/api/**")
+            // ruleid: fact.java.security_default
+            .authorizeHttpRequests(a -> a.anyRequest().authenticated())
+            .build();
     }
 }
