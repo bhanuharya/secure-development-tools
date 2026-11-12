@@ -36,9 +36,12 @@ if [ -f "$OUT/sonar-project-key" ] && [ -n "${SONAR_TOKEN:-}" ]; then
   [ -n "${PR_ID:-}" ] && SCOPE=(--pull-request "$PR_ID")
   # Optional AI-assisted review (advisory): only when Codex is installed and SDT_AI_TRIAGE!=0.
   # Bounded by per-call timeouts, SDT_CODEX_BUDGET and this outer timeout; never fails the build.
+  # The scan's findings carry each finding's evidence (e.g. the security rule that makes a route public).
+  FINDINGS_ARG=()
+  [ -s "$OUT/sdt/findings.json" ] && FINDINGS_ARG=(--findings "$OUT/sdt/findings.json")
   timeout "$(( ${SDT_CODEX_BUDGET:-600} + 120 ))" python3 "$SDT_HOME/tools/sdt_triage_codex.py" \
     --sonar-url "$SONAR_HOST_URL" --project-key "$(cat "$OUT/sonar-project-key")" "${SCOPE[@]}" \
-    --src-root "$SRC" --out "$OUT/triage.json" --budget "${SDT_CODEX_BUDGET:-600}" \
+    --src-root "$SRC" --out "$OUT/triage.json" --budget "${SDT_CODEX_BUDGET:-600}" "${FINDINGS_ARG[@]}" \
     || log "AI review skipped (error or timeout); normal report"
   timing ai-review
   [ -s "$OUT/triage.json" ] && TRIAGE=(--triage "$OUT/triage.json")
