@@ -1,0 +1,38 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "fastapi",
+      "method": "POST",
+      "path": "/admin/users",
+      "handler": "users",
+      "file": "main.py",
+      "line": 13,
+      "protection": "authenticated",
+      "evidence": [
+        "main.py:4 FastAPI application dependencies [Depends(require_auth)] on app"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "fastapi",
+      "method": "POST",
+      "path": "/api/transfer",
+      "handler": "transfer",
+      "file": "main.py",
+      "line": 8,
+      "protection": "authenticated",
+      "evidence": [
+        "main.py:5 APIRouter dependencies [Depends(require_auth)] on router router",
+        "main.py:4 FastAPI application dependencies [Depends(require_auth)] on app"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 2
+  }
+}

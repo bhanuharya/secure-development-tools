@@ -419,16 +419,15 @@ func sameJSState(a, b *jsState) bool {
 	return true
 }
 
-// classifyUse tells the three .use() forms apart: a same-file router mount, a
-// global/router middleware registration, or a prefixed middleware we do not
-// model (a leading path without a router has no route prefix of its own).
+// classifyUse tells the three .use() forms apart: a same-file router mount (the
+// last argument is a known router, with or without a path), a global/router
+// middleware registration, or a prefixed middleware we do not model.
 func (js *jsResolver) classifyUse(u jsUse) string {
 	if len(u.args) == 0 {
 		return ""
 	}
 	last := u.args[len(u.args)-1]
-	target := js.routers[last] || js.engines[last]
-	if target && (len(u.args) == 1 || isPathExpr(u.args[0])) {
+	if js.routers[last] || js.engines[last] {
 		return "mount"
 	}
 	if isPathExpr(u.args[0]) {
@@ -439,10 +438,15 @@ func (js *jsResolver) classifyUse(u jsUse) string {
 
 func (js *jsResolver) mountOf(u jsUse) jsMount {
 	m := jsMount{receiver: u.receiver, line: u.line}
-	if len(u.args) >= 2 {
-		m.prefix = unquote(u.args[0])
-		m.mws = u.args[1 : len(u.args)-1]
+	if len(u.args) < 2 {
+		return m
 	}
+	first := 0
+	if isPathExpr(u.args[0]) {
+		m.prefix = unquote(u.args[0])
+		first = 1
+	}
+	m.mws = u.args[first : len(u.args)-1]
 	return m
 }
 

@@ -125,6 +125,49 @@ func TestJSSkipsFrontendAndTestFiles(t *testing.T) {
 	})
 }
 
+// TestJSPathlessMount covers app.use(mw, router): Express mounts the router at
+// "/" with that middleware, so its routes are resolved, not unknown (T24).
+func TestJSPathlessMount(t *testing.T) {
+	cases := []struct {
+		name       string
+		args       map[string]string
+		protection Protection
+	}{
+		{
+			name:       "middleware and router",
+			args:       map[string]string{"$A1": "verifyToken", "$A2": "router"},
+			protection: ProtAuthenticated,
+		},
+		{
+			name:       "router alone",
+			args:       map[string]string{"$A1": "router"},
+			protection: ProtPublic,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			use := map[string]string{"$R": "app"}
+			for k, v := range tc.args {
+				use[k] = v
+			}
+			facts := []Fact{
+				{Kind: "express_import", File: "app.js", Line: 1},
+				{Kind: "engine", File: "app.js", Line: 3, Metavars: map[string]string{"$R": "app"}},
+				{Kind: "router", File: "app.js", Line: 4, Metavars: map[string]string{"$R": "router"}},
+				{Kind: "use", File: "app.js", Line: 6, Metavars: use},
+				jsRouteFact("app.js", 7, "router", "post", "'/transfer'"),
+			}
+			routes, unresolved := resolveJS(facts, t.TempDir(), defaultGates)
+			if len(routes) != 1 {
+				t.Fatalf("got %d routes and %v, want 1", len(routes), unresolved)
+			}
+			if routes[0].Path != "/transfer" || routes[0].Protection != tc.protection {
+				t.Fatalf("got %s %s, want /transfer %s", routes[0].Path, routes[0].Protection, tc.protection)
+			}
+		})
+	}
+}
+
 func TestExpandTemplate(t *testing.T) {
 	consts := map[string]string{"base": "/api/account"}
 	cases := []struct{ in, want string }{

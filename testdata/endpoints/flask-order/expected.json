@@ -1,0 +1,23 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "flask",
+      "method": "POST",
+      "path": "/transfer",
+      "handler": "transfer",
+      "file": "app.py",
+      "line": 8,
+      "protection": "public",
+      "evidence": [
+        "app.py:8 no gate decorator or dependency on the route"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "public": 1
+  }
+}

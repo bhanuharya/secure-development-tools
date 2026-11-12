@@ -1,0 +1,38 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "fastapi",
+      "method": "POST",
+      "path": "/admin/open",
+      "handler": "update",
+      "file": "main.py",
+      "line": 8,
+      "protection": "public",
+      "evidence": [
+        "main.py:8 no gate decorator or dependency on the route"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "fastapi",
+      "method": "POST",
+      "path": "/admin/secure",
+      "handler": "update",
+      "file": "main.py",
+      "line": 7,
+      "protection": "authenticated",
+      "evidence": [
+        "main.py:7 route dependencies [Depends(require_auth)] on update"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 1,
+    "public": 1
+  }
+}

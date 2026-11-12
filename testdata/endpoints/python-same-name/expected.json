@@ -1,0 +1,38 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "flask",
+      "method": "POST",
+      "path": "/admin/secure",
+      "handler": "update",
+      "file": "main.py",
+      "line": 7,
+      "protection": "authenticated",
+      "evidence": [
+        "main.py:8 decorator @login_required on update"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "flask",
+      "method": "POST",
+      "path": "/transfer",
+      "handler": "update",
+      "file": "main.py",
+      "line": 13,
+      "protection": "public",
+      "evidence": [
+        "main.py:13 no gate decorator or dependency on the route"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 1,
+    "public": 1
+  }
+}

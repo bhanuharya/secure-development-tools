@@ -8,6 +8,9 @@ app = Flask(__name__)
 # ruleid: fact.py.fastapi_app
 api = FastAPI()
 
+# ruleid: fact.py.fastapi_app, fact.py.fastapi_app_deps
+secured = FastAPI(dependencies=[Depends(require_auth)])
+
 # ruleid: fact.py.blueprint
 public = Blueprint("public", __name__, url_prefix="/public")
 
@@ -44,27 +47,27 @@ app.register_blueprint(admin)
 # ruleid: fact.py.register_blueprint
 app.register_blueprint(public, url_prefix="/v2")
 
-# ruleid: fact.py.route
+# ruleid: fact.py.route, fact.py.route_decorator
 @app.route("/plain")
 def plain():
     return None
 
-# ruleid: fact.py.route
+# ruleid: fact.py.route, fact.py.route_decorator
 @app.route("/orders", methods=["GET", "DELETE"])
 def orders():
     return None
 
-# ruleid: fact.py.route
+# ruleid: fact.py.route, fact.py.route_decorator
 @app.route("/reports", methods=["POST"], endpoint="reports")
 def reports():
     return None
 
-# ruleid: fact.py.verb_route
+# ruleid: fact.py.verb_route, fact.py.route_decorator
 @api.get("/items")
 def list_items():
     return None
 
-# ruleid: fact.py.verb_route
+# ruleid: fact.py.verb_route, fact.py.route_decorator
 @api.post("/items", dependencies=[Depends(require_admin)], response_model=dict)
 def create_item():
     return None

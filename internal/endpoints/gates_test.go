@@ -23,7 +23,9 @@ func TestConfiguredAuthGatesReachResolvers(t *testing.T) {
 		{Kind: "route", File: "app.py", Line: 5, Metavars: map[string]string{
 			"$X": "app", "$PATH": "/orders", "$H": "orders", "$VERB": "POST",
 		}},
-		{Kind: "decorator", File: "app.py", Line: 4, Metavars: map[string]string{"$H": "orders", "$DEC": "checkCaller"}},
+		// Below the route decorator: it wraps the function before registration
+		// (T24 point 1).
+		{Kind: "decorator", File: "app.py", Line: 6, Metavars: map[string]string{"$H": "orders", "$DEC": "checkCaller"}},
 	}
 	cases := []struct {
 		name string

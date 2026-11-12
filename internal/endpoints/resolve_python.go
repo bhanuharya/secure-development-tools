@@ -8,8 +8,8 @@ import (
 )
 
 // This file resolves Flask and FastAPI facts into routes (SPEC §5, Python
-// bullet). A route decorator, the gate decorators stacked under it and FastAPI
-// parameter gates are joined by the handler name. Router prefixes and
+// bullet). Every route decorator is its own registration; only gate decorators
+// below it on the same def wrap the registered function. Router prefixes and
 // dependencies are joined inside one file only: an APIRouter or Blueprint
 // created or mounted elsewhere stays unknown.
 
@@ -26,6 +26,7 @@ type pyGate struct {
 	expr     string // as written, matched against the shared gate regexes
 	evidence string // "file:line what decided it"
 	line     int
+	defLine  int // the def the gate belongs to; gates from another same-name function do not apply
 }
 
 // pyDef is an application, router or blueprint created in the file.
@@ -61,7 +62,8 @@ type pyResolver struct {
 	defs       map[string]*pyDef
 	mounts     []pyMount
 	routes     []Fact
-	routeDeps  map[string][]pyGate // handler -> dependencies=[...] on the route decorator
+	routeLines []Fact              // one fact per route decorator line, including stacked ones
+	routeDeps  map[int][]pyGate    // route decorator line -> dependencies=[...] on that decorator
 	gates      map[string][]pyGate // handler -> decorators and parameter gates
 	unresolved []string
 }
@@ -93,7 +95,7 @@ func resolvePython(facts []Fact, root string, gates *gateMatcher) ([]Route, []st
 }
 
 func newPyResolver(file string, facts []Fact, root string, gates *gateMatcher) *pyResolver {
-	py := &pyResolver{file: file, root: root, framework: "flask", matcher: gates, defs: map[string]*pyDef{}, gates: map[string][]pyGate{}, routeDeps: map[string][]pyGate{}}
+	py := &pyResolver{file: file, root: root, framework: "flask", matcher: gates, defs: map[string]*pyDef{}, gates: map[string][]pyGate{}, routeDeps: map[int][]pyGate{}}
 	mounts := map[string]*pyMount{}
 	for _, f := range facts {
 		name := f.Metavars["$R"]
@@ -102,7 +104,13 @@ func newPyResolver(file string, facts []Fact, root string, gates *gateMatcher) *
 			py.defs[name] = &pyDef{kind: "engine", line: f.Line}
 		case "fastapi_app":
 			py.framework = "fastapi"
-			py.defs[name] = &pyDef{kind: "engine", line: f.Line}
+			py.appDef(name, f.Line)
+		case "fastapi_app_deps":
+			py.framework = "fastapi"
+			def := py.appDef(name, f.Line)
+			if deps := f.Metavars["$DEPS"]; deps != "" {
+				def.deps = append(def.deps, deps)
+			}
 		case "router":
 			py.framework = "fastapi"
 			py.defs[name] = &pyDef{kind: "router", prefix: f.Metavars["$PREFIX"], deps: pyDepList(f), line: f.Line}
@@ -113,21 +121,138 @@ func newPyResolver(file string, facts []Fact, root string, gates *gateMatcher) *
 		case "route":
 			py.routes = append(py.routes, f)
 			py.addRouteDeps(f)
+		case "route_decorator":
+			py.routeLines = append(py.routeLines, f)
 		case "decorator":
 			py.addDecorator(f)
 		case "param_gate":
 			py.addParamGate(f)
 		}
 	}
+	py.addStackedRoutes()
 	for _, m := range mounts {
 		py.mounts = append(py.mounts, *m)
 	}
 	sort.Slice(py.mounts, func(i, j int) bool { return py.mounts[i].line < py.mounts[j].line })
-	sort.Slice(py.routes, func(i, j int) bool { return py.routes[i].Line < py.routes[j].Line })
+	sort.Slice(py.routes, func(i, j int) bool { return pyRouteLine(py.routes[i]) < pyRouteLine(py.routes[j]) })
 	for _, gates := range py.gates {
 		sort.SliceStable(gates, func(i, j int) bool { return gates[i].line < gates[j].line })
 	}
 	return py
+}
+
+// appDef returns the FastAPI application definition, keeping dependencies
+// whichever order the constructor and its dependency fact arrive in.
+func (py *pyResolver) appDef(name string, line int) *pyDef {
+	def := py.defs[name]
+	if def == nil {
+		def = &pyDef{kind: "engine"}
+		py.defs[name] = def
+	}
+	def.line = line
+	return def
+}
+
+// addStackedRoutes fills in the route decorators a structural pattern cannot
+// see. One registration sits on every route decorator line; the handler is the
+// def below that stack.
+func (py *pyResolver) addStackedRoutes() {
+	seen := map[int]bool{}
+	for _, f := range py.routes {
+		seen[pyRouteLine(f)] = true
+	}
+	for _, f := range py.routeLines {
+		if seen[f.Line] {
+			continue
+		}
+		route, ok := py.routeFromDecorator(f)
+		if !ok {
+			continue
+		}
+		seen[f.Line] = true
+		py.routes = append(py.routes, route)
+		py.addRouteDeps(route)
+	}
+}
+
+func (py *pyResolver) routeFromDecorator(f Fact) (Fact, bool) {
+	args := f.Metavars["$ARGS"]
+	path := pyFirstString(args)
+	handler := f.Metavars["$H"]
+	if path == "" || handler == "" {
+		return Fact{}, false
+	}
+	metavars := map[string]string{"$X": f.Metavars["$X"], "$H": handler, "$PATH": path}
+	if verb := strings.ToLower(f.Metavars["$VERB"]); verb != "" && verb != "route" {
+		metavars["$VERB"] = verb
+	}
+	if methods := pyKeywordValue(args, "methods"); methods != "" {
+		metavars["$METHODS"] = methods
+	}
+	if deps := pyKeywordValue(args, "dependencies"); deps != "" {
+		metavars["$DEPS"] = deps
+	}
+	lines := map[string]int{}
+	for name, line := range f.MetavarLines {
+		lines[name] = line
+	}
+	return Fact{Kind: "route", File: f.File, Line: f.Line, Column: f.Column, Metavars: metavars, MetavarLines: lines}, true
+}
+
+// pyFirstString reads the first quoted path argument of a decorator.
+func pyFirstString(s string) string {
+	if m := pyQuotedRe.FindStringSubmatch(s); len(m) > 1 {
+		return m[1]
+	}
+	return ""
+}
+
+// pyKeywordValue reads a keyword argument, keeping a bracketed list intact so
+// the quoted-string parser and gate matcher see the same expression as before.
+func pyKeywordValue(args, key string) string {
+	i := strings.Index(args, key+"=")
+	if i < 0 {
+		return ""
+	}
+	rest := strings.TrimSpace(args[i+len(key)+1:])
+	if rest == "" {
+		return ""
+	}
+	if rest[0] == '[' || rest[0] == '(' || rest[0] == '{' {
+		closer := map[byte]byte{'[': ']', '(': ')', '{': '}'}[rest[0]]
+		depth := 0
+		for j := 0; j < len(rest); j++ {
+			if rest[j] == rest[0] {
+				depth++
+			} else if rest[j] == closer {
+				depth--
+				if depth == 0 {
+					return rest[:j+1]
+				}
+			}
+		}
+		return rest
+	}
+	if j := strings.IndexByte(rest, ','); j >= 0 {
+		return strings.TrimSpace(rest[:j])
+	}
+	return rest
+}
+
+// pyRouteLine is the decorator line of a registration. Opengrep reports a
+// match span that may start at a decorator above the route, so the path
+// metavariable's line is the one that names the registration.
+func pyRouteLine(f Fact) int {
+	if line := f.MetavarLines["$PATH"]; line > 0 {
+		return line
+	}
+	return f.Line
+}
+
+// pyDefLine is the def a fact belongs to. Two functions may share a name; the
+// def line keeps their decorators and parameters apart.
+func pyDefLine(f Fact) int {
+	return f.MetavarLines["$H"]
 }
 
 func pyDepList(f Fact) []string {
@@ -164,8 +289,9 @@ func (py *pyResolver) addRouteDeps(f Fact) {
 	if handler == "" || deps == "" {
 		return
 	}
-	evidence := fmt.Sprintf("%s:%d route dependencies %s on %s", py.file, f.Line, deps, handler)
-	py.routeDeps[handler] = append(py.routeDeps[handler], pyGate{expr: deps, evidence: evidence, line: f.Line})
+	line := pyRouteLine(f)
+	evidence := fmt.Sprintf("%s:%d route dependencies %s on %s", py.file, line, deps, handler)
+	py.routeDeps[line] = append(py.routeDeps[line], pyGate{expr: deps, evidence: evidence, line: line})
 }
 
 func (py *pyResolver) addDecorator(f Fact) {
@@ -181,8 +307,12 @@ func (py *pyResolver) addDecorator(f Fact) {
 		}
 		expr += ")"
 	}
-	evidence := fmt.Sprintf("%s:%d decorator @%s on %s", py.file, f.Line, expr, handler)
-	py.gates[handler] = append(py.gates[handler], pyGate{expr: expr, evidence: evidence, line: f.Line})
+	line := f.Line
+	if decLine := f.MetavarLines["$DEC"]; decLine > 0 {
+		line = decLine
+	}
+	evidence := fmt.Sprintf("%s:%d decorator @%s on %s", py.file, line, expr, handler)
+	py.gates[handler] = append(py.gates[handler], pyGate{expr: expr, evidence: evidence, line: line, defLine: pyDefLine(f)})
 }
 
 func (py *pyResolver) addParamGate(f Fact) {
@@ -193,7 +323,11 @@ func (py *pyResolver) addParamGate(f Fact) {
 	}
 	expr := kind + "(" + dep + ")"
 	evidence := fmt.Sprintf("%s:%d parameter %s=%s on %s", py.file, f.Line, param, expr, handler)
-	py.gates[handler] = append(py.gates[handler], pyGate{expr: expr, evidence: evidence, line: f.Line})
+	line := f.Line
+	if paramLine := f.MetavarLines["$P"]; paramLine > 0 {
+		line = paramLine
+	}
+	py.gates[handler] = append(py.gates[handler], pyGate{expr: expr, evidence: evidence, line: line, defLine: pyDefLine(f)})
 }
 
 func (py *pyResolver) resolve() ([]Route, []string) {
@@ -215,8 +349,9 @@ func (py *pyResolver) routesFromFact(f Fact) ([]Route, error) {
 	if rawPath == "" || receiver == "" || handler == "" {
 		return nil, fmt.Errorf("route path, receiver or handler could not be resolved")
 	}
+	line, defLine := pyRouteLine(f), pyDefLine(f)
 	state := py.stateOf(receiver, 0)
-	protection, roles, evidence := py.decide(f, handler, state)
+	protection, roles, evidence := py.decide(line, defLine, handler, state)
 	confidence := "high"
 	if protection == ProtUnknown {
 		confidence = "low"
@@ -232,7 +367,7 @@ func (py *pyResolver) routesFromFact(f Fact) ([]Route, error) {
 			Path:       fullPath,
 			Handler:    handler,
 			File:       py.file,
-			Line:       f.Line,
+			Line:       line,
 			Protection: protection,
 			Roles:      roles,
 			Evidence:   evidence,
@@ -272,7 +407,7 @@ func (py *pyResolver) stateOf(name string, depth int) *pyState {
 		return &pyState{unknown: true, reason: name}
 	}
 	if def.kind == "engine" {
-		return &pyState{}
+		return &pyState{deps: py.defGates(name, def)}
 	}
 	own := py.defGates(name, def)
 	mounts := py.mountsFor(name)
@@ -286,7 +421,7 @@ func (py *pyResolver) stateOf(name string, depth int) *pyState {
 			return &pyState{unknown: true, reason: name}
 		}
 		next := &pyState{}
-		next.prefixes = append(append([]string{}, owner.prefixes...), m.prefix, def.prefix)
+		next.prefixes = append(append([]string{}, owner.prefixes...), py.mountPrefixes(m, def)...)
 		next.deps = append(append([]pyGate{}, own...), py.mountGates(m)...)
 		next.deps = append(next.deps, owner.deps...)
 		if merged == nil {
@@ -298,10 +433,26 @@ func (py *pyResolver) stateOf(name string, depth int) *pyState {
 	return merged
 }
 
+// mountPrefixes applies the framework's prefix rule: Flask's register_blueprint
+// url_prefix replaces the blueprint's own prefix, while FastAPI's
+// include_router prefix adds to the router's prefix.
+func (py *pyResolver) mountPrefixes(m pyMount, def *pyDef) []string {
+	if m.call == "register_blueprint" {
+		if m.prefix != "" {
+			return []string{m.prefix}
+		}
+		return []string{def.prefix}
+	}
+	return []string{m.prefix, def.prefix}
+}
+
 func (py *pyResolver) defGates(name string, def *pyDef) []pyGate {
 	var gates []pyGate
 	for _, deps := range def.deps {
 		evidence := fmt.Sprintf("%s:%d APIRouter dependencies %s on router %s", py.file, def.line, deps, name)
+		if def.kind == "engine" {
+			evidence = fmt.Sprintf("%s:%d FastAPI application dependencies %s on app", py.file, def.line, deps)
+		}
 		gates = append(gates, pyGate{expr: deps, evidence: evidence, line: def.line})
 	}
 	return gates
@@ -342,11 +493,17 @@ func samePyState(a, b *pyState) bool {
 	return true
 }
 
-// decide evaluates route gates first, then the router chain. The router chain
-// only exists when the receiver was created and mounted in this file.
-func (py *pyResolver) decide(f Fact, handler string, state *pyState) (Protection, []string, []string) {
-	chain := append([]pyGate{}, py.routeDeps[handler]...)
-	chain = append(chain, py.gates[handler]...)
+// decide evaluates the gates below this route decorator on the same function,
+// then the router/app chain. A decorator above the route decorator wraps the
+// registered function from the outside and does not protect the route.
+func (py *pyResolver) decide(line, defLine int, handler string, state *pyState) (Protection, []string, []string) {
+	chain := append([]pyGate{}, py.routeDeps[line]...)
+	for _, gate := range py.gates[handler] {
+		if gate.defLine != defLine || gate.line <= line {
+			continue
+		}
+		chain = append(chain, gate)
+	}
 	chain = append(chain, state.deps...)
 	var evidence, roles []string
 	authenticated, role := false, false
@@ -368,10 +525,10 @@ func (py *pyResolver) decide(f Fact, handler string, state *pyState) (Protection
 		return ProtAuthenticated, nil, evidence
 	}
 	if state.unknown {
-		evidence = append(evidence, fmt.Sprintf("%s:%d router %s is not created or mounted in this file", py.file, f.Line, state.reason))
+		evidence = append(evidence, fmt.Sprintf("%s:%d router %s is not created or mounted in this file", py.file, line, state.reason))
 		return ProtUnknown, nil, evidence
 	}
-	evidence = append(evidence, fmt.Sprintf("%s:%d no gate decorator or dependency on the route", py.file, f.Line))
+	evidence = append(evidence, fmt.Sprintf("%s:%d no gate decorator or dependency on the route", py.file, line))
 	for _, gate := range chain {
 		if !py.matcher.re.MatchString(gate.expr) {
 			evidence = append(evidence, gate.evidence+" (does not match the gate list)")

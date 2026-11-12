@@ -5,12 +5,14 @@
 # live here so they never become scan findings and rules/manifest.yaml stays
 # untouched. `sdt endpoints` runs only this directory.
 #
-# A route decorator and the decorators stacked under it are separate facts
-# joined by the handler name, because their order is free. Route receivers are
-# resolved in the same file only: a blueprint or router created elsewhere stays
-# unknown even when the app mounts it here.
+# A route decorator and the decorators stacked under it are separate facts.
+# Only decorators below a route decorator (closer to def) wrap the function it
+# registers, so the resolver keeps the registration line to order them. Route
+# receivers are resolved in the same file only: a blueprint or router created
+# elsewhere stays unknown even when the app mounts it here.
 rules:
-  # The application objects: they carry no prefix and no dependencies.
+  # The application objects carry no prefix. The FastAPI dependency fact below
+  # adds an application's dependencies to its route chain.
   - id: fact.py.flask_app
     languages: [python]
     severity: INFO
@@ -27,8 +29,18 @@ rules:
       fact: fastapi_app
     pattern: $R = FastAPI($...ARGS)
 
-  # A blueprint carries its own url_prefix; one registered with
-  # register_blueprint adds the prefix of the registration call.
+  # Application dependencies protect every route the app serves, including
+  # routes of routers included into it in the same file (T24).
+  - id: fact.py.fastapi_app_deps
+    languages: [python]
+    severity: INFO
+    message: FastAPI application dependencies
+    metadata:
+      fact: fastapi_app_deps
+    pattern: $R = FastAPI($...A, dependencies=$DEPS, $...B)
+
+  # A blueprint carries its own url_prefix; register_blueprint with a
+  # url_prefix replaces it (Flask semantics), unlike FastAPI's additive prefix.
   - id: fact.py.blueprint
     languages: [python]
     severity: INFO
@@ -135,6 +147,19 @@ rules:
       - metavariable-regex:
           metavariable: $VERB
           regex: ^(get|post|put|patch|delete)$
+
+  # One result per route decorator line, including decorators stacked above
+  # another decorator: a structural pattern binds only one decorator of a
+  # stack. The lookahead keeps the match on the decorator line so the next
+  # decorator can match too; the handler comes from the following def.
+  - id: fact.py.route_decorator
+    languages: [python]
+    severity: INFO
+    message: Route decorator line and its handler
+    metadata:
+      fact: route_decorator
+    pattern-regex: |-
+      (?m)^[ \t]*@(?P<X>[A-Za-z_]\w*)\.(?P<VERB>route|get|post|put|patch|delete)[ \t]*\((?P<ARGS>[^\n]*)\)[ \t]*(?=\n(?:[ \t]*@[^\n]*\n)*[ \t]*def[ \t]+(?P<H>[A-Za-z_]\w*))
 
   # Gate decorators stacked above a handler. Only plain function names are
   # captured: @app.route/@router.get are attribute calls, so their
