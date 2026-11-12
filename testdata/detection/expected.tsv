@@ -164,3 +164,6 @@ gateway/nginx/nginx-allow-only.conf	NGINX sensitive proxy with allow-only	284	ru
 gateway/nginx/nginx-commented-deny.conf	NGINX sensitive proxy with commented-deny	284	rules
 gateway/lookalike/nginx-allow-deny.conf	NGINX sensitive proxy with allow-deny	284	none
 gateway/lookalike/nginx-internal.conf	NGINX sensitive proxy with internal	284	none
+infra/k8s-nodeport.yaml	internal services reachable on node ports despite load-balancer restrictions	668	rules
+gateway/nginx/nginx-allow-all-first.conf	NGINX sensitive proxy with allow-all-before-deny	284	rules
+gateway/lookalike/nginx-deny-all-first.conf	NGINX sensitive proxy with deny-all-before-allow	284	none

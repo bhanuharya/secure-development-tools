@@ -8,12 +8,12 @@ rules:
     message: >-
       A Kubernetes Service that names internal infrastructure (service registry, Consul,
       search, object store, message broker or database) is published as LoadBalancer or
-      NodePort with neither an affirmative internal load balancer annotation nor a nonempty
-      loadBalancerSourceRanges list that excludes every internet-wide range. The cloud
-      provider then gives it a public address, and anyone on the internet reaches the
-      registry, the search API or the database. Use
-      ClusterIP and reach it through the gateway, or ask for an internal load balancer and
-      restrict the source ranges.
+      NodePort without protection that fits the type. A LoadBalancer is only safe with an
+      affirmative internal load balancer annotation or a nonempty loadBalancerSourceRanges
+      list that excludes every internet-wide range. Neither protects a NodePort: the
+      annotation only tells the cloud provider how to build a load balancer and the source
+      ranges only filter that load balancer, so the node port stays reachable on every node.
+      Use ClusterIP and reach it through the gateway.
     severity: ERROR
     metadata:
       title: Internal service exposed by a public load balancer
@@ -23,26 +23,34 @@ rules:
       confidence: HIGH
     paths:
       include: ["*.yaml", "*.yml", "*.json"]
-    # Keep exclusions inside this manifest; a key or an empty list provides no protection.
+    # Load-balancer annotations and source ranges only protect a LoadBalancer Service. A
+    # NodePort stays reachable on every node whatever the restrictions say. Keep the
+    # exclusions inside this manifest; a key or an empty list provides no protection.
     pattern-regex: |-
       (?mx)^[ \t]*kind:[ \t]*["']?Service["']?[ \t]*\n
       (?=(?:(?!^[ \t]*(?:kind:|---[ \t]*$))[\s\S])*?
         (?:\b(?:consul|eureka|registry|config-server|elasticsearch|opensearch|kibana|minio|redis|mongo|postgres|mysql|kafka|rabbitmq|zookeeper|prometheus|grafana)\b
         |^[ \t]*-?[ \t]*(?:port|targetPort)[ \t]*:[ \t]*["']?(?:8500|8761|9200|9300|5601|9000|6379|27017|5432|3306|9092|2181)["']?[ \t]*$))
-      (?!(?:(?!^[ \t]*(?:kind:|---[ \t]*$))[\s\S])*?^[ \t]*
-        (?:["']?service\.beta\.kubernetes\.io/(?:aws|azure)-load-balancer-internal["']?[ \t]*:[ \t]*["']?true["']?
-        |["']?service\.beta\.kubernetes\.io/aws-load-balancer-scheme["']?[ \t]*:[ \t]*["']?internal["']?
-        |["']?(?:networking\.gke\.io|cloud\.google\.com)/load-balancer-type["']?[ \t]*:[ \t]*["']?Internal["']?)
-        [ \t]*(?:\#[^\n]*)?$)
-      (?!(?:(?!^[ \t]*(?:kind:|---[ \t]*$))[\s\S])*?^[ \t]*loadBalancerSourceRanges[ \t]*:[ \t]*
-        (?:\[
-          (?![^\]]*(?<![0-9a-fA-F:.])(?:0\.0\.0\.0/0|::/0)["']?[ \t\r\n]*(?:\#[^\n]*\n[ \t\r\n]*)*(?:,|\]))
-          [ \t\r\n]*(?:\#[^\n]*\n[ \t\r\n]*)*["']?[0-9a-fA-F:.]+/[0-9]+["']?[^\]]*\]
-        |(?:\#[^\n]*)?\n
-          (?!(?:[ \t]*(?:\#[^\n]*)?\n|[ \t]*-[ \t]+[^\n]*\n)*?
-            [ \t]*-[ \t]+["']?(?:0\.0\.0\.0/0|::/0)["']?[ \t]*(?:\#[^\n]*)?$)
-          (?:[ \t]*(?:\#[^\n]*)?\n)*[ \t]*-[ \t]+["']?[0-9a-fA-F:.]+/[0-9]+["']?[ \t]*(?:\#[^\n]*)?$
-        ))
+      (?!
+        (?=(?:(?!^[ \t]*(?:kind:|---[ \t]*$))[\s\S])*?^[ \t]*type[ \t]*:[ \t]*["']?LoadBalancer["']?[ \t]*$)
+        (?:
+          (?:(?!^[ \t]*(?:kind:|---[ \t]*$))[\s\S])*?^[ \t]*
+          (?:["']?service\.beta\.kubernetes\.io/(?:aws|azure)-load-balancer-internal["']?[ \t]*:[ \t]*["']?true["']?
+          |["']?service\.beta\.kubernetes\.io/aws-load-balancer-scheme["']?[ \t]*:[ \t]*["']?internal["']?
+          |["']?(?:networking\.gke\.io|cloud\.google\.com)/load-balancer-type["']?[ \t]*:[ \t]*["']?Internal["']?)
+          [ \t]*(?:\#[^\n]*)?$
+        |
+          (?:(?!^[ \t]*(?:kind:|---[ \t]*$))[\s\S])*?^[ \t]*loadBalancerSourceRanges[ \t]*:[ \t]*
+          (?:\[
+            (?![^\]]*(?<![0-9a-fA-F:.])(?:0\.0\.0\.0/0|::/0)["']?[ \t\r\n]*(?:\#[^\n]*\n[ \t\r\n]*)*(?:,|\]))
+            [ \t\r\n]*(?:\#[^\n]*\n[ \t\r\n]*)*["']?[0-9a-fA-F:.]+/[0-9]+["']?[^\]]*\]
+          |(?:\#[^\n]*)?\n
+            (?!(?:[ \t]*(?:\#[^\n]*)?\n|[ \t]*-[ \t]+[^\n]*\n)*?
+              [ \t]*-[ \t]+["']?(?:0\.0\.0\.0/0|::/0)["']?[ \t]*(?:\#[^\n]*)?$)
+            (?:[ \t]*(?:\#[^\n]*)?\n)*[ \t]*-[ \t]+["']?[0-9a-fA-F:.]+/[0-9]+["']?[ \t]*(?:\#[^\n]*)?$
+          )
+        )
+      )
       (?:(?!^[ \t]*(?:kind:|---[ \t]*$))[\s\S])*?^[ \t]*type[ \t]*:[ \t]*["']?(?:LoadBalancer|NodePort)["']?[ \t]*$
 
   - id: scp.yaml.k8s.internal-service-ingress

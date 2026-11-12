@@ -131,6 +131,19 @@ server {
         deny all;
         proxy_pass http://accounts:8080/;
     }
+    # Access rules use the first match, so allow all wins over the later deny all.
+    # ruleid: scp.generic.nginx.sensitive-location-proxied
+    location /management/allow-first/ {
+        allow all;
+        deny all;
+        proxy_pass http://accounts:8080/;
+    }
+    # ok: scp.generic.nginx.sensitive-location-proxied
+    location /management/deny-first/ {
+        deny all;
+        allow all;
+        proxy_pass http://accounts:8080/;
+    }
     # ok: scp.generic.nginx.sensitive-location-proxied
     location /eureka/ {
         allow 10.0.0.0/8;
@@ -152,6 +165,12 @@ server {
     listen 8080;
     # ruleid: scp.generic.nginx.sensitive-location-proxied
     location ^~ /internal/ {
+        proxy_pass http://accounts:8080;
+    }
+    # ok: scp.generic.nginx.sensitive-location-proxied
+    location /internal/allow-first/ {
+        allow all;
+        internal;
         proxy_pass http://accounts:8080;
     }
     # ruleid: scp.generic.nginx.sensitive-location-proxied

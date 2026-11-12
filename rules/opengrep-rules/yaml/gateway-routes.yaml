@@ -124,11 +124,13 @@ rules:
     languages: [generic]
     message: >-
       An NGINX location proxies a management, registry, internal or API-documentation
-      path and the block has neither deny all nor an internal directive. An allow
-      directive alone still admits other clients. The reverse proxy publishes those endpoints
-      to every client that reaches this server, including the actuator, registry and API documentation
-      of the services behind it. Restrict the location to an internal range (deny all
-      plus allow for the management network), mark it internal, or stop proxying it.
+      path and the block has neither an internal directive nor a deny all that comes
+      before every allow all. Access rules use the first match, so allow all followed by
+      deny all still admits everyone, and an allow directive alone still admits other
+      clients. The reverse proxy publishes those endpoints to every client that reaches
+      this server, including the actuator, registry and API documentation of the services
+      behind it. Restrict the location to an internal range (deny all plus allow for the
+      management network), mark it internal, or stop proxying it.
     severity: ERROR
     metadata:
       title: NGINX proxies a sensitive path
@@ -145,7 +147,10 @@ rules:
         - "**/sites-enabled/**"
         - "**/sites-available/**"
     # Skip comments and stop at braces so another location cannot supply the protection.
+    # Access rules use the first match: a deny all only counts while no allow all came
+    # before it, so allow all before deny all still leaves the location public.
     pattern-regex: |-
       (?mxi)^[ \t]*location[ \t]+(?:=[ \t]*|~\*?[ \t]*\^?|\^~[ \t]*)?["']?/(?:management|actuator|jhipster-registry|eureka|admin|internal|feign|v1/kv|swagger|v2/api-docs|v3/api-docs)(?!/health(?:/|["'\s{]|$))(?=/|["'\s{]|$)[^\n{]*\{
-      (?!(?:[^{}\#]|\#[^\n]*(?:\n|$))*?(?:^[ \t]*|(?<=[;{])[ \t]*)(?:deny[ \t]+all|internal)[ \t]*;)
+      (?!(?:[^{}\#]|\#[^\n]*(?:\n|$))*?(?:^[ \t]*|(?<=[;{])[ \t]*)internal[ \t]*;)
+      (?!(?:(?!(?:^[ \t]*|(?<=[;{])[ \t]*)allow[ \t]+all[ \t]*;)[^{}\#]|\#[^\n]*(?:\n|$))*?(?:^[ \t]*|(?<=[;{])[ \t]*)deny[ \t]+all[ \t]*;)
       (?:[^{}\#]|\#[^\n]*(?:\n|$))*?(?:^[ \t]*|(?<=[;{])[ \t]*)proxy_pass\b

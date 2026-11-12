@@ -20,6 +20,18 @@ spec:
   type: NodePort
   ports:
     - port: 9092
+# The annotation controls a cloud load balancer; it does not close a node port.
+# ruleid: scp.yaml.k8s.internal-service-public-lb
+kind: Service
+metadata:
+  name: redis
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+spec:
+  type: NodePort
+  ports:
+    - port: 6379
+      nodePort: 30379
 # ok: scp.yaml.k8s.internal-service-public-lb
 kind: Service
 metadata:
@@ -30,7 +42,8 @@ spec:
   type: LoadBalancer
   ports:
     - port: 8500
-# ok: scp.yaml.k8s.internal-service-public-lb
+# Source ranges filter a load balancer, not a node port.
+# ruleid: scp.yaml.k8s.internal-service-public-lb
 kind: Service
 metadata:
   name: elasticsearch
