@@ -212,14 +212,14 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 	if prof.Mode == "changed" && !ctx.Staged && ctx.MergeBase == "" {
 		msg := fmt.Sprintf("profile %q mode changed requires a merge base (--base or SDT_BASE resolving to a merge-base with --head); refusing unbounded fallback", g.Profile)
 		health, recs := skippedTaskRecords(skipped)
-		return finalize(cmd, cfg, p, runID, started, nil, nil, recs, health, map[string]string{}, "invalid_input", ExitInvalidInput, msg)
+		return finalize(cmd, cfg, p, runID, started, nil, nil, recs, health, map[string]string{}, "invalid_input", ExitInvalidInput, nil, msg)
 	}
 
 	// Zero effective scanners: a scan that scans nothing must not pass.
 	if len(tasks) == 0 {
 		msg := fmt.Sprintf("profile %q produced zero effective scanners; refusing empty pass", g.Profile)
 		health, recs := skippedTaskRecords(skipped)
-		return finalize(cmd, cfg, p, runID, started, nil, nil, recs, health, map[string]string{}, "invalid_input", ExitInvalidInput, msg)
+		return finalize(cmd, cfg, p, runID, started, nil, nil, recs, health, map[string]string{}, "invalid_input", ExitInvalidInput, nil, msg)
 	}
 
 	// Shallow-history guard (CTX-003).
@@ -418,9 +418,9 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 		switch cfg.Policy.BehaviorOnRequiredScannerError {
 		case "fail":
 			// Record execution failure but still finalize sanitized reports.
-			return finalize(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, "execution_failed", ExitExecutionFailed, msg)
+			return finalize(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, "execution_failed", ExitExecutionFailed, extra, msg)
 		default:
-			return finalize(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, "inconclusive", ExitInconclusive, msg)
+			return finalize(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, "inconclusive", ExitInconclusive, extra, msg)
 		}
 	}
 
@@ -444,11 +444,11 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 	}
 	bl, err := baseline.Load(baselinePath)
 	if err != nil {
-		return finalize(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, "invalid_input", ExitInvalidInput, err.Error())
+		return finalize(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, "invalid_input", ExitInvalidInput, extra, err.Error())
 	}
 	bl.Apply(findings)
 	if err := applyExceptions(cfg, findings, time.Now()); err != nil {
-		return finalize(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, "invalid_input", ExitInvalidInput, err.Error())
+		return finalize(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, "invalid_input", ExitInvalidInput, extra, err.Error())
 	}
 
 	// Policy sees only unsuppressed findings: validated exceptions scope
@@ -566,10 +566,10 @@ func finalizeOutcome(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.
 	return exitCode, &ExitError{Code: exitCode, Msg: fmt.Sprintf("sdt: %s", status)}
 }
 
-func finalize(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.Plan, runID string, started time.Time, findings []*finding.Finding, diagnostics []string, taskRecords []report.TaskRecord, health map[string]string, toolVersions map[string]string, status string, exitCode int, msg string) (int, error) {
+func finalize(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.Plan, runID string, started time.Time, findings []*finding.Finding, diagnostics []string, taskRecords []report.TaskRecord, health map[string]string, toolVersions map[string]string, status string, exitCode int, extra []extraArtifact, msg string) (int, error) {
 	out := policy.Outcome{Status: status, Trace: []policy.TraceEntry{}}
 	diagnostics = append(diagnostics, msg)
-	if err := writeArtifacts(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, out, status, exitCode, nil); err != nil {
+	if err := writeArtifacts(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, out, status, exitCode, extra); err != nil {
 		return ExitInternalError, &ExitError{Code: ExitInternalError, Msg: fmt.Sprintf("sdt: artifact finalization failed: %v", err)}
 	}
 	fmt.Fprint(cmd.OutOrStdout(), report.Summary(status, findings, out, health))
@@ -581,7 +581,7 @@ func finalize(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.Plan, r
 }
 
 func finalizeEmpty(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.Plan, runID string, started time.Time, status, msg string) (int, error) {
-	return finalize(cmd, cfg, p, runID, started, nil, nil, nil, map[string]string{}, map[string]string{}, status, ExitInconclusive, msg)
+	return finalize(cmd, cfg, p, runID, started, nil, nil, nil, map[string]string{}, map[string]string{}, status, ExitInconclusive, nil, msg)
 }
 
 func writeArtifacts(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.Plan, runID string, started time.Time, findings []*finding.Finding, diagnostics []string, taskRecords []report.TaskRecord, health map[string]string, toolVersions map[string]string, out policy.Outcome, status string, exitCode int, extra []extraArtifact) error {
@@ -672,6 +672,20 @@ func writeArtifacts(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.P
 			media  string
 			schema string
 		}{e.name, e.data, e.media, e.schema})
+	}
+	// A reused output directory must not keep an endpoint inventory this run
+	// did not produce: stale routes would be read as current evidence.
+	wroteEndpoints := false
+	for _, a := range artifacts {
+		if a.name == "endpoints.json" {
+			wroteEndpoints = true
+			break
+		}
+	}
+	if !wroteEndpoints {
+		if err := os.Remove(filepath.Join(outDir, "endpoints.json")); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove stale endpoints.json: %w", err)
+		}
 	}
 	var recs []report.ArtifactRec
 	var firstErr error

@@ -69,50 +69,14 @@ rules:
       fact: router_fn
     pattern: $R = Router($...ARGS)
 
-  - id: fact.js.route1
+  - id: fact.js.route
     languages: [javascript, typescript]
     severity: INFO
-    message: Express route registration ($R.method(path, handler))
+    message: Express route registration ($R.method(path, handler...))
     metadata:
       fact: route
     patterns:
-      - pattern: $R.$METHOD($PATH, $A1)
-      - metavariable-regex:
-          metavariable: $METHOD
-          regex: ^(get|post|put|patch|delete|all)$
-
-  - id: fact.js.route2
-    languages: [javascript, typescript]
-    severity: INFO
-    message: Express route registration ($R.method(path, a1, a2))
-    metadata:
-      fact: route
-    patterns:
-      - pattern: $R.$METHOD($PATH, $A1, $A2)
-      - metavariable-regex:
-          metavariable: $METHOD
-          regex: ^(get|post|put|patch|delete|all)$
-
-  - id: fact.js.route3
-    languages: [javascript, typescript]
-    severity: INFO
-    message: Express route registration ($R.method(path, a1..a3))
-    metadata:
-      fact: route
-    patterns:
-      - pattern: $R.$METHOD($PATH, $A1, $A2, $A3)
-      - metavariable-regex:
-          metavariable: $METHOD
-          regex: ^(get|post|put|patch|delete|all)$
-
-  - id: fact.js.route4
-    languages: [javascript, typescript]
-    severity: INFO
-    message: Express route registration ($R.method(path, a1..a4))
-    metadata:
-      fact: route
-    patterns:
-      - pattern: $R.$METHOD($PATH, $A1, $A2, $A3, $A4)
+      - pattern: $R.$METHOD($PATH, $A1, $...ARGS)
       - metavariable-regex:
           metavariable: $METHOD
           regex: ^(get|post|put|patch|delete|all)$

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/bhanuharya/secure-development-tools/internal/config"
+	"github.com/bhanuharya/secure-development-tools/internal/execute"
 )
 
 // Fact is one engine result: what kind of fact, where, and its metavariables.
@@ -92,8 +93,20 @@ var factExcludes = []string{
 	"*_test.go", "*.spec.*", "*.test.*",
 }
 
+// factRunTimeout bounds one fact-engine invocation.
+const factRunTimeout = 2 * time.Minute
+
+// factOutputGrace bounds pipe draining after the engine exits or its deadline
+// stops it. A launcher's child that escaped the process group must not keep the
+// inventory waiting.
+const factOutputGrace = time.Second
+
 // RunFacts runs the fact rules over dir and returns parsed facts.
 func RunFacts(dir string) ([]Fact, error) {
+	return runFactsWithTimeout(dir, factRunTimeout)
+}
+
+func runFactsWithTimeout(dir string, timeout time.Duration) ([]Fact, error) {
 	bin := opengrepBinary()
 	if bin == "" {
 		return nil, fmt.Errorf("opengrep is not installed (set SDT_OPENGREP_BIN)")
@@ -116,17 +129,25 @@ func RunFacts(dir string) ([]Fact, error) {
 	}
 	args = append(args, "--config", rules, ".")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = absDir
 	// opengrep 1.29 dropped --metrics; the env var is the equivalent for the
 	// semgrep fallback and keeps the run offline (SPEC §3).
 	cmd.Env = append(os.Environ(), "SEMGREP_SEND_METRICS=off")
+	// The engine may be a launcher whose children hold the output pipes. Stop
+	// the whole group at the deadline and bound the wait for those pipes, so
+	// the fact run returns even when an orphan outlives the launcher.
+	execute.OwnProcessGroup(cmd)
+	cmd.WaitDelay = factOutputGrace
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("opengrep timed out after %s", timeout)
+		}
 		// 0 = clean, 1 = facts found; anything else is an engine failure.
 		if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() == 1 {
 			// Fall through: stdout still carries the results.

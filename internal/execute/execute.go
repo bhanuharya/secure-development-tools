@@ -103,7 +103,7 @@ func RunOne(ctx context.Context, t Task, redact func(string) string) Result {
 	if t.Dir != "" {
 		cmd.Dir = t.Dir
 	}
-	ownProcessGroup(cmd)
+	OwnProcessGroup(cmd)
 	// A process that outlives the scanner and still holds its output must not
 	// keep the run waiting: give the pipes a moment, then close them.
 	cmd.WaitDelay = outputGrace

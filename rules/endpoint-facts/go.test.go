@@ -34,29 +34,35 @@ func ginApp() {
 	_ = withAuthAndLimit
 	_ = withAll
 
-	// ruleid: fact.go.route1
+	// ruleid: fact.go.route
 	api.GET("/orders", listOrders)
 
-	// ruleid: fact.go.route2
+	// ruleid: fact.go.route
 	api.POST("/orders", AuthMiddleware(), createOrder)
 
-	// ruleid: fact.go.route3
+	// ruleid: fact.go.route
 	api.PUT("/orders", AuthMiddleware(), RateLimit(), updateOrder)
 
-	// ruleid: fact.go.route4
+	// ruleid: fact.go.route
 	api.PATCH("/orders", AuthMiddleware(), RateLimit(), Tracer(), patchOrder)
 
-	// ruleid: fact.go.route5
+	// ruleid: fact.go.route
 	api.DELETE("/orders", AuthMiddleware(), RateLimit(), Tracer(), Audit(), deleteOrder)
 
-	// ruleid: fact.go.handle_verb1
+	// ruleid: fact.go.route
+	api.POST("/orders", AuthMiddleware(), RateLimit(), Tracer(), Audit(), Metrics(), createOrder)
+
+	// ruleid: fact.go.handle_verb
 	api.Handle("GET", "/reports", listReports)
 
-	// ruleid: fact.go.handle_verb2
+	// ruleid: fact.go.handle_verb
 	api.Handle("GET", "/reports", AuthMiddleware(), listReports)
 
-	// ruleid: fact.go.handle_verb3
+	// ruleid: fact.go.handle_verb
 	api.Handle("GET", "/reports", AuthMiddleware(), RateLimit(), listReports)
+
+	// ruleid: fact.go.handle_verb
+	api.Handle("GET", "/reports", AuthMiddleware(), RateLimit(), Tracer(), Audit(), listReports)
 }
 
 func libraryApp() {
@@ -71,13 +77,13 @@ func libraryApp() {
 
 	// ruleid: fact.go.chi_route
 	app.Route("/files", func(r chi.Router) {
-		// ruleid: fact.go.route1
+		// ruleid: fact.go.route
 		r.Get("/{id}", getFile)
 	})
 
 	// ruleid: fact.go.chi_group
 	app.Group(func(r chi.Router) {
-		// ruleid: fact.go.route1
+		// ruleid: fact.go.route
 		r.Get("/status", status)
 	})
 }

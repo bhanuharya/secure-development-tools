@@ -26,22 +26,25 @@ api.use(verifyJwt, auditLog, rateLimit);
 // ruleid: fact.js.use4
 api.use(verifyJwt, auditLog, rateLimit, tracer);
 
-// ruleid: fact.js.route1
+// ruleid: fact.js.route
 api.get('/orders', listOrders);
 
-// ruleid: fact.js.route2
+// ruleid: fact.js.route
 api.post('/orders', requireAuth, createOrder);
 
-// ruleid: fact.js.route3
+// ruleid: fact.js.route
 api.put('/orders/:id', requireAuth, rateLimit, updateOrder);
 
-// ruleid: fact.js.route4
+// ruleid: fact.js.route
 api.patch('/orders/:id', requireAuth, rateLimit, tracer, patchOrder);
 
-// ruleid: fact.js.route1
+// ruleid: fact.js.route
+api.patch('/orders/:id', requireAuth, rateLimit, tracer, auditLog, patchOrder);
+
+// ruleid: fact.js.route
 api.delete('/orders/:id', deleteOrder);
 
-// ruleid: fact.js.route1
+// ruleid: fact.js.route
 api.all('/orders/:id', anyOrder);
 
 // ruleid: fact.js.use2

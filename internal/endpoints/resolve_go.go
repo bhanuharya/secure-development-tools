@@ -80,7 +80,11 @@ func (fr *fileResolver) routeFromFact(f Fact) (Route, error) {
 		return Route{}, fmt.Errorf("route receiver could not be resolved")
 	}
 	state := fr.stateOfExpr(receiver, f.Line, 0)
-	args := factArgs(f)
+	lead := 1
+	if f.Metavars["$VERB"] != "" {
+		lead = 2 // Handle(verb, path, handler...)
+	}
+	args := routeArgs(f, fr.root, lead)
 	if len(args) == 0 {
 		if h := f.Metavars["$H"]; h != "" {
 			args = []string{h}

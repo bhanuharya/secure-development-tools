@@ -264,7 +264,11 @@ func rulePackDir(root string) string {
 func ruleFiles(root string, languages []string) []string {
 	pack := rulePackDir(root)
 	var files []string
-	subs := append([]string{"common"}, languages...)
+	// The yaml pack is generic: its rules match Consul HCL, .env files,
+	// application.yaml and nginx.conf through their own paths: filters, so a
+	// repository holding only those files never gets a language that selects
+	// it. Keep it always loaded; duplicates are removed below.
+	subs := append([]string{"common", "yaml"}, languages...)
 	for _, l := range languages {
 		subs = append(subs, ruleFolderAliases[l]...)
 	}

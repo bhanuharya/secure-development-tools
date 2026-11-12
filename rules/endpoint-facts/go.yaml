@@ -8,9 +8,9 @@
 # Every route/group/use rule matches any receiver ($R/$BASE): the inventory
 # does not require the router variable to be named r/engine/router.
 #
-# Route calls carry one rule per arity. Opengrep binds a metavariable once per
-# call, so "..., $MW, ..." cannot enumerate the arguments between path and
-# handler; exact arities keep every middleware argument visible. The resolver
+# Route calls match any number of handler arguments. The variadic tail is not
+# a usable list (Opengrep joins it with spaces), so the resolver reads the
+# call's arguments from the source at the fact's line and column. The resolver
 # reads the argument positions per framework (gin: middleware before the
 # handler, echo/fiber: after it).
 rules:
@@ -44,90 +44,26 @@ rules:
       - pattern: var $R = chi.NewRouter()
       - pattern: var $R = http.NewServeMux()
 
-  - id: fact.go.route1
+  - id: fact.go.route
     languages: [go]
     severity: INFO
-    message: Go route registration ($R.$METHOD(path, handler))
+    message: Go route registration ($R.$METHOD(path, handler...))
     metadata:
       fact: route
     patterns:
-      - pattern: $R.$METHOD("$PATH", $A1)
-      - metavariable-regex:
-          metavariable: $METHOD
-          regex: ^(GET|POST|PUT|PATCH|DELETE|Any|All|Get|Post|Put|Patch|Delete)$
-
-  - id: fact.go.route2
-    languages: [go]
-    severity: INFO
-    message: Go route registration ($R.$METHOD(path, a1, a2))
-    metadata:
-      fact: route
-    patterns:
-      - pattern: $R.$METHOD("$PATH", $A1, $A2)
-      - metavariable-regex:
-          metavariable: $METHOD
-          regex: ^(GET|POST|PUT|PATCH|DELETE|Any|All|Get|Post|Put|Patch|Delete)$
-
-  - id: fact.go.route3
-    languages: [go]
-    severity: INFO
-    message: Go route registration ($R.$METHOD(path, a1..a3))
-    metadata:
-      fact: route
-    patterns:
-      - pattern: $R.$METHOD("$PATH", $A1, $A2, $A3)
-      - metavariable-regex:
-          metavariable: $METHOD
-          regex: ^(GET|POST|PUT|PATCH|DELETE|Any|All|Get|Post|Put|Patch|Delete)$
-
-  - id: fact.go.route4
-    languages: [go]
-    severity: INFO
-    message: Go route registration ($R.$METHOD(path, a1..a4))
-    metadata:
-      fact: route
-    patterns:
-      - pattern: $R.$METHOD("$PATH", $A1, $A2, $A3, $A4)
-      - metavariable-regex:
-          metavariable: $METHOD
-          regex: ^(GET|POST|PUT|PATCH|DELETE|Any|All|Get|Post|Put|Patch|Delete)$
-
-  - id: fact.go.route5
-    languages: [go]
-    severity: INFO
-    message: Go route registration ($R.$METHOD(path, a1..a5))
-    metadata:
-      fact: route
-    patterns:
-      - pattern: $R.$METHOD("$PATH", $A1, $A2, $A3, $A4, $A5)
+      - pattern: $R.$METHOD("$PATH", $A1, $...ARGS)
       - metavariable-regex:
           metavariable: $METHOD
           regex: ^(GET|POST|PUT|PATCH|DELETE|Any|All|Get|Post|Put|Patch|Delete)$
 
   # gin's Handle carries the verb as its first argument (T02).
-  - id: fact.go.handle_verb1
+  - id: fact.go.handle_verb
     languages: [go]
     severity: INFO
-    message: Go route registration via Handle(verb, path, handler)
+    message: Go route registration via Handle(verb, path, handler...)
     metadata:
       fact: route
-    pattern: $R.Handle($VERB, "$PATH", $A1)
-
-  - id: fact.go.handle_verb2
-    languages: [go]
-    severity: INFO
-    message: Go route registration via Handle(verb, path, a1, a2)
-    metadata:
-      fact: route
-    pattern: $R.Handle($VERB, "$PATH", $A1, $A2)
-
-  - id: fact.go.handle_verb3
-    languages: [go]
-    severity: INFO
-    message: Go route registration via Handle(verb, path, a1..a3)
-    metadata:
-      fact: route
-    pattern: $R.Handle($VERB, "$PATH", $A1, $A2, $A3)
+    pattern: $R.Handle($VERB, "$PATH", $A1, $...ARGS)
 
   # net/http and chi: Handle(path, handler). No verb, so the resolver records
   # the route as ANY.

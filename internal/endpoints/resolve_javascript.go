@@ -301,7 +301,7 @@ func (js *jsResolver) expressRoute(f Fact) (Route, error) {
 		return Route{}, err
 	}
 	receiver := f.Metavars["$R"]
-	args := factArgs(f)
+	args := routeArgs(f, js.root, 1)
 	if len(args) == 0 {
 		return Route{}, fmt.Errorf("route handler could not be resolved")
 	}
