@@ -278,7 +278,9 @@ DEPENDENCY_RULE = re.compile(r"^(external_sdt-trivy[^:]*:sdt-trivy[^-]*(-fs)?-(C
                              r"|sdt:vulnerable-dependency)")
 SECRET_RULE = re.compile(r"^(sdt:secret|secrets:|external_sdt-gitleaks)")
 CONFIG_RULE = re.compile(r"^external_sdt-trivy")
-EXTERNAL_ID = re.compile(r"^external_sdt-[a-z-]+?:sdt-(?:gitleaks|trivy-fs|trivy)-(?P<id>.+)-[0-9a-f]{16}$")
+EXTERNAL_ID = re.compile(r"^external_sdt-(?P<adapter>[A-Za-z0-9_.-]+):sdt-(?P=adapter)-(?P<id>[A-Za-z0-9_.-]+)-[0-9a-f]{16}$")
+# Preserve external_id's historical handling of older Gitleaks and Trivy keys.
+LEGACY_EXTERNAL_ID = re.compile(r"^external_sdt-[a-z-]+?:sdt-(?:gitleaks|trivy-fs|trivy)-(?P<id>.+)-[0-9a-f]{16}$")
 HISTORY_SECRET = re.compile(r"Secret \((?P<kind>[^)]+)\) in git history: (?P<path>[^\s:]+)(?::(?P<line>\d+))?"
                             r"(?: at commit (?P<commit>[0-9a-f]+))?")
 DEPENDENCY_MESSAGE = re.compile(r"^(?P<id>\S+) in (?P<package>\S+) (?P<installed>\S+?)(?:: upgrade to (?P<fixed>[^.]+))?\.")
@@ -296,8 +298,8 @@ def category(rule_key: str) -> str:
 
 
 def external_id(rule_key: str) -> str:
-    """'external_sdt-gitleaks:sdt-gitleaks-gcp-api-key-<hash>' -> 'gcp-api-key'."""
-    match = EXTERNAL_ID.match(rule_key)
+    """The readable tail of an SDT external rule, without its adapter or identity hash."""
+    match = EXTERNAL_ID.fullmatch(rule_key) or LEGACY_EXTERNAL_ID.match(rule_key)
     return match.group("id") if match else rule_key.split(":", 1)[-1]
 
 
@@ -1647,6 +1649,9 @@ def write_docx(report: Report, src_root: Path | None, out: Path, template: Path 
 # ---------------------------------------------------------------- trend / coverage
 def rule_ref(rule: str) -> str:
     """A short name for a rule that is the same in every report, unlike its section number."""
+    match = EXTERNAL_ID.fullmatch(rule)
+    if match:
+        return match.group("id")
     return rule.rsplit(":", 1)[-1].rsplit(".", 1)[-1] or rule
 
 

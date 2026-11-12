@@ -1792,6 +1792,25 @@ def _sonar_issue(key, rule):
             "severity": "MAJOR", "issueStatus": "OPEN", "message": "flagged"}
 
 
+def test_sonarqube_endpoint_rule_has_a_short_reference_throughout_the_report(tmp_path):
+    title = "Sensitive route is reachable without authentication"
+    external, skipped = sdt_to_sonar.convert({"findings": [{
+        "scanner": {"adapter": "endpoints"}, "category": "sast",
+        "rule": {"id": "sensitive-route-public", "name": title},
+        "severity": {"canonical": "high"}, "message": "Review the public admin route.",
+        "location": {"path": "src/A.java", "startLine": 1}}]})
+    assert skipped == 0
+    rule = external["rules"][0]
+    key = f"external_{rule['engineId']}:{rule['id']}"
+    sonar = _Sonar([], [_sonar_issue("i1", key)], names={key: title})
+    _, found = sdt_to_docx.from_sonar(sonar, "proj", "main", "")
+
+    text, *_ = _write_report(tmp_path, found)
+    assert f"1.1 {title} [sensitive-route-public] (1)" in text
+    assert f"1.1 {title} [sensitive-route-public] - 1 Finding" in text
+    assert f"[{rule['id']}]" not in text
+
+
 def test_sonarqube_mode_takes_opengrep_titles_from_the_findings_file(tmp_path):
     sonar = _Sonar([], [_sonar_issue("i1", "external_opengrep:scp.java.x.some-rule"),
                         _sonar_issue("i2", "external_opengrep:scp.java.x.other-rule"),
@@ -2066,6 +2085,26 @@ def test_docx_rule_sections_carry_a_reference_that_does_not_change_between_repor
     assert sdt_to_docx.rule_ref("typescript:S6299") == "S6299"
     assert sdt_to_docx.rule_ref("opengrep-dart:scp.dart.tls.bad-cert") == "bad-cert"
     assert sdt_to_docx.rule_ref("plain") == "plain"
+
+
+@pytest.mark.parametrize("case", json.loads((Path(__file__).resolve().parents[1] /
+                                          "testdata/endpoints/report-rule-refs.json").read_text()))
+def test_docx_external_rule_references_match_golden(case):
+    assert sdt_to_docx.rule_ref(case["key"]) == case["reference"]
+    assert sdt_to_docx.external_id(case["key"]) == case["external_id"]
+
+
+@pytest.mark.parametrize("adapter, rule_id, expected", [
+    ("endpoints", "sensitive-route-public", "sensitive-route-public"),
+    ("opengrep", "scp.javascript.secrets.prod-literal-password", "prod-literal-password"),
+    ("gitleaks", "gcp-api-key", "gcp-api-key"),
+    ("trivy-fs", "CVE-2026-0001", "CVE-2026-0001"),
+    ("custom_v2.1", "checks.some-rule", "some-rule"),
+])
+def test_docx_shortens_keys_from_the_sonar_exporter(adapter, rule_id, expected):
+    key = f"external_sdt-{adapter}:{sdt_to_sonar._rule_key(adapter, rule_id)}"
+    assert sdt_to_docx.rule_ref(key) == expected
+    assert sdt_to_docx.external_id(key) == expected
 
 
 def test_triage_memory_lives_in_the_state_directory_when_there_is_one(tmp_path):
