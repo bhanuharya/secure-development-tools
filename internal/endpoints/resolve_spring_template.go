@@ -16,7 +16,7 @@ func springTemplatePath(path string) bool { return strings.Contains(path, "{") }
 
 // decideConcrete applies the security configuration to one concrete path.
 func (cfg *springConfig) decideConcrete(path, method string) (Protection, []string, []string, string, string) {
-	if protection, roles, evidence, confidence, ok := cfg.decideIgnored(path); ok {
+	if protection, roles, evidence, confidence, ok := cfg.decideIgnored(path, method); ok {
 		return protection, roles, evidence, confidence, ""
 	}
 	if len(cfg.ignoredUnknown) > 0 {
@@ -32,8 +32,11 @@ func (cfg *springConfig) decideConcrete(path, method string) (Protection, []stri
 }
 
 // decideIgnored reports whether the path bypasses the security filter chain.
-func (cfg *springConfig) decideIgnored(path string) (Protection, []string, []string, string, bool) {
+func (cfg *springConfig) decideIgnored(path, method string) (Protection, []string, []string, string, bool) {
 	for _, ignored := range cfg.ignored {
+		if ignored.method != "" && ignored.method != method {
+			continue
+		}
 		switch antMatchResult(normalizePath(ignored.pattern), path) {
 		case antYes:
 			return ProtPublic, nil, []string{ignored.evidence() + " (bypasses the security filter chain)"}, "high", true
@@ -132,7 +135,7 @@ func (cfg *springConfig) scopePatterns() []string {
 	var out []string
 	for _, c := range cfg.chains {
 		for _, scope := range c.scopes {
-			out = append(out, scope.pattern)
+			out = append(out, scope.patterns...)
 		}
 	}
 	return out

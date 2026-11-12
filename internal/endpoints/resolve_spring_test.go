@@ -297,6 +297,94 @@ func TestSpringIgnoredPathsArePublic(t *testing.T) {
 	}
 }
 
+// TestSpringIgnoredMethodOnlyBypassesThatMethod pins T37 finding 1: an ignore
+// that names HttpMethod.OPTIONS (the CORS preflight shape) only bypasses that
+// method, so GET and POST routes stay with the security chain.
+func TestSpringIgnoredMethodOnlyBypassesThatMethod(t *testing.T) {
+	facts := func(ignoreName string) []Fact {
+		return []Fact{
+			{Kind: "security_ignored", File: "Security.java", Line: 3, Metavars: map[string]string{
+				"$IGNORE": ignoreName, "$...ARGS": `HttpMethod.OPTIONS"/**"`,
+			}},
+			{Kind: "security_chain", File: "Security.java", Line: 6, EndLine: 9, Metavars: map[string]string{"$HTTP": "http"}},
+			{Kind: "security_default", File: "Security.java", Line: 8, Metavars: map[string]string{"$DEFAULT": "anyRequest", "$ACCESS": "authenticated"}},
+		}
+	}
+	for _, name := range []string{"antMatchers", "requestMatchers"} {
+		t.Run(name, func(t *testing.T) {
+			cfg := springConfigs(facts(name), t.TempDir())["."]
+			for _, method := range []string{"GET", "POST", "DELETE"} {
+				if got, _, _, _ := cfg.decide("/orders", method); got != ProtAuthenticated {
+					t.Errorf("%s /orders = %q, want authenticated (ignore names another method)", method, got)
+				}
+			}
+			protection, _, evidence, confidence := cfg.decide("/orders", "OPTIONS")
+			if protection != ProtPublic || confidence != "high" {
+				t.Fatalf("OPTIONS /orders = %q/%q, want public/high", protection, confidence)
+			}
+			want := `web.ignoring().` + name + `(HttpMethod.OPTIONS, "/**")`
+			if len(evidence) != 1 || !strings.Contains(evidence[0], want) {
+				t.Errorf("evidence = %v, want the ignore call %s", evidence, want)
+			}
+		})
+	}
+}
+
+// TestSpringNegatedScopeMatchesOutsidePatterns pins T37 finding 2: a negated
+// chain scope covers every request its inner patterns do not, so the gateway
+// chain is not "ownership unknown". An unmodelled inner matcher stays unknown.
+func TestSpringNegatedScopeMatchesOutsidePatterns(t *testing.T) {
+	config := func(scope string) *springConfig {
+		return springConfigs([]Fact{
+			{Kind: "security_chain", File: "Security.java", Line: 3, EndLine: 7, Metavars: map[string]string{"$HTTP": "http"}},
+			{Kind: "security_scope", File: "Security.java", Line: 4, Metavars: map[string]string{
+				"$OWNER": "http", "$SCOPE": "securityMatcher", "$...ARGS": scope,
+			}},
+			{Kind: "security_default", File: "Security.java", Line: 6, Metavars: map[string]string{"$DEFAULT": "anyRequest", "$ACCESS": "authenticated"}},
+		}, t.TempDir())["."]
+	}
+	cases := []struct {
+		name    string
+		scope   string
+		outside []string
+	}{
+		{
+			"webflux pathMatchers",
+			`new NegatedServerWebExchangeMatcher(ServerWebExchangeMatchers.pathMatchers("/app/**""/i18n/**""/content/**"))`,
+			[]string{"/app/index", "/i18n/messages", "/content/style"},
+		},
+		{
+			"mvc single ant matcher",
+			`new NegatedRequestMatcher(new AntPathRequestMatcher("/app/**"))`,
+			[]string{"/app/index"},
+		},
+		{
+			"mvc or request matcher",
+			`new NegatedRequestMatcher(new OrRequestMatcher(new AntPathRequestMatcher("/app/**")new AntPathRequestMatcher("/assets/**")))`,
+			[]string{"/app/index", "/assets/app.js"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config(tc.scope)
+			if got, _, _, _ := cfg.decide("/services/orders", "POST"); got != ProtAuthenticated {
+				t.Errorf("/services/orders = %q, want authenticated (inside the negated scope)", got)
+			}
+			for _, path := range tc.outside {
+				if got, _, _, _ := cfg.decide(path, "POST"); got != ProtPublic {
+					t.Errorf("%s = %q, want public (excluded from the chain scope)", path, got)
+				}
+			}
+		})
+	}
+
+	cfg := config(`new NegatedRequestMatcher(customMatcher())`)
+	protection, _, _, _, note := cfg.decideWithNote("/services/orders", "POST")
+	if protection != ProtUnknown || !strings.Contains(note, "NegatedRequestMatcher") {
+		t.Errorf("unmodelled inner matcher = %q note %q, want unknown naming NegatedRequestMatcher", protection, note)
+	}
+}
+
 // TestSpringConstantMatcherPath pins review3 finding 8: a simple string
 // constant is substituted, and an unresolved name is unknown.
 func TestSpringConstantMatcherPath(t *testing.T) {

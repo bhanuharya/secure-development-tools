@@ -52,6 +52,47 @@ func springArgumentValues(raw string) ([]springArgValue, string, bool) {
 	return nil, method, false
 }
 
+// springNegatedPrefixes are the negated request-matcher constructors whose
+// semantics the resolver models: the chain applies to every request the inner
+// matcher does not match (T37).
+var springNegatedPrefixes = []string{
+	"new NegatedRequestMatcher(",
+	"new NegatedServerWebExchangeMatcher(",
+}
+
+// springScopeArguments parses a chain-scope call. A negated wrapper keeps its
+// negation even when the inner matcher is unreadable, so the caller records an
+// unknown scope instead of applying the chain to every request.
+func springScopeArguments(raw string) ([]springArgValue, string, bool, bool) {
+	if values, negated, ok := springNegatedScopeValues(raw); negated {
+		return namedArgs(values), "", true, ok
+	}
+	values, method, ok := springArgumentValues(raw)
+	return values, method, false, ok
+}
+
+// springNegatedScopeValues reads the inner path matchers of a negated wrapper.
+// The inner matcher must be one of the wrappers the resolver already reads,
+// alone or inside an OrRequestMatcher; anything else stays unknown.
+func springNegatedScopeValues(raw string) (values []string, negated, ok bool) {
+	s := strings.TrimSpace(raw)
+	for _, prefix := range springNegatedPrefixes {
+		if !strings.HasPrefix(s, prefix) {
+			continue
+		}
+		if !strings.HasSuffix(s, ")") {
+			return nil, true, false
+		}
+		inner := strings.TrimSpace(s[len(prefix) : len(s)-1])
+		values, ok := springWrapperLiterals(inner)
+		if !ok {
+			return nil, true, false
+		}
+		return values, true, true
+	}
+	return nil, false, false
+}
+
 func namedArgs(values []string) []springArgValue {
 	out := make([]springArgValue, len(values))
 	for i, value := range values {

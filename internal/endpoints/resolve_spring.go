@@ -50,10 +50,12 @@ type springMatcher struct {
 }
 
 // springScope restricts a chain to a request subset (securityMatcher,
-// antMatcher, ...). An empty scope list matches every request.
+// antMatcher, ...). An empty scope list matches every request. A negated scope
+// matches every request none of its patterns match (T37).
 type springScope struct {
-	pattern string
-	method  string
+	patterns []string
+	method   string
+	negated  bool
 }
 
 // springScopeCall is one chain-scope call before its argument list is parsed.
@@ -66,16 +68,25 @@ type springScopeCall struct {
 }
 
 // springIgnored is one WebSecurityCustomizer path that bypasses the filters.
+// An ignore with an HTTP method only bypasses that method (T37).
 type springIgnored struct {
 	file    string
 	line    int
 	name    string
 	raw     string
 	pattern string
+	method  string
 }
 
 func (i springIgnored) evidence() string {
-	return fmt.Sprintf("%s:%d web.ignoring().%s(%s)", i.file, i.line, i.name, i.raw)
+	args := i.raw
+	if i.pattern != "" {
+		args = strconv.Quote(i.pattern)
+		if i.method != "" {
+			args = "HttpMethod." + i.method + ", " + args
+		}
+	}
+	return fmt.Sprintf("%s:%d web.ignoring().%s(%s)", i.file, i.line, i.name, args)
 }
 
 // springFilter is one authentication mechanism or filter of a chain.
@@ -647,12 +658,13 @@ func (b *springBuild) addScope(cfg *springConfig, sc springScopeCall) {
 	if !springScopeOwned(chain, sc) {
 		return
 	}
-	values, method, ok := springArgumentValues(sc.args)
+	values, method, negated, ok := springScopeArguments(sc.args)
 	if !ok {
 		cfg.ownershipUnknown = true
 		cfg.ownershipNote = fmt.Sprintf("%s:%d %s(%s) cannot be evaluated", sc.file, sc.line, sc.name, sc.args)
 		return
 	}
+	var patterns []string
 	for _, value := range values {
 		pattern, ok := value.value, value.literal
 		if !value.literal {
@@ -663,7 +675,10 @@ func (b *springBuild) addScope(cfg *springConfig, sc springScopeCall) {
 			cfg.ownershipNote = fmt.Sprintf("%s:%d %s(%s) cannot be resolved", sc.file, sc.line, sc.name, sc.args)
 			continue
 		}
-		chain.scopes = append(chain.scopes, springScope{pattern: pattern, method: method})
+		patterns = append(patterns, pattern)
+	}
+	if len(patterns) > 0 {
+		chain.scopes = append(chain.scopes, springScope{patterns: patterns, method: method, negated: negated})
 	}
 }
 
@@ -685,7 +700,7 @@ func springScopeOwned(chain *springChain, sc springScopeCall) bool {
 func (b *springBuild) resolveIgnored(cfg *springConfig) []springIgnored {
 	var out []springIgnored
 	for _, ignored := range b.ignored {
-		values, _, ok := springArgumentValues(ignored.raw)
+		values, method, ok := springArgumentValues(ignored.raw)
 		if !ok {
 			cfg.ignoredUnknown = append(cfg.ignoredUnknown, ignored.evidence()+": ignore expression cannot be evaluated")
 			continue
@@ -700,6 +715,7 @@ func (b *springBuild) resolveIgnored(cfg *springConfig) []springIgnored {
 				continue
 			}
 			ignored.pattern = pattern
+			ignored.method = method
 			out = append(out, ignored)
 		}
 	}
@@ -872,7 +888,7 @@ func (c *springChain) scopeMatch(method, path string) antResult {
 		if scope.method != "" && scope.method != method {
 			continue
 		}
-		switch antMatchResult(normalizePath(scope.pattern), path) {
+		switch scope.match(path) {
 		case antYes:
 			return antYes
 		case antUnknown:
@@ -880,6 +896,32 @@ func (c *springChain) scopeMatch(method, path string) antResult {
 		}
 	}
 	return result
+}
+
+// match evaluates one scope. A negated matcher applies to every path its
+// patterns do not match, so the result of the positive match is inverted.
+func (s springScope) match(path string) antResult {
+	result := antNo
+	for _, pattern := range s.patterns {
+		switch antMatchResult(normalizePath(pattern), path) {
+		case antYes:
+			result = antYes
+		case antUnknown:
+			if result != antYes {
+				result = antUnknown
+			}
+		}
+	}
+	if !s.negated {
+		return result
+	}
+	switch result {
+	case antYes:
+		return antNo
+	case antNo:
+		return antYes
+	}
+	return antUnknown
 }
 
 func chainBefore(a, b *springChain) bool {
@@ -905,9 +947,23 @@ func chainOrderIsDecidable(a, b *springChain) bool {
 func (c *springChain) describe() string {
 	where := fmt.Sprintf("%s:%d security chain", c.file, c.line)
 	if len(c.scopes) > 0 {
-		where += " " + strconv.Quote(c.scopes[0].pattern)
+		where += " " + c.scopes[0].describe()
 	}
 	return where
+}
+
+// describe renders one scope for an Unresolved sentence: its patterns, marked
+// as negated when the chain applies outside them.
+func (s springScope) describe() string {
+	quoted := make([]string, len(s.patterns))
+	for i, pattern := range s.patterns {
+		quoted[i] = strconv.Quote(pattern)
+	}
+	text := strings.Join(quoted, ", ")
+	if s.negated {
+		return "not " + text
+	}
+	return text
 }
 
 func decideSpringMatchers(matchers []springMatcher, path, method string) (Protection, []string, []string, string, string) {
