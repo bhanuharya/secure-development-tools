@@ -175,3 +175,41 @@ server {
         deny all;
     }
 }
+
+server {
+    listen 8080;
+    # ruleid: scp.generic.nginx.sensitive-location-proxied
+    location /management/ {
+        allow 10.0.0.0/8;
+        proxy_pass http://accounts:8080/;
+    }
+}
+
+server {
+    listen 8080;
+    # ruleid: scp.generic.nginx.sensitive-location-proxied
+    location /management/ {
+        # deny all;
+        allow 10.0.0.0/8;
+        proxy_pass http://accounts:8080/;
+    }
+}
+
+server {
+    listen 8080;
+    # ok: scp.generic.nginx.sensitive-location-proxied
+    location /management/ {
+        allow 10.0.0.0/8;
+        deny all;
+        proxy_pass http://accounts:8080/;
+    }
+}
+
+server {
+    listen 8080;
+    # ok: scp.generic.nginx.sensitive-location-proxied
+    location /management/ {
+        internal;
+        proxy_pass http://accounts:8080/;
+    }
+}

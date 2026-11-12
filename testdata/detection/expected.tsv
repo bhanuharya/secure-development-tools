@@ -140,3 +140,27 @@ gateway/lookalike/kong-health.yaml	kong route to health only (not a sensitive ro
 gateway/lookalike/application.yml	zuul ignores every service and the gateway routes health only (not exposure)	284,441	none
 endpoints/transfer/main.go	money transfer reachable without authentication	306,284	rules
 endpoints/lookalike/main.go	public login and health next to protected state-changing routes (not missing auth)	306,862,284,285	none
+infra/k8s-aws-false.yaml	internal service with k8s-aws-false	668	rules
+infra/k8s-azure-false.yaml	internal service with k8s-azure-false	668	rules
+infra/k8s-gke-external.yaml	internal service with k8s-gke-external	668	rules
+infra/k8s-aws-true-prefix.yaml	internal service with k8s-aws-true-prefix	668	rules
+infra/k8s-ipv4-open.yaml	internal service with k8s-ipv4-open	668	rules
+infra/k8s-ipv6-open.yaml	internal service with k8s-ipv6-open	668	rules
+infra/k8s-mixed-open.yaml	internal service with k8s-mixed-open	668	rules
+infra/k8s-empty-ranges.yaml	internal service with k8s-empty-ranges	668	rules
+infra/lookalike/k8s-aws-true.yaml	internal service with k8s-aws-true	668	none
+infra/lookalike/k8s-azure-true.yaml	internal service with k8s-azure-true	668	none
+infra/lookalike/k8s-aws-internal-scheme.yaml	internal service with k8s-aws-internal-scheme	668	none
+infra/lookalike/k8s-gke-internal.yaml	internal service with k8s-gke-internal	668	none
+infra/lookalike/k8s-restricted-flow.yaml	internal service with k8s-restricted-flow	668	none
+infra/lookalike/k8s-restricted-block.yaml	internal service with k8s-restricted-block	668	none
+infra/consul-client-first.hcl	Consul UI and client binding client-first.hcl	668	rules
+infra/consul-ui-first.hcl	Consul UI and client binding ui-first.hcl	668	rules
+infra/consul-ui-config-first.hcl	Consul UI and client binding ui-config-first.hcl	668	rules
+infra/consul-ui-first.json	Consul UI and client binding ui-first.json	668	rules
+infra/lookalike/consul-ui-disabled.hcl	Consul UI and client binding ui-disabled.hcl	668	none
+infra/lookalike/consul-loopback.hcl	Consul UI and client binding loopback.hcl	668	none
+gateway/nginx/nginx-allow-only.conf	NGINX sensitive proxy with allow-only	284	rules
+gateway/nginx/nginx-commented-deny.conf	NGINX sensitive proxy with commented-deny	284	rules
+gateway/lookalike/nginx-allow-deny.conf	NGINX sensitive proxy with allow-deny	284	none
+gateway/lookalike/nginx-internal.conf	NGINX sensitive proxy with internal	284	none

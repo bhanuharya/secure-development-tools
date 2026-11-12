@@ -8,9 +8,10 @@ rules:
     message: >-
       A Kubernetes Service that names internal infrastructure (service registry, Consul,
       search, object store, message broker or database) is published as LoadBalancer or
-      NodePort without an internal load balancer annotation and without
-      loadBalancerSourceRanges. The cloud provider then gives it a public address, and
-      anyone on the internet reaches the registry, the search API or the database. Use
+      NodePort with neither an affirmative internal load balancer annotation nor a nonempty
+      loadBalancerSourceRanges list that excludes every internet-wide range. The cloud
+      provider then gives it a public address, and anyone on the internet reaches the
+      registry, the search API or the database. Use
       ClusterIP and reach it through the gateway, or ask for an internal load balancer and
       restrict the source ranges.
     severity: ERROR
@@ -22,8 +23,27 @@ rules:
       confidence: HIGH
     paths:
       include: ["*.yaml", "*.yml", "*.json"]
+    # Keep exclusions inside this manifest; a key or an empty list provides no protection.
     pattern-regex: |-
-      (?ms)^[ \t]*kind:[ \t]*["']?Service["']?[ \t]*\n(?=(?:(?!^[ \t]*kind:)[\s\S])*?(?:\b(?:consul|eureka|registry|config-server|elasticsearch|opensearch|kibana|minio|redis|mongo|postgres|mysql|kafka|rabbitmq|zookeeper|prometheus|grafana)\b|^[ \t]*-?[ \t]*(?:port|targetPort)[ \t]*:[ \t]*["']?(?:8500|8761|9200|9300|5601|9000|6379|27017|5432|3306|9092|2181)["']?[ \t]*$))(?=(?:(?!^[ \t]*kind:)[\s\S])*?^[ \t]*type[ \t]*:[ \t]*["']?(?:LoadBalancer|NodePort)["']?[ \t]*$)(?!(?:(?!^[ \t]*kind:)[\s\S])*?(?:networking\.gke\.io/load-balancer-type[ \t]*:[ \t]*["']?Internal|cloud\.google\.com/load-balancer-type[ \t]*:[ \t]*["']?Internal|service\.beta\.kubernetes\.io/(?:aws|azure)-load-balancer-internal|loadBalancerSourceRanges))(?:(?!^[ \t]*kind:)[\s\S])*?^[ \t]*type[ \t]*:[ \t]*["']?(?:LoadBalancer|NodePort)["']?[ \t]*$
+      (?mx)^[ \t]*kind:[ \t]*["']?Service["']?[ \t]*\n
+      (?=(?:(?!^[ \t]*(?:kind:|---[ \t]*$))[\s\S])*?
+        (?:\b(?:consul|eureka|registry|config-server|elasticsearch|opensearch|kibana|minio|redis|mongo|postgres|mysql|kafka|rabbitmq|zookeeper|prometheus|grafana)\b
+        |^[ \t]*-?[ \t]*(?:port|targetPort)[ \t]*:[ \t]*["']?(?:8500|8761|9200|9300|5601|9000|6379|27017|5432|3306|9092|2181)["']?[ \t]*$))
+      (?!(?:(?!^[ \t]*(?:kind:|---[ \t]*$))[\s\S])*?^[ \t]*
+        (?:["']?service\.beta\.kubernetes\.io/(?:aws|azure)-load-balancer-internal["']?[ \t]*:[ \t]*["']?true["']?
+        |["']?service\.beta\.kubernetes\.io/aws-load-balancer-scheme["']?[ \t]*:[ \t]*["']?internal["']?
+        |["']?(?:networking\.gke\.io|cloud\.google\.com)/load-balancer-type["']?[ \t]*:[ \t]*["']?Internal["']?)
+        [ \t]*(?:\#[^\n]*)?$)
+      (?!(?:(?!^[ \t]*(?:kind:|---[ \t]*$))[\s\S])*?^[ \t]*loadBalancerSourceRanges[ \t]*:[ \t]*
+        (?:\[
+          (?![^\]]*(?<![0-9a-fA-F:.])(?:0\.0\.0\.0/0|::/0)["']?[ \t\r\n]*(?:\#[^\n]*\n[ \t\r\n]*)*(?:,|\]))
+          [ \t\r\n]*(?:\#[^\n]*\n[ \t\r\n]*)*["']?[0-9a-fA-F:.]+/[0-9]+["']?[^\]]*\]
+        |(?:\#[^\n]*)?\n
+          (?!(?:[ \t]*(?:\#[^\n]*)?\n|[ \t]*-[ \t]+[^\n]*\n)*?
+            [ \t]*-[ \t]+["']?(?:0\.0\.0\.0/0|::/0)["']?[ \t]*(?:\#[^\n]*)?$)
+          (?:[ \t]*(?:\#[^\n]*)?\n)*[ \t]*-[ \t]+["']?[0-9a-fA-F:.]+/[0-9]+["']?[ \t]*(?:\#[^\n]*)?$
+        ))
+      (?:(?!^[ \t]*(?:kind:|---[ \t]*$))[\s\S])*?^[ \t]*type[ \t]*:[ \t]*["']?(?:LoadBalancer|NodePort)["']?[ \t]*$
 
   - id: scp.yaml.k8s.internal-service-ingress
     languages: [generic]
@@ -97,11 +117,16 @@ rules:
       confidence: MEDIUM
     paths:
       include: ["*.hcl", "*.tf", "*.json", "*.yaml", "*.yml", "Dockerfile", "docker-compose*.yml", "docker-compose*.yaml", "values*.yaml", "values*.yml"]
+    # Pair either order without borrowing settings past a new declaration or document.
     pattern-either:
       - pattern-regex: |-
-          (?ms)^[ \t]*client_addr[ \t]*=[ \t]*["']?0\.0\.0\.0["']?[ \t]*(?:#[^\n]*)?\n?(?=[\s\S]{0,4000}?^[ \t]*(?:ui[ \t]*=[ \t]*true|ui_config[ \t]*\{[\s\S]{0,600}?\benabled[ \t]*=[ \t]*true))
+          (?m)^[ \t]*client_addr[ \t]*=[ \t]*["']?0\.0\.0\.0["']?[ \t]*(?:#[^\n]*)?$(?=(?:(?!^[ \t]*(?:(?:client_addr|ui|ui_config)\b|---[ \t]*$))[\s\S])*^[ \t]*(?:ui[ \t]*=[ \t]*true\b|ui_config[ \t]*\{[^}]{0,600}?\benabled[ \t]*=[ \t]*true\b))
       - pattern-regex: |-
-          (?ms)"client_addr"[ \t]*:[ \t]*"0\.0\.0\.0"(?=[\s\S]{0,4000}?"ui"[ \t]*:[ \t]*(?:true|\{[\s\S]{0,600}?"enabled"[ \t]*:[ \t]*true))
+          (?m)^[ \t]*(?:ui[ \t]*=[ \t]*true[ \t]*(?:#[^\n]*)?$|ui_config[ \t]*\{[^}]{0,600}?\benabled[ \t]*=[ \t]*true\b[^}]*\})(?=(?:(?!^[ \t]*(?:(?:client_addr|ui|ui_config)\b|---[ \t]*$))[\s\S])*^[ \t]*client_addr[ \t]*=[ \t]*["']?0\.0\.0\.0["']?[ \t]*(?:#[^\n]*)?$)
+      - pattern-regex: |-
+          "client_addr"[ \t]*:[ \t]*"0\.0\.0\.0"(?=(?:(?!"(?:client_addr|ui)"[ \t]*:)[^{}])*"ui"[ \t]*:[ \t]*(?:true\b|\{[^}]{0,600}?"enabled"[ \t]*:[ \t]*true\b))
+      - pattern-regex: |-
+          "ui"[ \t]*:[ \t]*(?:true\b|\{[^}]{0,600}?"enabled"[ \t]*:[ \t]*true\b[^}]*\})(?=(?:(?!"(?:client_addr|ui)"[ \t]*:)[^{}])*"client_addr"[ \t]*:[ \t]*"0\.0\.0\.0")
       - pattern-regex: |-
           (?m)^[^\n#]*-client\b[^\n]*0\.0\.0\.0(?=[\s\S]{0,250}?(?:^[ \t]*-[ \t]*["']?8500:8500|["']8500:8500["']|^[ \t]*published[ \t]*:[ \t]*["']?8500))
       - pattern-regex: |-

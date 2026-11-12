@@ -124,9 +124,9 @@ rules:
     languages: [generic]
     message: >-
       An NGINX location proxies a management, registry, internal or API-documentation
-      path and the block has no deny all, no allow for an internal range and no
-      internal directive. The reverse proxy publishes those endpoints to every client
-      that reaches this server, including the actuator, registry and API documentation
+      path and the block has neither deny all nor an internal directive. An allow
+      directive alone still admits other clients. The reverse proxy publishes those endpoints
+      to every client that reaches this server, including the actuator, registry and API documentation
       of the services behind it. Restrict the location to an internal range (deny all
       plus allow for the management network), mark it internal, or stop proxying it.
     severity: ERROR
@@ -144,5 +144,8 @@ rules:
         - "**/conf.d/**"
         - "**/sites-enabled/**"
         - "**/sites-available/**"
+    # Skip comments and stop at braces so another location cannot supply the protection.
     pattern-regex: |-
-      (?msi)^[ \t]*location[ \t]+(?:=[ \t]*|~\*?[ \t]*\^?|\^~[ \t]*)?["']?/(?:management|actuator|jhipster-registry|eureka|admin|internal|feign|v1/kv|swagger|v2/api-docs|v3/api-docs)(?!/health(?:/|["'\s{]|$))(?=/|["'\s{]|$)[^\n{]*\{[ \t]*(?![^}]*?(?:deny[ \t]+all[ \t]*;|internal[ \t]*;|allow[ \t]+(?:10\.\d|172\.(?:1[6-9]|2\d|3[01])\.|192\.168\.|127\.|::1)))[^}]*?proxy_pass\b
+      (?mxi)^[ \t]*location[ \t]+(?:=[ \t]*|~\*?[ \t]*\^?|\^~[ \t]*)?["']?/(?:management|actuator|jhipster-registry|eureka|admin|internal|feign|v1/kv|swagger|v2/api-docs|v3/api-docs)(?!/health(?:/|["'\s{]|$))(?=/|["'\s{]|$)[^\n{]*\{
+      (?!(?:[^{}\#]|\#[^\n]*(?:\n|$))*?(?:^[ \t]*|(?<=[;{])[ \t]*)(?:deny[ \t]+all|internal)[ \t]*;)
+      (?:[^{}\#]|\#[^\n]*(?:\n|$))*?(?:^[ \t]*|(?<=[;{])[ \t]*)proxy_pass\b
