@@ -151,7 +151,8 @@ rules:
   # One result per route decorator line, including decorators stacked above
   # another decorator: a structural pattern binds only one decorator of a
   # stack. The lookahead keeps the match on the decorator line so the next
-  # decorator can match too; the handler comes from the following def.
+  # decorator can match too; the handler comes from the following def, which
+  # may be async, and the argument list may continue on later lines (T31).
   - id: fact.py.route_decorator
     languages: [python]
     severity: INFO
@@ -159,7 +160,7 @@ rules:
     metadata:
       fact: route_decorator
     pattern-regex: |-
-      (?m)^[ \t]*@(?P<X>[A-Za-z_]\w*)\.(?P<VERB>route|get|post|put|patch|delete)[ \t]*\((?P<ARGS>[^\n]*)\)[ \t]*(?=\n(?:[ \t]*@[^\n]*\n)*[ \t]*def[ \t]+(?P<H>[A-Za-z_]\w*))
+      (?ms)^[ \t]*@(?P<X>[A-Za-z_]\w*)\.(?P<VERB>route|get|post|put|patch|delete)[ \t]*\((?P<ARGS>.*?)\)[ \t]*\n(?=(?:[ \t]*@[^\n]*\n|[ \t]*\n)*[ \t]*(?:async[ \t]+)?def[ \t]+(?P<H>[A-Za-z_]\w*))
 
   # Gate decorators stacked above a handler. Only plain function names are
   # captured: @app.route/@router.get are attribute calls, so their

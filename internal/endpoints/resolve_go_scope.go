@@ -76,8 +76,9 @@ type callSite struct {
 	line int
 }
 
-// lineScope is the source range of a function body or closure. Bindings made
-// inside one are not visible to another (T23 lexical scope).
+// lineScope is the source range of a lexical block: a function body, a closure
+// or a plain { ... } block. Bindings made inside one are not visible to
+// another (T23 lexical scope, T31 block scope).
 type lineScope struct {
 	start int
 	end   int
@@ -149,8 +150,8 @@ func (fr *fileResolver) addEngineBindings() {
 }
 
 // declRange is the visibility range of a variable declared at line: from its
-// declaration to the end of the innermost function or closure. Package-level
-// declarations are visible throughout the file.
+// declaration to the end of the innermost block (function, closure or { ... }).
+// Package-level declarations are visible throughout the file.
 func (fr *fileResolver) declRange(line int) (int, int) {
 	if scope, ok := innermostScope(fr.scopes, line); ok {
 		return line, scope.end
@@ -526,8 +527,10 @@ func receiverCall(expr string) (string, string, []string, bool) {
 }
 
 // splitArgs splits on top-level commas only, so RequireRole("a,b") stays one
-// argument.
+// argument. Comments are blanked first: a commented-out middleware call is not
+// an argument, and its commas must not split the list (T31).
 func splitArgs(src string) []string {
+	src = stripComments(src)
 	var out []string
 	depth := 0
 	start := 0
@@ -562,6 +565,55 @@ func splitArgs(src string) []string {
 	return out
 }
 
+// stripComments replaces // and /* */ comment text with spaces, keeping line
+// breaks so argument text either side stays apart. Quotes win over comment
+// markers, so a URL in a string literal is left alone.
+func stripComments(src string) string {
+	out := []byte(src)
+	quote := byte(0)
+	for i := 0; i < len(out); i++ {
+		c := out[i]
+		if quote != 0 {
+			if c == '\\' {
+				i++
+			} else if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '"', '\'', '`':
+			quote = c
+		case '/':
+			if i+1 >= len(out) {
+				continue
+			}
+			switch out[i+1] {
+			case '/':
+				for i < len(out) && out[i] != '\n' {
+					out[i] = ' '
+					i++
+				}
+			case '*':
+				out[i], out[i+1] = ' ', ' '
+				i += 2
+				for i < len(out) {
+					if out[i] == '*' && i+1 < len(out) && out[i+1] == '/' {
+						out[i], out[i+1] = ' ', ' '
+						i++
+						break
+					}
+					if out[i] != '\n' {
+						out[i] = ' '
+					}
+					i++
+				}
+			}
+		}
+	}
+	return string(out)
+}
+
 func receiverName(expr string) string {
 	expr = strings.TrimSpace(expr)
 	if i := strings.IndexAny(expr, " .("); i > 0 {
@@ -580,8 +632,8 @@ func unquote(s string) string {
 
 // parseGoScope reads the file's syntax for function parameters and call sites.
 // Facts cannot express "this call passes a group to this parameter"; the Go
-// parser can, and it is the same file the facts came from. Function and
-// closure ranges let bindings stay inside their declaring scope.
+// parser can, and it is the same file the facts came from. Function, closure
+// and block ranges let bindings stay inside their declaring scope.
 func parseGoScope(path string) ([]funcScope, []callSite, []lineScope) {
 	src, err := os.ReadFile(path)
 	if err != nil {
@@ -606,13 +658,13 @@ func parseGoScope(path string) ([]funcScope, []callSite, []lineScope) {
 	}
 	ast.Inspect(file, func(n ast.Node) bool {
 		switch node := n.(type) {
-		case *ast.FuncLit:
-			if node.Body != nil {
-				scopes = append(scopes, lineScope{
-					start: fset.Position(node.Body.Pos()).Line,
-					end:   fset.Position(node.Body.End()).Line,
-				})
-			}
+		case *ast.BlockStmt:
+			// Every block is a scope: a router declared inside { ... } must
+			// stop being visible (and protected) when the block ends (T31).
+			scopes = append(scopes, lineScope{
+				start: fset.Position(node.Pos()).Line,
+				end:   fset.Position(node.End()).Line,
+			})
 		case *ast.CallExpr:
 			ident, ok := node.Fun.(*ast.Ident)
 			if !ok {

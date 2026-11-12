@@ -1,6 +1,10 @@
 package endpoints
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func pyTestRoute(file string, line, defLine int, receiver, verb, path, handler string) Fact {
 	return Fact{
@@ -149,5 +153,75 @@ func TestPyMountPrefixRules(t *testing.T) {
 	routes, _ = resolvePython(fastapi, t.TempDir(), defaultGates)
 	if len(routes) != 1 || routes[0].Path != "/v1/api/transfer" {
 		t.Fatalf("fastapi router got %+v, want /v1/api/transfer", routes)
+	}
+}
+
+// TestPySourceRoutesReadsAsyncAndMultilineDecorators pins T31: a route stack on
+// an async handler, with one registration spread over several lines, registers
+// one route per decorator instead of dropping the stack.
+func TestPySourceRoutesReadsAsyncAndMultilineDecorators(t *testing.T) {
+	dir := t.TempDir()
+	src := `from fastapi import Depends, FastAPI
+
+app = FastAPI()
+
+
+@app.post("/secure", dependencies=[Depends(require_auth)])
+@app.post(
+    "/transfer",
+)
+async def transfer():
+    return {"ok": True}
+`
+	if err := os.WriteFile(filepath.Join(dir, "main.py"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	facts := append(pySourceRoutes(dir, "main.py"),
+		Fact{Kind: "fastapi_app", File: "main.py", Line: 3, Metavars: map[string]string{"$R": "app"}})
+	routes, _ := resolvePython(facts, dir, defaultGates)
+	got := map[string]Route{}
+	for _, r := range routes {
+		got[r.Path] = r
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d routes %+v, want /secure and /transfer", len(got), routes)
+	}
+	if got["/secure"].Protection != ProtAuthenticated {
+		t.Errorf("/secure = %s, want authenticated", got["/secure"].Protection)
+	}
+	if got["/transfer"].Protection != ProtPublic {
+		t.Errorf("/transfer = %s, want public", got["/transfer"].Protection)
+	}
+}
+
+// TestPyEmptyBlueprintPrefixOverrides pins T31: url_prefix="" is an explicit
+// override that removes the blueprint's own prefix, unlike an absent keyword.
+func TestPyEmptyBlueprintPrefixOverrides(t *testing.T) {
+	cases := []struct {
+		name   string
+		prefix string
+		has    bool
+		want   string
+	}{
+		{name: "explicit empty overrides", prefix: "", has: true, want: "/transfer"},
+		{name: "absent keeps the blueprint prefix", want: "/public/transfer"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mount := Fact{Kind: "register_blueprint", File: "app.py", Line: 8, Metavars: map[string]string{"$A": "app", "$R": "bp"}}
+			if tc.has {
+				mount.Metavars["$PREFIX"] = tc.prefix
+			}
+			facts := []Fact{
+				{Kind: "flask_app", File: "app.py", Line: 1, Metavars: map[string]string{"$R": "app"}},
+				{Kind: "blueprint", File: "app.py", Line: 3, Metavars: map[string]string{"$R": "bp", "$PREFIX": "/public"}},
+				pyTestRoute("app.py", 5, 6, "bp", "post", "/transfer", "transfer"),
+				mount,
+			}
+			routes, _ := resolvePython(facts, t.TempDir(), defaultGates)
+			if len(routes) != 1 || routes[0].Path != tc.want {
+				t.Fatalf("got %+v, want %s", routes, tc.want)
+			}
+		})
 	}
 }

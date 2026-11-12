@@ -43,6 +43,7 @@ type pyMount struct {
 	owner, target string
 	call          string // include_router, register_blueprint
 	prefix        string
+	hasPrefix     bool // the keyword was written, even when its value is ""
 	deps          []string
 	line          int
 }
@@ -130,6 +131,7 @@ func newPyResolver(file string, facts []Fact, root string, gates *gateMatcher) *
 			py.addParamGate(f)
 		}
 	}
+	py.routeLines = append(py.routeLines, pySourceRoutes(py.root, py.file)...)
 	py.addStackedRoutes()
 	for _, m := range mounts {
 		py.mounts = append(py.mounts, *m)
@@ -155,8 +157,9 @@ func (py *pyResolver) appDef(name string, line int) *pyDef {
 }
 
 // addStackedRoutes fills in the route decorators a structural pattern cannot
-// see. One registration sits on every route decorator line; the handler is the
-// def below that stack.
+// see. routeLines holds the engine's facts and the source scan; one
+// registration sits on every route decorator line, and the handler is the def
+// below that stack.
 func (py *pyResolver) addStackedRoutes() {
 	seen := map[int]bool{}
 	for _, f := range py.routes {
@@ -277,8 +280,10 @@ func (py *pyResolver) addMount(mounts map[string]*pyMount, f Fact) {
 		mounts[key] = m
 	}
 	m.call = f.Kind
-	if prefix := f.Metavars["$PREFIX"]; prefix != "" {
-		m.prefix = prefix
+	if prefix, ok := f.Metavars["$PREFIX"]; ok {
+		// Presence matters: url_prefix="" is an explicit override (T31),
+		// distinct from a mount without the keyword.
+		m.prefix, m.hasPrefix = prefix, true
 	}
 	if deps := f.Metavars["$DEPS"]; deps != "" {
 		m.deps = append(m.deps, deps)
@@ -436,10 +441,11 @@ func (py *pyResolver) stateOf(name string, depth int) *pyState {
 
 // mountPrefixes applies the framework's prefix rule: Flask's register_blueprint
 // url_prefix replaces the blueprint's own prefix, while FastAPI's
-// include_router prefix adds to the router's prefix.
+// include_router prefix adds to the router's prefix. An explicit empty
+// url_prefix is still an override and removes the blueprint prefix.
 func (py *pyResolver) mountPrefixes(m pyMount, def *pyDef) []string {
 	if m.call == "register_blueprint" {
-		if m.prefix != "" {
+		if m.hasPrefix {
 			return []string{m.prefix}
 		}
 		return []string{def.prefix}

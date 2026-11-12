@@ -124,3 +124,52 @@ func AuthMiddleware() gin.HandlerFunc { return nil }
 		t.Errorf("/transfer: %q, want unknown (router parameter is not mounted in this file)", got["/transfer"])
 	}
 }
+
+// TestGoBlockScopedRouterEndsWithItsBlock pins T31: a router declared in an
+// inner block must not protect a route registered after that block closes.
+func TestGoBlockScopedRouterEndsWithItsBlock(t *testing.T) {
+	dir := t.TempDir()
+	src := `package main
+
+import "github.com/gin-gonic/gin"
+
+func setup() {
+	r := gin.New()
+	{
+		r := gin.New()
+		r.Use(AuthMiddleware())
+		r.POST("/private", handle)
+	}
+	r.POST("/transfer", handle)
+}
+
+func AuthMiddleware() gin.HandlerFunc { return nil }
+func handle(c *gin.Context)           {}
+`
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	facts := []Fact{
+		{Kind: "import", File: "main.go", Line: 3, Metavars: map[string]string{"$IMPORT": "github.com/gin-gonic/gin"}},
+		{Kind: "engine", File: "main.go", Line: 6, Metavars: map[string]string{"$R": "r"}},
+		{Kind: "engine", File: "main.go", Line: 8, Metavars: map[string]string{"$R": "r"}},
+		{Kind: "use", File: "main.go", Line: 9, Metavars: map[string]string{"$R": "r", "$A1": "AuthMiddleware()"}},
+		{Kind: "route", File: "main.go", Line: 10, Metavars: map[string]string{
+			"$R": "r", "$VERB": "POST", "$PATH": "/private", "$A1": "handle",
+		}},
+		{Kind: "route", File: "main.go", Line: 12, Metavars: map[string]string{
+			"$R": "r", "$VERB": "POST", "$PATH": "/transfer", "$A1": "handle",
+		}},
+	}
+	routes, _ := resolveGo(facts, dir, defaultGates)
+	got := map[string]Protection{}
+	for _, route := range routes {
+		got[route.Path] = route.Protection
+	}
+	if got["/private"] != ProtAuthenticated {
+		t.Errorf("/private: %q, want authenticated", got["/private"])
+	}
+	if got["/transfer"] != ProtPublic {
+		t.Errorf("/transfer: %q, want public (the inner router's Use ends with its block)", got["/transfer"])
+	}
+}

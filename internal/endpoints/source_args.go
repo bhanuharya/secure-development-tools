@@ -1,6 +1,7 @@
 package endpoints
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 )
@@ -57,6 +58,10 @@ func routeCallOpen(src []byte, start int) int {
 			}
 			continue
 		}
+		if next, ok := skipComment(src, i); ok {
+			i = next - 1
+			continue
+		}
 		switch c {
 		case '"', '\'', '`':
 			quote = c
@@ -92,6 +97,28 @@ func identifierBefore(src []byte, open int) string {
 	return string(src[i+1 : end])
 }
 
+// skipComment returns the offset just past a // or /* */ comment starting at
+// i. A closing parenthesis inside a comment must not end the argument list
+// (T31); the caller resumes at the returned offset.
+func skipComment(src []byte, i int) (int, bool) {
+	if i+1 >= len(src) || src[i] != '/' {
+		return i, false
+	}
+	switch src[i+1] {
+	case '/':
+		for i < len(src) && src[i] != '\n' {
+			i++
+		}
+		return i, true
+	case '*':
+		if end := bytes.Index(src[i+2:], []byte("*/")); end >= 0 {
+			return i + 2 + end + 2, true
+		}
+		return len(src), true
+	}
+	return i, false
+}
+
 // callArgsAt splits the arguments between open and its matching close.
 func callArgsAt(src []byte, open int) ([]string, bool) {
 	depth := 0
@@ -104,6 +131,10 @@ func callArgsAt(src []byte, open int) ([]string, bool) {
 			} else if c == quote {
 				quote = 0
 			}
+			continue
+		}
+		if next, ok := skipComment(src, i); ok {
+			i = next - 1
 			continue
 		}
 		switch c {

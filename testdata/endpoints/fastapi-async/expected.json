@@ -1,0 +1,38 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "fastapi",
+      "method": "POST",
+      "path": "/secure",
+      "handler": "transfer",
+      "file": "main.py",
+      "line": 10,
+      "protection": "authenticated",
+      "evidence": [
+        "main.py:10 route dependencies [Depends(require_auth)] on transfer"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "fastapi",
+      "method": "POST",
+      "path": "/transfer",
+      "handler": "transfer",
+      "file": "main.py",
+      "line": 11,
+      "protection": "public",
+      "evidence": [
+        "main.py:11 no gate decorator or dependency on the route"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 1,
+    "public": 1
+  }
+}
