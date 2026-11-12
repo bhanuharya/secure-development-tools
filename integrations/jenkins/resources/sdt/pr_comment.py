@@ -379,7 +379,9 @@ def body(result, conditions, rows, gone, links, commit, base):
 
 def report_links(client, quoted, out, repo, workspace, pr_id, build_url, upload):
     """Where the report can be read, as (label, address) pairs."""
-    report = os.path.join(out, f"SAST Report - {repo}.docx")
+    report = os.path.join(out, f"SAST Report - {repo} - PR {pr_id}.docx")
+    if not os.path.isfile(report):  # reports written before the PR number was in the name
+        report = os.path.join(out, f"SAST Report - {repo}.docx")
     try:
         # publish_report.py committed the report to the reports repository.
         published = open(os.path.join(out, "report-url.txt")).read().strip()

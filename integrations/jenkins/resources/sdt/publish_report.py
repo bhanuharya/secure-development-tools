@@ -104,7 +104,9 @@ def main():
     commit = scanned_commit(env.get("SRC", ""))
     result = gate(out)[0]
     text = markdown(repo, scope, env.get("SCOPE_URL", ""), commit, result, findings(out, bool(pr_id)), bool(pr_id))
-    docx = os.path.join(out, f"SAST Report - {repo}.docx")
+    docx = os.path.join(out, f"SAST Report - {repo}" + (f" - PR {pr_id}" if pr_id else "") + ".docx")
+    if not os.path.isfile(docx):  # reports written before the PR number was in the name
+        docx = os.path.join(out, f"SAST Report - {repo}.docx")
 
     work = tempfile.mkdtemp(prefix="sdt-reports-")
     try:

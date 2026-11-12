@@ -29,6 +29,8 @@ timing() { printf '%s\t%s\n' "$1" "$((SECONDS - STEP_START))" >> "$TIMINGS"; STE
 
 # The SAST report reads SonarQube, so it shows each hotspot's review state and assignee.
 TRIAGE=()
+# A branch keeps the plain name; a pull request's report says which one it is.
+REPORT_DOCX="$OUT/SAST Report - $REPO_SLUG${PR_ID:+ - PR $PR_ID}.docx"
 if [ -f "$OUT/sonar-project-key" ] && [ -n "${SONAR_TOKEN:-}" ]; then
   # Same scope scan.sh analysed: no branch parameter for the main branch.
   SCOPE=()
@@ -72,12 +74,12 @@ if [ -f "$OUT/sonar-project-key" ] && [ -n "${SONAR_TOKEN:-}" ]; then
   python3 "$SDT_HOME/tools/sdt_to_docx.py" --sonar-url "$SONAR_HOST_URL" --project-key "$(cat "$OUT/sonar-project-key")" \
     "${SCOPE[@]}" --findings "$REPORT_FINDINGS" --src-root "$SRC" \
     --repository "$WORKSPACE_NAME/$REPO_SLUG" --scope-url "${SCOPE_URL:-}" \
-    --commit "$COMMIT" "${TRIAGE[@]}" --out "$OUT/SAST Report - $REPO_SLUG.docx" || { log "DOCX report failed"; status=1; }
+    --commit "$COMMIT" "${TRIAGE[@]}" --out "$REPORT_DOCX" || { log "DOCX report failed"; status=1; }
 else
   # SonarQube was not reached (stage failed): report straight from the SDT findings.
   python3 "$SDT_HOME/tools/sdt_to_docx.py" --findings "$OUT/sdt/findings.json" --src-root "$SRC" \
     --repository "$WORKSPACE_NAME/$REPO_SLUG" --project-name "$REPO_SLUG" --scope-url "${SCOPE_URL:-}" \
-    --commit "$COMMIT" --out "$OUT/SAST Report - $REPO_SLUG.docx" || { log "DOCX report failed"; status=1; }
+    --commit "$COMMIT" --out "$REPORT_DOCX" || { log "DOCX report failed"; status=1; }
 fi
 timing report
 

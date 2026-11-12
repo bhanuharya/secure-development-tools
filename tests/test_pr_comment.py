@@ -79,7 +79,7 @@ def out(tmp_path):
     ]}))
     (tmp_path / "quality-gate.txt").write_text("OK\n")
     (tmp_path / "sonar-project-key").write_text("sdt_ws_shop_abc\n")
-    (tmp_path / "SAST Report - shop.docx").write_bytes(b"PK-docx-bytes")
+    (tmp_path / "SAST Report - shop - PR 42.docx").write_bytes(b"PK-docx-bytes")
     return tmp_path
 
 
@@ -140,7 +140,7 @@ def test_public_repository_gets_no_upload_and_links_the_build_artifact(out):
     fake = FakeBitbucket(private=False)
     assert run(fake, out).returncode == 0
     assert not fake.uploads()
-    assert "https://ci.example/job/x/9/artifact/out/SAST%20Report%20-%20shop.docx" in fake.comment_text("POST")
+    assert "https://ci.example/job/x/9/artifact/out/SAST%20Report%20-%20shop%20-%20PR%2042.docx" in fake.comment_text("POST")
 
 
 def test_no_new_findings_and_basic_auth_with_a_user(out):
