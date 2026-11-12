@@ -13,7 +13,7 @@
       "protection": "public",
       "evidence": [
         "main.go:9 no gate middleware on the route",
-        "main.go:7 middleware checkCaller on group /api (...)"
+        "main.go:7 middleware checkCaller on group /api (does not match the gate list)"
       ],
       "confidence": "high"
     },
@@ -28,7 +28,7 @@
       "protection": "public",
       "evidence": [
         "main.go:8 no gate middleware on the route",
-        "main.go:7 middleware checkCaller on group /api (...)"
+        "main.go:7 middleware checkCaller on group /api (does not match the gate list)"
       ],
       "confidence": "high"
     }

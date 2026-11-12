@@ -361,7 +361,7 @@ func springGateEvidence(g springGate, classLevel bool, roles []string) string {
 	if classLevel {
 		where = "on class " + g.class
 	}
-	return fmt.Sprintf("%s:%d %s %s", g.file, g.line, omitCallArguments(springAnnotationText(g, roles)), where)
+	return fmt.Sprintf("%s:%d %s %s", g.file, g.line, springAnnotationText(g, roles), where)
 }
 
 func springAnnotationText(g springGate, roles []string) string {
@@ -1037,7 +1037,9 @@ func springAccessExpression(args string) (string, bool) {
 	return s, true
 }
 
-// evidence names the matcher and access callable without copying configuration arguments.
+// evidence rebuilds the matcher call as written: Spring matcher paths and access expressions are
+// never credentials, and the template logic identifies the deciding matcher by its quoted pattern.
+// The final redaction pass in sanitizeRoutes still runs over it.
 func (m springMatcher) evidence() string {
 	call := "." + m.name + "("
 	if m.name != "anyRequest" && m.name != "anyExchange" {
@@ -1051,7 +1053,7 @@ func (m springMatcher) evidence() string {
 		}
 	}
 	call += ")." + m.access + "(" + m.args + ")"
-	return fmt.Sprintf("%s:%d %s", m.file, m.line, omitCallArguments(call))
+	return fmt.Sprintf("%s:%d %s", m.file, m.line, call)
 }
 
 func springVerb(verb string) string {

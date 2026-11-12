@@ -15,7 +15,7 @@
         "SERVICE"
       ],
       "evidence": [
-        "SecurityConfig.java:11 .pathMatchers(...).hasAnyAuthority(...)"
+        "SecurityConfig.java:11 .pathMatchers(\"/services/**\").hasAnyAuthority(\"SERVICE\")"
       ],
       "confidence": "high"
     },
@@ -32,7 +32,7 @@
         "SERVICE"
       ],
       "evidence": [
-        "SecurityConfig.java:11 .pathMatchers(...).hasAnyAuthority(...)"
+        "SecurityConfig.java:11 .pathMatchers(\"/services/**\").hasAnyAuthority(\"SERVICE\")"
       ],
       "confidence": "high"
     },
@@ -46,7 +46,7 @@
       "line": 7,
       "protection": "authenticated",
       "evidence": [
-        "SecurityConfig.java:12 .anyExchange(...).authenticated(...)"
+        "SecurityConfig.java:12 .anyExchange().authenticated()"
       ],
       "confidence": "high"
     },
@@ -60,7 +60,7 @@
       "line": 8,
       "protection": "public",
       "evidence": [
-        "SecurityConfig.java:10 .pathMatchers(...).permitAll(...)"
+        "SecurityConfig.java:10 .pathMatchers(\"/verify-password/**\").permitAll()"
       ],
       "confidence": "high"
     },
@@ -74,7 +74,7 @@
       "line": 11,
       "protection": "public",
       "evidence": [
-        "SecurityConfig.java:10 .pathMatchers(...).permitAll(...)"
+        "SecurityConfig.java:10 .pathMatchers(\"/verify-password/**\").permitAll()"
       ],
       "confidence": "high"
     }

@@ -13,11 +13,11 @@
       "protection": "public",
       "evidence": [
         "main.go:7 no gate middleware on the route",
-        "main.go:7 middleware logger1 (...)",
-        "main.go:7 middleware logger2 (...)",
-        "main.go:7 middleware logger3 (...)",
-        "main.go:7 middleware logger4 (...)",
-        "main.go:7 middleware logger5 (...)"
+        "main.go:7 middleware logger1 (does not match the gate list)",
+        "main.go:7 middleware logger2 (does not match the gate list)",
+        "main.go:7 middleware logger3 (does not match the gate list)",
+        "main.go:7 middleware logger4 (does not match the gate list)",
+        "main.go:7 middleware logger5 (does not match the gate list)"
       ],
       "confidence": "high"
     },
@@ -32,10 +32,10 @@
       "protection": "public",
       "evidence": [
         "app.js:5 no gate middleware on the route",
-        "app.js:5 middleware logger1 (...)",
-        "app.js:5 middleware logger2 (...)",
-        "app.js:5 middleware logger3 (...)",
-        "app.js:5 middleware logger4 (...)"
+        "app.js:5 middleware logger1 (does not match the gate list)",
+        "app.js:5 middleware logger2 (does not match the gate list)",
+        "app.js:5 middleware logger3 (does not match the gate list)",
+        "app.js:5 middleware logger4 (does not match the gate list)"
       ],
       "confidence": "high"
     }

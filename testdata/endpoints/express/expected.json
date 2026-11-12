@@ -13,7 +13,7 @@
       "protection": "public",
       "evidence": [
         "app.js:27 no gate middleware on the route",
-        "app.js:10 middleware express.json on app (...)"
+        "app.js:10 middleware express.json on app (does not match the gate list)"
       ],
       "confidence": "high"
     },
@@ -56,7 +56,7 @@
       "protection": "public",
       "evidence": [
         "app.js:16 no gate middleware on the route",
-        "app.js:10 middleware express.json on app (...)"
+        "app.js:10 middleware express.json on app (does not match the gate list)"
       ],
       "confidence": "high"
     },
@@ -71,7 +71,7 @@
       "protection": "public",
       "evidence": [
         "app.js:17 no gate middleware on the route",
-        "app.js:10 middleware express.json on app (...)"
+        "app.js:10 middleware express.json on app (does not match the gate list)"
       ],
       "confidence": "high"
     },
@@ -146,7 +146,7 @@
       "protection": "public",
       "evidence": [
         "app.js:12 no gate middleware on the route",
-        "app.js:10 middleware express.json on app (...)"
+        "app.js:10 middleware express.json on app (does not match the gate list)"
       ],
       "confidence": "high"
     }

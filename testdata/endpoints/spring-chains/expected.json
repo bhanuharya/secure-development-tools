@@ -12,7 +12,7 @@
       "line": 10,
       "protection": "authenticated",
       "evidence": [
-        "Security.java:15 .anyRequest(...).authenticated(...)"
+        "Security.java:15 .anyRequest().authenticated()"
       ],
       "confidence": "high"
     },
@@ -26,7 +26,7 @@
       "line": 7,
       "protection": "public",
       "evidence": [
-        "Security.java:22 .anyRequest(...).permitAll(...)"
+        "Security.java:22 .anyRequest().permitAll()"
       ],
       "confidence": "high"
     }

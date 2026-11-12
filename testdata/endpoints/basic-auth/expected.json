@@ -69,7 +69,7 @@
       "protection": "public",
       "evidence": [
         "main.go:13 no gate middleware on the route",
-        "main.go:7 middleware gin.Logger on router (...)"
+        "main.go:7 middleware gin.Logger on router (does not match the gate list)"
       ],
       "confidence": "high"
     }

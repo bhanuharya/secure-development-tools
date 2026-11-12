@@ -44,7 +44,7 @@
       "protection": "public",
       "evidence": [
         "main.go:10 no gate middleware on the route",
-        "main.go:7 middleware RequestLogger on router (...)"
+        "main.go:7 middleware RequestLogger on router (does not match the gate list)"
       ],
       "confidence": "high"
     },
@@ -59,7 +59,7 @@
       "protection": "public",
       "evidence": [
         "main.go:16 no gate middleware on the route",
-        "main.go:7 middleware RequestLogger on router (...)"
+        "main.go:7 middleware RequestLogger on router (does not match the gate list)"
       ],
       "confidence": "high"
     }

@@ -73,7 +73,7 @@
       "protection": "public",
       "evidence": [
         "server.js:17 no gate middleware on the route",
-        "server.js:9 middleware express.json on app (...)"
+        "server.js:9 middleware express.json on app (does not match the gate list)"
       ],
       "confidence": "high"
     }

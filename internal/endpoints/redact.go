@@ -14,7 +14,8 @@ func redactText(text string) string {
 
 // omitCallArguments preserves callable names and source locations, never configuration values.
 // An incomplete call consumes the rest of the excerpt rather than exposing its arguments.
-var evidenceCall = regexp.MustCompile(`[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\(`)
+// The bracket must follow the name directly: "on router (does not match the gate list)" is prose.
+var evidenceCall = regexp.MustCompile(`[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\(`)
 
 func omitCallArguments(text string) string {
 	var out strings.Builder
@@ -71,9 +72,16 @@ func sanitizeInventory(inv *Inventory) *Inventory {
 func sanitizeRoute(route Route) Route {
 	route.Handler = redactText(route.Handler)
 	if len(route.Evidence) > 0 {
+		// Spring evidence is matcher paths, roles and access expressions, never middleware
+		// arguments, and the template logic finds the deciding matcher by its quoted pattern.
+		// It is still redacted; everything else also loses its call arguments.
+		keepArguments := strings.HasPrefix(route.Framework, "spring")
 		evidence := make([]string, len(route.Evidence))
 		for i, line := range route.Evidence {
-			evidence[i] = redactText(omitCallArguments(line))
+			if !keepArguments {
+				line = omitCallArguments(line)
+			}
+			evidence[i] = redactText(line)
 		}
 		route.Evidence = evidence
 	}
