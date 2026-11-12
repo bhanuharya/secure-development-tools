@@ -1,6 +1,9 @@
 package endpoints
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 // TestConfiguredAuthGatesReachResolvers proves endpoints.authGates is applied
 // by every family that uses the gate list, not only parsed by the config.
@@ -51,6 +54,54 @@ func TestConfiguredAuthGatesReachResolvers(t *testing.T) {
 			}
 			if routes := tc.get(configured); len(routes) != 1 || routes[0].Protection != ProtAuthenticated {
 				t.Fatalf("with authGates: %+v", routes)
+			}
+		})
+	}
+}
+
+// TestPermissionGateNamesAreRoles pins T29 point 3: a callable whose name says
+// it checks permissions or roles is a role gate, even when its arguments name
+// an unreadable constant.
+func TestPermissionGateNamesAreRoles(t *testing.T) {
+	goFacts := []Fact{
+		{Kind: "engine", File: "main.go", Line: 5, Metavars: map[string]string{"$R": "app"}},
+		{Kind: "route", File: "main.go", Line: 7, Metavars: map[string]string{
+			"$R": "app", "$VERB": "POST", "$PATH": "/transfers",
+			"$A1": "RequirePermission(config.PermissionTransfer)", "$A2": "transfer",
+		}},
+	}
+	jsFacts := []Fact{
+		{Kind: "express_import", File: "app.js", Line: 1},
+		{Kind: "engine", File: "app.js", Line: 3, Metavars: map[string]string{"$R": "app"}},
+		{Kind: "use", File: "app.js", Line: 4, Metavars: map[string]string{"$R": "app", "$A1": `requirePermission("payouts")`}},
+		{Kind: "route", File: "app.js", Line: 5, Metavars: map[string]string{
+			"$R": "app", "$METHOD": "post", "$PATH": "'/payouts'", "$A1": "payouts",
+		}},
+	}
+	pyFacts := []Fact{
+		{Kind: "flask_app", File: "app.py", Line: 1, Metavars: map[string]string{"$R": "app"}},
+		{Kind: "route", File: "app.py", Line: 5, Metavars: map[string]string{
+			"$X": "app", "$PATH": "/transfers", "$H": "transfers", "$VERB": "POST",
+		}},
+		{Kind: "decorator", File: "app.py", Line: 6, Metavars: map[string]string{"$H": "transfers", "$DEC": "RequirePermission"}},
+	}
+	cases := []struct {
+		name  string
+		get   func() []Route
+		roles []string
+	}{
+		{"go", func() []Route { routes, _ := resolveGo(goFacts, t.TempDir(), defaultGates); return routes }, nil},
+		{"javascript", func() []Route { routes, _ := resolveJS(jsFacts, t.TempDir(), defaultGates); return routes }, []string{"payouts"}},
+		{"python", func() []Route { routes, _ := resolvePython(pyFacts, t.TempDir(), defaultGates); return routes }, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			routes := tc.get()
+			if len(routes) != 1 || routes[0].Protection != ProtRole {
+				t.Fatalf("routes = %+v, want one role route", routes)
+			}
+			if !reflect.DeepEqual(routes[0].Roles, tc.roles) {
+				t.Errorf("roles = %v, want %v", routes[0].Roles, tc.roles)
 			}
 		})
 	}

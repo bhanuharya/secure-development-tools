@@ -607,6 +607,9 @@ func protectionRank(p Protection) int {
 func (cfg *springConfig) decideChains(path, method string) (Protection, []string, []string, string) {
 	var matching []*springChain
 	for _, c := range cfg.chains {
+		if len(c.matchers) == 0 {
+			continue // a chain that declares no authorization rule cannot decide a route
+		}
 		switch c.scopeMatch(method, path) {
 		case antNo:
 			continue
@@ -724,11 +727,10 @@ func (m springMatcher) decision() (Protection, []string, string) {
 // springAccessDecision interprets the SpEL of access("...") the same way a
 // @PreAuthorize expression is interpreted, so both spell a role identically.
 func springAccessDecision(args string) (Protection, []string, string) {
-	expr := unquoteSpel(args)
-	if expr == "" {
+	if strings.TrimSpace(args) == "" {
 		return ProtAuthenticated, nil, "medium"
 	}
-	protection, roles, known := springSpelDecision(evalSpel(expr))
+	protection, roles, known := springSpelDecision(evalSpel(args))
 	confidence := "medium"
 	if known {
 		confidence = "high"

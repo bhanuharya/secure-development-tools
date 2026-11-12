@@ -11,7 +11,9 @@ import (
 
 // Role list from SPEC §5; the gate list lives in gates.go.
 var (
-	roleRe   = regexp.MustCompile(`(?i)(role|authority|adminonly|admin_only|admin-only)`)
+	// A gate whose callable name says it checks a role or a permission is a
+	// role gate; the arguments need not be readable (T29).
+	roleRe   = regexp.MustCompile(`(?i)(role|authority|adminonly|admin_only|admin-only|permission|rbac|acl|authorize)`)
 	quotedRe = regexp.MustCompile(`"([^"]+)"`)
 	colonRe  = regexp.MustCompile(`(^|/):([A-Za-z_][A-Za-z0-9_]*)`)
 	angleRe  = regexp.MustCompile(`<[^>]*>`)

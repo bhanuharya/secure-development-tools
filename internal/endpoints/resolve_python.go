@@ -17,7 +17,8 @@ var (
 	pyQuotedRe = regexp.MustCompile(`["']([^"']+)["']`)
 	// Python gate names put the role in the function name (require_admin),
 	// unlike the Go/JS middleware list where "admin" alone is not a role word.
-	pyRoleRe = regexp.MustCompile(`(?i)(role|authority|admin|superuser)`)
+	// Permission, RBAC and authorize names are role gates too (T29).
+	pyRoleRe = regexp.MustCompile(`(?i)(role|authority|admin|superuser|permission|rbac|acl|authorize)`)
 )
 
 // pyGate is one thing that can protect a route: a decorator, a FastAPI

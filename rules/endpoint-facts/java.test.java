@@ -98,3 +98,29 @@ class Chains {
             .build();
     }
 }
+
+@Configuration
+class AdapterChains extends WebSecurityConfigurerAdapter {
+    // ruleid: fact.java.security_chain_adapter
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        // ruleid: fact.java.security_default
+        http.authorizeRequests().anyRequest().authenticated();
+    }
+}
+
+class JWTConfigurer extends SecurityConfigurerAdapter<DefaultSecurityFilterChain, HttpSecurity> {
+    @Override
+    // ok: fact.java.security_chain, fact.java.security_chain_adapter
+    public void configure(HttpSecurity http) {
+        http.addFilterBefore(new JWTFilter(), UsernamePasswordAuthenticationFilter.class);
+    }
+}
+
+class TokenConfigurer extends AbstractHttpConfigurer<TokenConfigurer, HttpSecurity> {
+    @Override
+    // ok: fact.java.security_chain, fact.java.security_chain_adapter
+    public void configure(HttpSecurity http) {
+        http.addFilterBefore(new TokenFilter(), UsernamePasswordAuthenticationFilter.class);
+    }
+}

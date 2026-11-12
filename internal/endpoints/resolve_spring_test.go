@@ -158,6 +158,25 @@ func TestSpringChainsDecideByOrder(t *testing.T) {
 	}
 }
 
+// TestSpringChainWithoutRulesDoesNotCompete pins T29 point 1: a JWT-style
+// configurer has a configure(HttpSecurity) method but no authorization rule,
+// so it must not turn every route of the main chain into unknown.
+func TestSpringChainWithoutRulesDoesNotCompete(t *testing.T) {
+	facts := []Fact{
+		{Kind: "security_chain", File: "JWTConfigurer.java", Line: 3, EndLine: 6, Metavars: map[string]string{"$HTTP": "http"}},
+		{Kind: "security_chain", File: "SecurityConfig.java", Line: 10, EndLine: 16, Metavars: map[string]string{"$HTTP": "http"}},
+		{Kind: "security_default", File: "SecurityConfig.java", Line: 14, Metavars: map[string]string{"$DEFAULT": "anyRequest", "$ACCESS": "authenticated"}},
+	}
+	cfg := springConfigs(facts, t.TempDir())["."]
+	protection, _, evidence, confidence := cfg.decide("/api/orders", "POST")
+	if protection != ProtAuthenticated || confidence != "high" {
+		t.Fatalf("decide = %q/%q, want authenticated/high", protection, confidence)
+	}
+	if len(evidence) != 1 || !strings.Contains(evidence[0], "SecurityConfig.java:14") {
+		t.Errorf("evidence = %v, want the main chain's anyRequest rule", evidence)
+	}
+}
+
 // TestSpringSpelComposition pins review finding 3: boolean alternatives that
 // admit anonymous requests make the route public; an unreadable alternative is
 // unknown, while a lone unreadable term keeps the historical medium answer.
@@ -182,6 +201,13 @@ func TestSpringSpelComposition(t *testing.T) {
 		{"#oauth2.hasScope('read')", ProtAuthenticated, nil, "medium"},
 		{"hasRole('ADMIN') or #oauth2.hasScope('read')", ProtUnknown, nil, "medium"},
 		{"permitAll() or #oauth2.hasScope('read')", ProtPublic, nil, "high"},
+		{`"hasAnyAuthority(\""+AuthoritiesConstants.ADMIN+"\", \""+AuthoritiesConstants.CS+"\")"`, ProtRole,
+			[]string{"AuthoritiesConstants.ADMIN", "AuthoritiesConstants.CS"}, "medium"},
+		{`"hasAuthority(\""+AuthoritiesConstants.ADMIN+"\")"`, ProtRole,
+			[]string{"AuthoritiesConstants.ADMIN"}, "medium"},
+		{"hasRole(ADMIN_ROLE)", ProtRole, []string{"ADMIN_ROLE"}, "medium"},
+		{"hasAuthority(getAdminRole())", ProtRole, nil, "medium"},
+		{`"hasAnyAuthority(\""+AuthoritiesConstants.ADMIN+"\") or isAnonymous()"`, ProtPublic, nil, "high"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {

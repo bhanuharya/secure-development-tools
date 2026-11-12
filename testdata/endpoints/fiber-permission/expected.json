@@ -1,0 +1,23 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "fiber",
+      "method": "POST",
+      "path": "/transfers",
+      "handler": "transferFunds",
+      "file": "main.go",
+      "line": 13,
+      "protection": "role",
+      "evidence": [
+        "main.go:13 middleware RequirePermission(config.PermissionTransfer)"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "role": 1
+  }
+}

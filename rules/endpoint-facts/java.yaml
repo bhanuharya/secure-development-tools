@@ -131,9 +131,10 @@ rules:
           regex: ^(permitAll|authenticated|hasRole|hasAnyRole|hasAuthority|hasAnyAuthority|denyAll|access|fullyAuthenticated)$
       - focus-metavariable: $PATTERN
 
-  # One SecurityFilterChain bean or WebSecurityConfigurerAdapter.configure
-  # method. The span (first annotation to closing brace) is what assigns the
-  # matcher and @Order facts of the same method to this chain.
+  # One SecurityFilterChain bean. The span (first annotation to closing brace)
+  # is what assigns the matcher and @Order facts of the same method to this
+  # chain. A configure(HttpSecurity) in a SecurityConfigurerAdapter or
+  # AbstractHttpConfigurer subclass only adds filters and is not here.
   - id: fact.java.security_chain
     languages: [java]
     severity: INFO
@@ -143,11 +144,26 @@ rules:
     patterns:
       - pattern-inside: |
           class $C { ... }
-      - pattern-either:
-          - pattern: |
-              SecurityFilterChain $M(HttpSecurity $HTTP) { ... }
-          - pattern: |
-              $RET configure(HttpSecurity $HTTP) { ... }
+      - pattern: |
+          SecurityFilterChain $M(HttpSecurity $HTTP) { ... }
+
+  # The legacy configure(HttpSecurity) chain of a web or resource-server
+  # adapter. Only those two bases make configure a chain; a JWT configurer
+  # extends SecurityConfigurerAdapter and is applied inside a real chain.
+  - id: fact.java.security_chain_adapter
+    languages: [java]
+    severity: INFO
+    message: Spring Security adapter filter chain
+    metadata:
+      fact: security_chain
+    patterns:
+      - pattern-inside: |
+          class $C extends $BASE { ... }
+      - metavariable-regex:
+          metavariable: $BASE
+          regex: ^(WebSecurityConfigurerAdapter|ResourceServerConfigurerAdapter)$
+      - pattern: |
+          $RET configure(HttpSecurity $HTTP) { ... }
 
   # A chain's @Order. Kept separate from the method pattern so the annotation
   # can sit before or after @Bean and still be read.
