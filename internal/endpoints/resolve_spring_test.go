@@ -62,7 +62,8 @@ func TestSpringMatcherDecision(t *testing.T) {
 		{"access role", springMatcher{access: "access", args: `"hasRole('ADMIN')"`}, ProtRole, []string{"ADMIN"}, "high"},
 		{"access authenticated", springMatcher{access: "access", args: `"isAuthenticated()"`}, ProtAuthenticated, nil, "high"},
 		{"access unknown SpEL", springMatcher{access: "access", args: `"#oauth2.hasScope('read')"`}, ProtAuthenticated, nil, "medium"},
-		{"role without a literal", springMatcher{access: "hasRole", args: "ADMIN_ROLE"}, ProtAuthenticated, nil, "medium"},
+		{"role without a literal stays a role", springMatcher{access: "hasRole", args: "ADMIN_ROLE"}, ProtRole, nil, "medium"},
+		{"authority constant stays a role", springMatcher{access: "hasAuthority", args: "AuthoritiesConstants.ADMIN"}, ProtRole, nil, "medium"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -122,6 +123,32 @@ func testSpringAnyRouteUsesWeakestMethod(t *testing.T) {
 	if len(evidence) != 1 || !strings.Contains(evidence[0], "SecurityConfig.java:11") ||
 		!strings.Contains(evidence[0], "weakest method POST") {
 		t.Errorf("evidence = %v, want the permitAll matcher naming POST", evidence)
+	}
+}
+
+// TestSpringRouteTemplateOverlap pins review finding 7: a {param} route stands
+// for several paths, so a literal permitAll on one of them makes it public;
+// a matcher that covers the whole template still decides all of it.
+func TestSpringRouteTemplateOverlap(t *testing.T) {
+	partial := &springConfig{matchers: []springMatcher{
+		{file: "Security.java", line: 6, name: "requestMatchers", pattern: "/internal/export", access: "permitAll"},
+		{file: "Security.java", line: 7, name: "anyRequest", pattern: "/**", access: "authenticated"},
+	}}
+	protection, _, evidence, confidence := partial.decide("/internal/{operation}", "POST")
+	if protection != ProtPublic || confidence != "high" {
+		t.Fatalf("partial overlap = %q/%q, want public/high", protection, confidence)
+	}
+	if len(evidence) != 1 || !strings.Contains(evidence[0], "Security.java:6") ||
+		!strings.Contains(evidence[0], "path /internal/export") {
+		t.Errorf("evidence = %v, want the permitAll matcher naming /internal/export", evidence)
+	}
+
+	covered := &springConfig{matchers: []springMatcher{
+		{file: "Security.java", line: 6, name: "requestMatchers", pattern: "/internal/**", access: "authenticated"},
+		{file: "Security.java", line: 7, name: "anyRequest", pattern: "/**", access: "permitAll"},
+	}}
+	if got, _, _, _ := covered.decide("/internal/{operation}", "POST"); got != ProtAuthenticated {
+		t.Errorf("covered template = %q, want authenticated (the fallback never applies)", got)
 	}
 }
 

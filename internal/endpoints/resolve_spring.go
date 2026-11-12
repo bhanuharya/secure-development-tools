@@ -68,6 +68,9 @@ type springConfig struct {
 	matchers []springMatcher // flat list when no chain facts were found
 	chains   []*springChain
 	webflux  bool // pathMatchers/anyExchange: label routes spring-webflux
+	// ownershipUnknown means a rule or order fact could not be tied to a
+	// recognized chain, so applying any chain would guess its boundaries.
+	ownershipUnknown bool
 }
 
 // resolveSpring resolves the Java facts. Kotlin is out of scope (SPEC §9);
@@ -449,6 +452,13 @@ func (b *springBuild) finish() *springConfig {
 		}
 		return a.line < c.line
 	})
+	cfg := &springConfig{webflux: b.webflux}
+	// An @Order without a recognized chain usually means a chain signature
+	// this resolver does not know; guessing a flat matcher list would erase
+	// the chain boundaries the order exists to define.
+	if len(b.chains) == 0 && len(b.orders) > 0 {
+		cfg.ownershipUnknown = true
+	}
 	for _, order := range b.orders {
 		chain := chainContaining(b.chains, order.file, order.line)
 		if chain == nil || chain.ordered {
@@ -461,6 +471,9 @@ func (b *springBuild) finish() *springConfig {
 	for _, sc := range b.scopes {
 		chain := chainContaining(b.chains, sc.file, sc.line)
 		if chain == nil {
+			if len(b.chains) > 0 && sc.name != "requestMatchers" {
+				cfg.ownershipUnknown = true
+			}
 			continue
 		}
 		// requestMatchers() is also an authorization matcher inside a lambda;
@@ -474,6 +487,9 @@ func (b *springBuild) finish() *springConfig {
 	for _, m := range b.matchers {
 		if c := chainFor(b.chains, m); c != nil {
 			c.matchers = append(c.matchers, m)
+		} else if len(b.chains) > 0 {
+			// A matcher that no chain span owns cannot be assigned safely.
+			cfg.ownershipUnknown = true
 		} else {
 			leftover = append(leftover, m)
 		}
@@ -481,20 +497,12 @@ func (b *springBuild) finish() *springConfig {
 	for _, c := range b.chains {
 		sortSpringMatchers(c.matchers)
 	}
-	cfg := &springConfig{webflux: b.webflux}
 	if len(b.chains) == 0 {
-		sortSpringMatchers(b.matchers)
-		cfg.matchers = b.matchers
+		sortSpringMatchers(leftover)
+		cfg.matchers = leftover
 		return cfg
 	}
 	cfg.chains = b.chains
-	if len(leftover) > 0 {
-		sortSpringMatchers(leftover)
-		cfg.chains = append(cfg.chains, &springChain{
-			file: leftover[0].file, line: leftover[0].line,
-			endLine: leftover[len(leftover)-1].line, matchers: leftover,
-		})
-	}
 	return cfg
 }
 
@@ -547,15 +555,16 @@ func springFramework(cfg *springConfig) string {
 }
 
 // decide applies the first chain, by @Order, whose scope matches the request;
-// inside that chain the first matcher for the method and path wins.
+// inside that chain the first matcher for the method and path wins. A {param}
+// route stands for several paths, so it is decided by the weakest one.
 func (cfg *springConfig) decide(path, method string) (Protection, []string, []string, string) {
 	if method == "ANY" {
 		return cfg.decideAny(path)
 	}
-	if len(cfg.chains) == 0 {
-		return decideSpringMatchers(cfg.matchers, path, method)
+	if springTemplatePath(path) {
+		return cfg.decideTemplate(path, method)
 	}
-	return cfg.decideChains(path, method)
+	return cfg.decideConcrete(path, method)
 }
 
 // decideAny evaluates every method an unrestricted @RequestMapping accepts and
@@ -714,7 +723,10 @@ func (m springMatcher) decision() (Protection, []string, string) {
 	case "hasRole", "hasAnyRole", "hasAuthority", "hasAnyAuthority":
 		roles := dedupe(quotedValues(m.args))
 		if len(roles) == 0 {
-			return ProtAuthenticated, nil, "medium"
+			// A constant argument (AuthoritiesConstants.ADMIN) is still a
+			// role check even though its value cannot be read here; downgrading
+			// it to authenticated hides the missing role convention.
+			return ProtRole, nil, "medium"
 		}
 		return ProtRole, roles, "high"
 	case "access":

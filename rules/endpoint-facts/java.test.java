@@ -97,6 +97,24 @@ class Chains {
             .authorizeHttpRequests(a -> a.anyRequest().authenticated())
             .build();
     }
+
+    // ruleid: fact.java.security_chain
+    SecurityFilterChain orders(HttpSecurity http, AuthenticationProvider provider) {
+        // ruleid: fact.java.security_default
+        return http.authorizeHttpRequests(a -> a.anyRequest().authenticated()).build();
+    }
+}
+
+@Configuration
+class ReactiveChains {
+    // ruleid: fact.java.security_chain
+    SecurityWebFilterChain api(ServerHttpSecurity http, TokenService tokens) {
+        // ruleid: fact.java.security_scope
+        return http.securityMatcher(new PathPatternParserServerWebExchangeMatcher("/api/**"))
+            // ruleid: fact.java.security_default
+            .authorizeExchange(a -> a.anyExchange().authenticated())
+            .build();
+    }
 }
 
 @Configuration
@@ -104,8 +122,10 @@ class AdapterChains extends WebSecurityConfigurerAdapter {
     // ruleid: fact.java.security_chain_adapter
     @Override
     protected void configure(HttpSecurity http) throws Exception {
-        // ruleid: fact.java.security_default
-        http.authorizeRequests().anyRequest().authenticated();
+        // ruleid: fact.java.security_scope_builder
+        http.requestMatchers().antMatchers("/api/**").and()
+            // ruleid: fact.java.security_default
+            .authorizeRequests().anyRequest().authenticated();
     }
 }
 

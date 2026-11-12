@@ -135,6 +135,8 @@ rules:
   # is what assigns the matcher and @Order facts of the same method to this
   # chain. A configure(HttpSecurity) in a SecurityConfigurerAdapter or
   # AbstractHttpConfigurer subclass only adds filters and is not here.
+  # Beans often inject extra parameters, and WebFlux declares
+  # SecurityWebFilterChain(ServerHttpSecurity); both still own their rules.
   - id: fact.java.security_chain
     languages: [java]
     severity: INFO
@@ -144,8 +146,11 @@ rules:
     patterns:
       - pattern-inside: |
           class $C { ... }
-      - pattern: |
-          SecurityFilterChain $M(HttpSecurity $HTTP) { ... }
+      - pattern-either:
+          - pattern: |
+              SecurityFilterChain $M(HttpSecurity $HTTP, ...) { ... }
+          - pattern: |
+              SecurityWebFilterChain $M(ServerHttpSecurity $HTTP, ...) { ... }
 
   # The legacy configure(HttpSecurity) chain of a web or resource-server
   # adapter. Only those two bases make configure a chain; a JWT configurer
@@ -181,6 +186,7 @@ rules:
   # The request scope of one chain. $OWNER is the HttpSecurity variable; the
   # resolver only uses a scope whose owner is the chain's own parameter, so
   # requestMatchers() inside an authorize lambda is a matcher, not a scope.
+  # WebFlux wraps its pattern in a matcher object; unwrap the common ones.
   - id: fact.java.security_scope
     languages: [java]
     severity: INFO
@@ -192,9 +198,28 @@ rules:
           - pattern: $OWNER.$SCOPE("$PATTERN")
           - pattern: $OWNER.$SCOPE(HttpMethod.$METHOD, ..., "$PATTERN", ...)
           - pattern: $OWNER.$SCOPE(..., "$PATTERN", ...)
+          - pattern: $OWNER.$SCOPE(new PathPatternParserServerWebExchangeMatcher("$PATTERN"))
+          - pattern: $OWNER.$SCOPE(new AntPathRequestMatcher("$PATTERN"))
+          - pattern: $OWNER.$SCOPE(ServerWebExchangeMatchers.pathMatchers("$PATTERN"))
       - metavariable-regex:
           metavariable: $SCOPE
           regex: ^(securityMatcher|antMatcher|requestMatcher|requestMatchers)$
+
+  # The legacy matcher builder: requestMatchers().antMatchers("/api/**")
+  # restricts the chain itself. It has no pattern argument on
+  # requestMatchers(), so the rule above cannot see it.
+  - id: fact.java.security_scope_builder
+    languages: [java]
+    severity: INFO
+    message: Spring Security matcher-builder request scope
+    metadata:
+      fact: security_scope
+    patterns:
+      - pattern: $OWNER.requestMatchers($...IGNORED).$SCOPE("$PATTERN")
+      - metavariable-regex:
+          metavariable: $SCOPE
+          regex: ^(antMatchers|mvcMatchers|requestMatchers|pathMatchers)$
+      - focus-metavariable: $PATTERN
 
   # The fallback of a chain: anyRequest() in the servlet DSL, anyExchange() in
   # WebFlux. Focus on the access call so the fact carries its own line.

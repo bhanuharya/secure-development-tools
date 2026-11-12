@@ -1,0 +1,23 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "spring-webflux",
+      "method": "POST",
+      "path": "/transfer",
+      "handler": "Controller.transfer",
+      "file": "Controller.java",
+      "line": 3,
+      "protection": "public",
+      "evidence": [
+        "Security.java:12 .anyExchange().permitAll()"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "public": 1
+  }
+}
