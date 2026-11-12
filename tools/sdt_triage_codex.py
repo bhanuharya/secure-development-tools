@@ -45,7 +45,7 @@ DEFAULT_MODEL = "gpt-6.1-sol"
 VERDICTS = ("likely_true_positive", "likely_false_positive", "needs_context")
 CONFIDENCE = ("low", "medium", "high")
 CONTEXT_LINES = 64  # lines of surrounding code: enough to see where a flagged value comes from and how it is sanitised
-PROMPT_VERSION = "5"  # part of every remembered verdict: change it when the prompt or context changes
+PROMPT_VERSION = "6"  # part of every remembered verdict: change it when the prompt or context changes
 MAX_REASON = 400
 MAX_PER_CALL = 6
 GUIDANCE_TEXT = ("impact", "verify_fix")
@@ -79,7 +79,7 @@ RESPONSE_SCHEMA = {
     },
 }
 
-from sdt_advisory import CREDENTIAL_RULE, redact, redact_lines  # noqa: E402  (one redaction for prompts and reports)
+from sdt_advisory import CREDENTIAL_RULE, redact, redact_lines, scrub  # noqa: E402  (one redaction for prompts and reports)
 
 
 MAX_BLOCK_LINES = 200
@@ -160,11 +160,13 @@ def related_lines(lines: list[str], index: int, start: int, end: int) -> list[tu
     return merged
 
 
-def context(src_root: Path | None, occurrence: sdt_to_docx.Occurrence, credential: bool = False) -> str:
+def context(src_root: Path | None, occurrence: sdt_to_docx.Occurrence, credential: bool = False,
+            withheld: set | None = None) -> str:
     """The enclosing function (up to MAX_BLOCK_LINES) or +/-CONTEXT_LINES around the flagged line,
     then the lines elsewhere in the file that share its names; numbered with ">" marking the
     flagged line, redacted; "" when unreadable. For a credential rule every quoted value on the
-    flagged line is withheld too: the review judges that a value is there, never the value."""
+    flagged line is withheld too: the review judges that a value is there, never the value.
+    Values withheld here are added to `withheld` so they can be removed from the answer as well."""
     if not src_root or not occurrence.path or occurrence.line < 1:
         return ""
     root = src_root.resolve()
@@ -185,7 +187,8 @@ def context(src_root: Path | None, occurrence: sdt_to_docx.Occurrence, credentia
         start, end = max(0, index - CONTEXT_LINES), min(len(lines) - 1, index + CONTEXT_LINES)
     related = related_lines(lines, index, start, end)
     wanted = [n for low, high in [(start, end)] + related for n in range(low, high + 1)]
-    shown = redact_lines({n: lines[n].rstrip() for n in wanted}, occurrence.path, {index} if credential else set())
+    shown = redact_lines({n: lines[n].rstrip() for n in wanted}, occurrence.path, {index} if credential else set(),
+                         withheld)
 
     def numbered(low: int, high: int) -> list[str]:
         return [f"{'>' if n == index else ' '}{n + 1:>5}  {shown[n][:200]}" for n in range(low, high + 1)]
@@ -224,8 +227,9 @@ def finding_evidence(findings: dict) -> dict[tuple, list[str]]:
     return indexed
 
 
-def evidence_context(src_root: Path | None, evidence: list[str]) -> str:
-    """The scanner's cited lines with +/-3 lines; confine reads to the source checkout."""
+def evidence_context(src_root: Path | None, evidence: list[str], withheld: set | None = None) -> str:
+    """The scanner's cited lines with +/-3 lines; confine reads to the source checkout.
+    Values withheld here join `withheld`, so evidence and the answer cannot give them away."""
     if not src_root:
         return ""
     root, seen, blocks = src_root.resolve(), set(), []
@@ -242,25 +246,28 @@ def evidence_context(src_root: Path | None, evidence: list[str]) -> str:
         if not 1 <= line <= len(lines):
             continue
         indices = range(max(0, line - 4), min(len(lines), line + 3))
-        shown = redact_lines({n: lines[n] for n in indices}, path)
+        shown = redact_lines({n: lines[n] for n in indices}, path, withheld=withheld)
         blocks.append(f"// {path}:{line}\n" + "\n".join(
             f"{'>' if n == line - 1 else ' '}{n + 1:>5}  {shown[n][:200]}" for n in indices))
     return "\n\nEvidence the scanner used:\n" + redact("\n\n".join(blocks)) if blocks else ""
 
 
-def sanitise_review(item: dict, path: str = "") -> dict:
-    """Redact fresh and remembered advice alike, preserving snippet layout and legacy fields."""
+def sanitise_review(item: dict, path: str = "", withheld: set | None = None) -> dict:
+    """Redact fresh and remembered advice alike, preserving snippet layout and legacy fields.
+    `withheld` holds values an excerpt removed: they are removed from the answer too, even when
+    the model echoed one next to a name the redactor does not know."""
     result = dict(item)
     for part in ("reason", "check", "suggested_fix") + GUIDANCE_TEXT:
         if part in result:
-            result[part] = redact(" ".join(str(result[part] or "").split()))[:MAX_REASON]
+            text = redact(" ".join(str(result[part] or "").split()), path, withheld)
+            result[part] = scrub(text, withheld)[:MAX_REASON]
     if "fix_steps" in result:
         steps = result["fix_steps"] if isinstance(result["fix_steps"], list) else []
-        result["fix_steps"] = [redact(" ".join(step.split()))[:MAX_REASON]
+        result["fix_steps"] = [scrub(redact(" ".join(step.split()), path, withheld), withheld)[:MAX_REASON]
                                for step in steps[:5] if isinstance(step, str) and step.strip()]
     if "fix_example" in result:
-        example = redact(str(result["fix_example"] or ""), path)
-        result["fix_example"] = "\n".join(example.splitlines()[:12])
+        example = redact(str(result["fix_example"] or ""), path, withheld)
+        result["fix_example"] = "\n".join(scrub(example, withheld).splitlines()[:12])
     if result.get("verdict") == "likely_false_positive":
         for part in GUIDANCE_TEXT + ("fix_steps", "fix_example"):
             if part in result:
@@ -305,15 +312,21 @@ does not waste time on them. Confirm a finding as real only when the code suppor
 
 
 def build_prompt(group: sdt_to_docx.Group, items: list[tuple[str, sdt_to_docx.Occurrence, str]],
-                 second: bool = False) -> str:
-    risk = " ".join(group.risk)[:1200] or "(no rule description available)"
-    fixes = "; ".join(group.fixes)[:600]
-    blocks = "\n\n".join(f"### {item_id}: {o.path}:{o.line}\nScanner message: {o.message or '-'}\n```\n{code}\n```"
-                         for item_id, o, code in items)
-    return f"""{SECOND_OPINION if second else FIRST_OPINION}
+                 second: bool = False, withheld: set | None = None) -> str:
+    """The review question. Every field is redacted and `withheld` scrubs values the excerpt
+    removed, so a scanner message or rule description cannot carry them into the prompt."""
+    def clean(text: str) -> str:
+        return scrub(redact(text), withheld)
 
-Rule: {group.rule} ({group.kind}, severity {group.severity})
-Rule name: {group.name}
+    risk = clean(" ".join(group.risk)[:1200]) or "(no rule description available)"
+    fixes = clean("; ".join(group.fixes)[:600])
+    blocks = "\n\n".join(
+        f"### {item_id}: {o.path}:{o.line}\nScanner message: {clean(o.message or '-')}\n```\n{clean(code)}\n```"
+        for item_id, o, code in items)
+    return clean(f"""{SECOND_OPINION if second else FIRST_OPINION}
+
+Rule: {clean(group.rule)} ({group.kind}, severity {group.severity})
+Rule name: {clean(group.name)}
 Why the rule exists: {risk}
 Recommended practice: {fixes or '-'}
 
@@ -373,11 +386,13 @@ Answer rules (short, factual, no hedging words like "may" or "might"):
 - Never write a credential value in your answer; say "the value on line N".
 
 {blocks}
-"""
+""")
 
 
-def validate(answer: object, ids: set[str], paths: dict[str, str] | None = None) -> list[dict]:
-    """Only well-formed results for ids we asked about; everything else is dropped."""
+def validate(answer: object, ids: set[str], paths: dict[str, str] | None = None,
+             withheld: dict[str, set] | None = None) -> list[dict]:
+    """Only well-formed results for ids we asked about; everything else is dropped.
+    `withheld` maps an id to the values its excerpt removed; those never survive the answer."""
     if not isinstance(answer, dict) or not isinstance(answer.get("results"), list):
         raise ValueError("answer has no results list")
     out, seen = [], set()
@@ -393,7 +408,7 @@ def validate(answer: object, ids: set[str], paths: dict[str, str] | None = None)
         parts = ("reason", "check", "suggested_fix") + GUIDANCE_TEXT + ("fix_steps", "fix_example")
         out.append(sanitise_review({"id": item_id, "verdict": item["verdict"], "confidence": item["confidence"],
                                     **{part: item[part] for part in parts if part in item}},
-                                   (paths or {}).get(item_id, "")))
+                                   (paths or {}).get(item_id, ""), (withheld or {}).get(item_id)))
     return out
 
 
@@ -421,20 +436,23 @@ def run_codex(codex: str, model: str, prompt: str, timeout: float, response_sche
         return json.loads(answer.read_text())
 
 
-def collect_reviews(group, src_root, model, max_per_rule, memory, report, evidence) -> tuple[list, dict, dict]:
-    """Collect unanswered occurrences; the memory identity includes the scanner's evidence code."""
-    items, keys, shown, considered = [], {}, {}, 0
+def collect_reviews(group, src_root, model, max_per_rule, memory, report, evidence) -> tuple[list, dict, dict, dict]:
+    """Collect unanswered occurrences; the memory identity includes the scanner's evidence code.
+    `withheld` keeps each memory key's removed values, to scrub the model's answer too."""
+    items, keys, shown, considered, withheld = [], {}, {}, 0, {}
     for occurrence in group.occurrences:
-        code = context(src_root, occurrence, bool(CREDENTIAL_RULE.search(group.rule)))
+        hidden: set = set()
+        code = context(src_root, occurrence, bool(CREDENTIAL_RULE.search(group.rule)), hidden)
         if not code:
             continue
         considered += 1
         location = (sdt_to_docx.external_id(group.rule), occurrence.path, occurrence.line)
-        code += evidence_context(src_root, evidence.get(location, []))
+        code += evidence_context(src_root, evidence.get(location, []), hidden)
         key = memory_key(model, group.rule, occurrence.path, code)
+        withheld[key] = hidden
         if isinstance(memory.get(key), dict):
             report["remembered"] += 1
-            remembered = sanitise_review(memory[key], occurrence.path)
+            remembered = sanitise_review(memory[key], occurrence.path, hidden)
             memory[key] = remembered
             result = {**remembered, "rule": group.rule, "path": occurrence.path,
                       "line": occurrence.line, "remembered": True}
@@ -447,13 +465,16 @@ def collect_reviews(group, src_root, model, max_per_rule, memory, report, eviden
             keys[item_id] = key
         if considered >= max_per_rule:
             break
-    return items, keys, shown
+    return items, keys, shown, withheld
 
 
-def review_batch(group, items, keys, shown, memory, report, codex, model, call, timeout) -> None:
+def review_batch(group, items, keys, shown, memory, report, codex, model, call, timeout,
+                 withheld: dict | None = None) -> None:
     lookup = {item_id: occurrence for item_id, occurrence, _ in items}
-    answer = call(codex, model, build_prompt(group, items), timeout)
-    results = validate(answer, set(lookup), {key: o.path for key, o in lookup.items()})
+    hidden = {item_id: (withheld or {}).get(keys[item_id]) for item_id in lookup}
+    answer = call(codex, model, build_prompt(group, items, withheld=set().union(
+        *(values for values in hidden.values() if values))), timeout)
+    results = validate(answer, set(lookup), {key: o.path for key, o in lookup.items()}, hidden)
     for result in results:
         item_id = result.pop("id")
         occurrence, key = lookup[item_id], keys[item_id]
@@ -487,7 +508,7 @@ def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, m
         if remaining < 10:
             report["stopped"] = "time budget spent"
             break
-        items, keys, shown = collect_reviews(group, src_root, model, max_per_rule, memory, report, evidence)
+        items, keys, shown, withheld = collect_reviews(group, src_root, model, max_per_rule, memory, report, evidence)
         for offset in range(0, len(items), MAX_PER_CALL):
             # Account for time spent in every batch, even when a rule spans several calls.
             remaining = budget - (clock() - started)
@@ -497,7 +518,7 @@ def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, m
             report["calls"] += 1
             try:
                 review_batch(group, items[offset:offset + MAX_PER_CALL], keys, shown, memory, report,
-                             codex, model, call, min(per_call_timeout, remaining))
+                             codex, model, call, min(per_call_timeout, remaining), withheld)
             except (subprocess.TimeoutExpired, RuntimeError, ValueError, OSError) as exc:
                 failures += 1
                 report["failed_calls"] += 1
@@ -510,12 +531,12 @@ def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, m
             failures = 0
         if confirm:
             second_opinions(group, shown, memory, report, codex, model, call,
-                            min(per_call_timeout, budget - (clock() - started)), clock=clock)
+                            min(per_call_timeout, budget - (clock() - started)), clock=clock, withheld=withheld)
     return report
 
 
 def second_opinions(group, shown: dict, memory: dict, report: dict, codex: str, model: str, call, timeout: float,
-                    clock=time.monotonic) -> None:
+                    clock=time.monotonic, withheld: dict | None = None) -> None:
     """Put this rule's high-confidence false positives to a sceptical second review, once each."""
     pending = [(key, occurrence, code, result) for key, (occurrence, code, result) in shown.items()
                if result and result.get("verdict") == "likely_false_positive" and result.get("confidence") == "high"
@@ -529,10 +550,12 @@ def second_opinions(group, shown: dict, memory: dict, report: dict, codex: str, 
             return
         batch = pending[offset:offset + MAX_PER_CALL]
         items = [(f"o{n + 1}", occurrence, code) for n, (_, occurrence, code, _) in enumerate(batch)]
+        hidden = {f"o{n + 1}": (withheld or {}).get(key) for n, (key, _, _, _) in enumerate(batch)}
         report["calls"] += 1
         try:
-            answers = {r["id"]: r for r in validate(call(codex, model, build_prompt(group, items, second=True), remaining),
-                                                    {item_id for item_id, _, _ in items})}
+            answers = {r["id"]: r for r in validate(call(codex, model, build_prompt(
+                group, items, second=True, withheld=set().union(*(v for v in hidden.values() if v))), remaining),
+                {item_id for item_id, _, _ in items}, withheld=hidden)}
         except (subprocess.TimeoutExpired, RuntimeError, ValueError, OSError) as exc:
             report["failed_calls"] += 1
             print(f"sdt_triage_codex: {group.rule}: second opinion failed ({str(exc)[:120]})", file=sys.stderr)

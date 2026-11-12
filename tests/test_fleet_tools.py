@@ -1240,6 +1240,62 @@ def test_triage_never_sends_secret_values(tmp_path):
     assert redacted.count("[REDACTED]") == 3
 
 
+def test_the_shared_redactor_covers_every_secret_name_the_rules_report():
+    value = "S3cret" + "Value42"  # built at runtime: no key-shaped literal in the source
+    names = ("SIGNING_KEY", "CLIENT_SECRET", "SECRET_KEY", "ENCRYPTION_KEY", "AES_KEY", "HMAC_KEY",
+             "PRIVATE_KEY", "JWT_SECRET", "API_KEY", "ACCESS_KEY", "MASTER_KEY", "DB_PASSWORD")
+    for name in names:
+        line = f'  static final String {name} = "{value}";'
+        assert value not in sdt_advisory.redact(line), name
+    # A role and a middleware name are not credentials: evidence keeps them readable.
+    assert sdt_advisory.redact('RequireRole("admin")') == 'RequireRole("admin")'
+
+
+def test_a_signing_key_literal_never_reaches_prompt_answer_memory_or_report(tmp_path):
+    secret = "review_" + "signing_7Jx9!"  # built at runtime: no key-shaped literal in the source
+    (tmp_path / "Security.java").write_text(
+        f'class Security {{\n  static final String SIGNING_KEY = "{secret}";\n'
+        f'  void configure() {{ }}\n}}\n')
+    (tmp_path / "Controller.java").write_text("class Controller { void transfer() {} }\n")
+    group = sdt_to_docx.Group("endpoints:scp.endpoints.sensitive-route-public", "Sensitive route is public",
+                              "Finding", "High", risk=[f'Security.java sets SIGNING_KEY = "{secret}"'],
+                              fixes=["require authentication"])
+    occurrence = sdt_to_docx.Occurrence("Controller.java", 1, f'public endpoint with SIGNING_KEY = "{secret}"',
+                                        "Open", "")
+    group.occurrences = [occurrence]
+    prompts = []
+
+    def call(codex, model, prompt, timeout):
+        prompts.append(prompt)
+        return {"results": [{
+            "id": "o1", "verdict": "likely_true_positive", "confidence": "high",
+            "reason": "Controller.transfer is public", "check": "confirm the chain at line 3",
+            "suggested_fix": "require authentication", "impact": "Anyone can reach /transfer",
+            "fix_steps": ["rotate the SIGNING_KEY in Security.java"],
+            "fix_example": f'// Before\nString k = "{secret}";\n// After\nString k = System.getenv("SIGNING_KEY");',
+            "verify_fix": f"assert the old value {secret} is rejected"}]}
+
+    findings = {"findings": [{
+        "scanner": {"adapter": "endpoints"}, "category": "sast",
+        "rule": {"id": "scp.endpoints.sensitive-route-public"},
+        "location": {"path": "Controller.java", "startLine": 1},
+        "message": f'public endpoint with SIGNING_KEY = "{secret}"',
+        "metadata": {"evidence": ["Security.java:2 .permitAll()"]}}]}
+    memory = {}
+    report = sdt_triage_codex.triage([group], tmp_path, "fake", "test", per_call_timeout=20, budget=100,
+                                     max_rules=2, max_per_rule=6, max_failures=2, call=call,
+                                     findings=findings, memory=memory)
+    assert secret not in prompts[0]
+    assert secret not in json.dumps(report)
+    store = tmp_path / "memory.json"
+    sdt_triage_codex.save_memory(store, memory)
+    assert secret not in store.read_text()
+    assert sdt_to_docx.apply_triage([group], report) == 1
+    text, document, *_ = _write_report(tmp_path, {"code": [group], "secret": [], "dependency": [], "config": []},
+                                       src_root=tmp_path)
+    assert secret not in document and "[REDACTED]" in text
+
+
 def test_without_codex_the_triage_step_is_a_no_op(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", str(tmp_path))  # no codex anywhere
     monkeypatch.delenv("SDT_CODEX_BIN", raising=False)

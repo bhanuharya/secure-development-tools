@@ -235,6 +235,8 @@ func BuildInventory(dir string, cfg config.EndpointsCfg) (*Inventory, error) {
 		return nil, err
 	}
 	routes, unresolved := resolveFacts(facts, absDir, newGateMatcher(cfg.AuthGates))
+	routes = sanitizeRoutes(routes)
+	unresolved = sanitizeStrings(unresolved)
 	sort.Slice(routes, func(i, j int) bool {
 		a, b := routes[i], routes[j]
 		if a.Service != b.Service {

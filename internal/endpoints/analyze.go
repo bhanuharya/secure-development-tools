@@ -37,6 +37,7 @@ func Analyze(inv *Inventory, cfg config.EndpointsCfg) ([]*finding.Finding, error
 	if inv == nil {
 		return nil, fmt.Errorf("analyze: nil inventory")
 	}
+	inv = sanitizeInventory(inv)
 	rules, err := newConventionRules(cfg)
 	if err != nil {
 		return nil, err

@@ -32,7 +32,10 @@ SECRET_PATTERNS = [
     re.compile(r"\beyJ[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}\b"),
     re.compile(r"\bsqu_[0-9a-f]{20,}\b"),
 ]
-SECRET_WORD = r"password|passwd|pwd|passphrase|secret|token|salt|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credentials?"
+# The key names the rule pack treats as secret (T11/T17 and common/secrets.yaml). Keep this list
+# in step with rules/opengrep-rules/*/identity.yaml: a name the rules report must never be sent.
+SECRET_WORD = (r"password|passwd|pwd|passphrase|secret|token|salt|credentials?|apikey|"
+               r"(?:api|app|auth|access|aes|cookie|encryption|hmac|jwt|master|private|secret|session|signing)[_-]?key")
 SECRET_ASSIGNMENT = re.compile(
     rf"""(?i)((?:{SECRET_WORD}|auth)["']?\s*[:=]\s*)(["'])([^"'\s]+)\2""")
 # A literal default of a secret lookup is the value the application runs with when the variable is missing:
@@ -123,6 +126,13 @@ def _kept(value: str) -> bool:
     return bool(PLACEHOLDER.match(value.strip()))
 
 
+def scrub(text: str, withheld: set | None) -> str:
+    """Remove values an earlier excerpt withheld, wherever a model or an old memory echoed them."""
+    for value in sorted((v for v in withheld or () if len(v) >= 3), key=len, reverse=True):
+        text = re.sub(r"(?<![\w-])" + re.escape(value) + r"(?![\w-])", "[REDACTED]", text)
+    return text
+
+
 def redact(text: str, path: str = "", withheld: set | None = None) -> str:
     """The code with likely secret values replaced by [REDACTED]; placeholders are left as they are.
     Give the file's path when there is one: in settings files unquoted values are covered too.
@@ -184,17 +194,16 @@ def redact_credential_line(line: str, path: str = "", withheld: set | None = Non
     return QUOTED.sub(lambda m: hide(m.group(2), m.group(0), f"{m.group(1)}[REDACTED]{m.group(1)}"), line)
 
 
-def redact_lines(lines: dict[int, str], path: str = "", flagged: frozenset | set = frozenset()) -> dict[int, str]:
+def redact_lines(lines: dict[int, str], path: str = "", flagged: frozenset | set = frozenset(),
+                 withheld: set | None = None) -> dict[int, str]:
     """An excerpt (line number -> text) as a report or a prompt may show it. A value withheld on one line is
     withheld on the others too: a user name equal to the password would otherwise give it away. On the lines
-    in `flagged` (those a credential rule reported) every value is withheld."""
-    withheld: set = set()
+    in `flagged` (those a credential rule reported) every value is withheld. Values found here are added to
+    `withheld`, so a caller can keep them out of a model's answer and the rendered report too."""
+    withheld = set() if withheld is None else withheld
     shown = {number: redact_credential_line(text, path, withheld) if number in flagged else redact(text, path, withheld)
              for number, text in lines.items()}
-    for value in sorted((v for v in withheld if len(v) >= 3), key=len, reverse=True):
-        again = re.compile(r"(?<![\w-])" + re.escape(value) + r"(?![\w-])")
-        shown = {number: again.sub("[REDACTED]", text) for number, text in shown.items()}
-    return shown
+    return {number: scrub(text, withheld) for number, text in shown.items()}
 
 
 # rule key pattern -> (what to check to decide, fix if it is real, what to record if it is safe)

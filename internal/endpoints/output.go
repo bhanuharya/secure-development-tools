@@ -12,7 +12,7 @@ import (
 
 // WriteJSON writes the inventory as indented JSON.
 func WriteJSON(w io.Writer, inv *Inventory) error {
-	raw, err := json.MarshalIndent(inv, "", "  ")
+	raw, err := json.MarshalIndent(sanitizeInventory(inv), "", "  ")
 	if err != nil {
 		return err
 	}
@@ -22,6 +22,7 @@ func WriteJSON(w io.Writer, inv *Inventory) error {
 
 // WriteCSV writes one row per route with a stable header.
 func WriteCSV(w io.Writer, inv *Inventory) error {
+	inv = sanitizeInventory(inv)
 	cw := csv.NewWriter(w)
 	defer cw.Flush()
 	if err := cw.Write([]string{"service", "framework", "method", "path", "handler", "file", "line", "protection", "roles", "confidence"}); err != nil {
@@ -39,6 +40,7 @@ func WriteCSV(w io.Writer, inv *Inventory) error {
 
 // WriteTable writes the human view: one line per route, no wrapping.
 func WriteTable(w io.Writer, inv *Inventory) error {
+	inv = sanitizeInventory(inv)
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	if _, err := fmt.Fprintln(tw, "SERVICE\tMETHOD\tPATH\tPROTECTION\tHANDLER\tFILE:LINE"); err != nil {
 		return err
