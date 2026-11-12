@@ -29,8 +29,10 @@ timing() { printf '%s\t%s\n' "$1" "$((SECONDS - STEP_START))" >> "$TIMINGS"; STE
 
 # The SAST report reads SonarQube, so it shows each hotspot's review state and assignee.
 TRIAGE=()
-# A branch keeps the plain name; a pull request's report says which one it is.
-REPORT_DOCX="$OUT/SAST Report - $REPO_SLUG${PR_ID:+ - PR $PR_ID}.docx"
+# 'SAST Report - <repo>[ - PR <id>] - <ddmmyy-hhmm>.docx': branch and pull request reports and their scan
+# times are told apart in downloads. One report per build: an older one in OUT would be picked up instead.
+rm -f "$OUT"/SAST\ Report\ -\ *.docx
+REPORT_DOCX="$OUT/SAST Report - $REPO_SLUG${PR_ID:+ - PR $PR_ID} - $(date +%d%m%y-%H%M).docx"
 if [ -f "$OUT/sonar-project-key" ] && [ -n "${SONAR_TOKEN:-}" ]; then
   # Same scope scan.sh analysed: no branch parameter for the main branch.
   SCOPE=()

@@ -27,7 +27,7 @@ import sys
 import tempfile
 import urllib.parse
 
-from sdt_common import cell, gate, kind, log, place_of, rank, reported, required, scanned_commit, severity
+from sdt_common import report_docx, cell, gate, kind, log, place_of, rank, reported, required, scanned_commit, severity
 
 IDENTITY = ["-c", "user.name=SDT security scan", "-c", "user.email=sdt-security-scan@localhost"]
 ATTEMPTS = 5
@@ -104,9 +104,7 @@ def main():
     commit = scanned_commit(env.get("SRC", ""))
     result = gate(out)[0]
     text = markdown(repo, scope, env.get("SCOPE_URL", ""), commit, result, findings(out, bool(pr_id)), bool(pr_id))
-    docx = os.path.join(out, f"SAST Report - {repo}" + (f" - PR {pr_id}" if pr_id else "") + ".docx")
-    if not os.path.isfile(docx):  # reports written before the PR number was in the name
-        docx = os.path.join(out, f"SAST Report - {repo}.docx")
+    docx = report_docx(out, repo)
 
     work = tempfile.mkdtemp(prefix="sdt-reports-")
     try:
