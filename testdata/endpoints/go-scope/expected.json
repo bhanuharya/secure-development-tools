@@ -1,0 +1,38 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/orders",
+      "handler": "createOrder",
+      "file": "main.go",
+      "line": 8,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:7 middleware AuthMiddleware on router"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/transfer",
+      "handler": "transferFunds",
+      "file": "main.go",
+      "line": 14,
+      "protection": "public",
+      "evidence": [
+        "main.go:14 no gate middleware on the route"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 1,
+    "public": 1
+  }
+}

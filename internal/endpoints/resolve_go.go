@@ -90,6 +90,7 @@ func (fr *fileResolver) routeFromFact(f Fact) (Route, error) {
 	if handler == "" {
 		return Route{}, fmt.Errorf("route handler could not be resolved")
 	}
+	path := joinPaths(state.prefixes, rawPath)
 	routeMW := make([]mwRef, 0, len(middleware)+1)
 	for _, expr := range middleware {
 		routeMW = append(routeMW, mwRef{file: fr.file, line: f.Line, expr: expr})
@@ -98,7 +99,7 @@ func (fr *fileResolver) routeFromFact(f Fact) (Route, error) {
 	if wrapped := handlerWrapper(handler); wrapped != "" {
 		routeMW = append(routeMW, mwRef{file: fr.file, line: f.Line, expr: wrapped, place: "wraps the handler"})
 	}
-	protection, roles, evidence := decide(fr, f.Line, routeMW, state)
+	protection, roles, evidence := decide(fr, f.Line, path, routeMW, state)
 	confidence := "high"
 	if protection == ProtUnknown {
 		confidence = "low"
@@ -108,7 +109,7 @@ func (fr *fileResolver) routeFromFact(f Fact) (Route, error) {
 		Service:    serviceOf(fr.root, fr.file),
 		Framework:  fr.framework,
 		Method:     methodOf(f),
-		Path:       joinPaths(state.prefixes, rawPath),
+		Path:       path,
 		Handler:    handler,
 		File:       fr.file,
 		Line:       f.Line,
@@ -119,13 +120,13 @@ func (fr *fileResolver) routeFromFact(f Fact) (Route, error) {
 	}, nil
 }
 
-// splitHandlers reads the argument order of the framework. gin, chi and
-// net/http put the handler last; echo and fiber put middleware after it.
+// splitHandlers reads the argument order of the framework. gin, fiber, chi and
+// net/http put the handler last; echo puts it first and middleware after it.
 func splitHandlers(framework string, args []string) (string, []string) {
 	if len(args) == 0 {
 		return "", nil
 	}
-	if framework == "echo" || framework == "fiber" {
+	if framework == "echo" {
 		return args[0], args[1:]
 	}
 	return args[len(args)-1], args[:len(args)-1]
@@ -167,7 +168,8 @@ func normalizeMethod(method string) string {
 
 // decide evaluates the middleware chain. Route-level middleware comes first,
 // then the nearest group, then the engine (most specific first, as evidence).
-func decide(fr *fileResolver, line int, routeMW []mwRef, state *routeState) (Protection, []string, []string) {
+// A path-scoped Use entry applies only to routes under its prefix.
+func decide(fr *fileResolver, line int, routePath string, routeMW []mwRef, state *routeState) (Protection, []string, []string) {
 	chain := append([]mwRef{}, routeMW...)
 	for i := len(state.mws) - 1; i >= 0; i-- {
 		chain = append(chain, state.mws[i])
@@ -175,12 +177,16 @@ func decide(fr *fileResolver, line int, routeMW []mwRef, state *routeState) (Pro
 	var evidence, roles []string
 	authenticated, role := false, false
 	for _, mw := range chain {
-		if !fr.matcher.re.MatchString(mw.expr) {
+		if !prefixApplies(mw.prefix, routePath) {
+			continue
+		}
+		name := callableName(mw.expr)
+		if !fr.matcher.re.MatchString(name) {
 			continue
 		}
 		authenticated = true
 		evidence = append(evidence, evidenceLine(mw))
-		if roleRe.MatchString(mw.expr) {
+		if roleRe.MatchString(name) {
 			role = true
 			roles = append(roles, roleNames(mw.expr)...)
 		}
@@ -197,7 +203,10 @@ func decide(fr *fileResolver, line int, routeMW []mwRef, state *routeState) (Pro
 	}
 	evidence = append(evidence, fmt.Sprintf("%s:%d no gate middleware on the route", fr.file, line))
 	for _, mw := range chain {
-		if !fr.matcher.re.MatchString(mw.expr) {
+		if !prefixApplies(mw.prefix, routePath) {
+			continue
+		}
+		if !fr.matcher.re.MatchString(callableName(mw.expr)) {
 			evidence = append(evidence, evidenceLine(mw)+" (does not match the gate list)")
 		}
 	}

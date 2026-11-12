@@ -460,12 +460,13 @@ func (js *jsResolver) decide(line int, routeMW []mwRef, state *jsState) (Protect
 	var evidence, roles []string
 	authenticated, role := false, false
 	for _, mw := range chain {
-		if !js.matcher.re.MatchString(mw.expr) {
+		name := callableName(mw.expr)
+		if !js.matcher.re.MatchString(name) {
 			continue
 		}
 		authenticated = true
 		evidence = append(evidence, evidenceLine(mw))
-		if roleRe.MatchString(mw.expr) {
+		if roleRe.MatchString(name) {
 			role = true
 			roles = append(roles, roleNames(mw.expr)...)
 		}
@@ -482,7 +483,7 @@ func (js *jsResolver) decide(line int, routeMW []mwRef, state *jsState) (Protect
 	}
 	evidence = append(evidence, fmt.Sprintf("%s:%d no gate middleware on the route", js.file, line))
 	for _, mw := range chain {
-		if !js.matcher.re.MatchString(mw.expr) {
+		if !js.matcher.re.MatchString(callableName(mw.expr)) {
 			evidence = append(evidence, evidenceLine(mw)+" (does not match the gate list)")
 		}
 	}

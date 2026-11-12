@@ -20,12 +20,14 @@ import (
 // at that line. Only the current file is consulted (SPEC §5): a router that is
 // created or mounted elsewhere stays unknown.
 
-// mwRef is one middleware expression on a route's chain.
+// mwRef is one middleware expression on a route's chain. prefix is set for a
+// Fiber Use("/x", mw): the entry only applies under that path.
 type mwRef struct {
-	file  string
-	line  int
-	expr  string
-	place string // "", "on router", "on group /api", "wraps the handler"
+	file   string
+	line   int
+	expr   string
+	place  string // "", "on router", "on group /api", "wraps the handler"
+	prefix string // "" means global
 }
 
 // routeState is a resolved group/router: the prefixes it adds and the
@@ -74,12 +76,19 @@ type callSite struct {
 	line int
 }
 
+// lineScope is the source range of a function body or closure. Bindings made
+// inside one are not visible to another (T23 lexical scope).
+type lineScope struct {
+	start int
+	end   int
+}
+
 type fileResolver struct {
 	file      string
 	root      string
 	framework string
 	matcher   *gateMatcher
-	engines   map[string]bool
+	engines   []Fact
 	groups    []Fact
 	chis      []Fact
 	uses      []Fact
@@ -87,6 +96,7 @@ type fileResolver struct {
 	bindings  []binding
 	funcs     []funcScope
 	calls     []callSite
+	scopes    []lineScope
 	unknown   []string
 }
 
@@ -95,14 +105,14 @@ var routerParamRe = regexp.MustCompile(`(?i)(gin\.(RouterGroup|Engine|IRouter|IR
 // newFileResolver indexes one file's facts and its Go syntax (functions and
 // calls) for same-file scope resolution.
 func newFileResolver(file string, facts []Fact, root string, gates *gateMatcher) *fileResolver {
-	fr := &fileResolver{file: file, root: root, matcher: gates, engines: map[string]bool{}}
+	fr := &fileResolver{file: file, root: root, matcher: gates}
 	var imports []string
 	for _, f := range facts {
 		switch f.Kind {
 		case "import":
 			imports = append(imports, f.Metavars["$IMPORT"])
 		case "engine":
-			fr.engines[f.Metavars["$R"]] = true
+			fr.engines = append(fr.engines, f)
 		case "group":
 			fr.groups = append(fr.groups, f)
 		case "chi_route":
@@ -114,10 +124,52 @@ func newFileResolver(file string, facts []Fact, root string, gates *gateMatcher)
 		}
 	}
 	fr.framework = frameworkFor(imports)
-	fr.funcs, fr.calls = parseGoScope(filepath.Join(root, file))
+	fr.funcs, fr.calls, fr.scopes = parseGoScope(filepath.Join(root, file))
+	fr.addEngineBindings()
 	fr.addGroupBindings()
 	fr.addChiBindings()
 	return fr
+}
+
+// addEngineBindings binds each router constructor to the function or closure
+// that declares it, so two functions with their own `r := gin.New()` never
+// share Use calls.
+func (fr *fileResolver) addEngineBindings() {
+	seen := map[string]bool{}
+	for _, f := range fr.engines {
+		name := f.Metavars["$R"]
+		key := fmt.Sprintf("%s:%d", name, f.Line)
+		if name == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		start, end := fr.declRange(f.Line)
+		fr.bindings = append(fr.bindings, binding{name: name, start: start, end: end})
+	}
+}
+
+// declRange is the visibility range of a variable declared at line: from its
+// declaration to the end of the innermost function or closure. Package-level
+// declarations are visible throughout the file.
+func (fr *fileResolver) declRange(line int) (int, int) {
+	if scope, ok := innermostScope(fr.scopes, line); ok {
+		return line, scope.end
+	}
+	return 0, math.MaxInt
+}
+
+func innermostScope(scopes []lineScope, line int) (lineScope, bool) {
+	var best lineScope
+	found := false
+	for _, scope := range scopes {
+		if line < scope.start || line > scope.end {
+			continue
+		}
+		if !found || scope.end-scope.start < best.end-best.start {
+			best, found = scope, true
+		}
+	}
+	return best, found
 }
 
 func (fr *fileResolver) addGroupBindings() {
@@ -130,10 +182,11 @@ func (fr *fileResolver) addGroupBindings() {
 			continue
 		}
 		seen[key] = true
+		start, end := fr.declRange(f.Line)
 		fr.bindings = append(fr.bindings, binding{
 			name:  name,
-			start: f.Line,
-			end:   math.MaxInt,
+			start: start,
+			end:   end,
 			node: &groupNode{
 				baseName: f.Metavars["$BASE"],
 				baseLine: f.Line,
@@ -233,7 +286,7 @@ func (fr *fileResolver) stateOfVar(name string, line, depth int) *routeState {
 	} else if fn, idx := fr.paramAt(name, line); fn != nil {
 		scope = fn
 		state = fr.paramState(fn, idx, depth)
-	} else if fr.engines[name] || name == "http" {
+	} else if name == "http" {
 		state = &routeState{}
 	} else {
 		state = &routeState{unknown: true, reason: name}
@@ -252,7 +305,8 @@ func (fr *fileResolver) stateOfNode(node *groupNode, depth int) *routeState {
 }
 
 // usesBefore returns the Use calls on name that are visible to a registration
-// at line: same binding (scope), registered earlier.
+// at line: same binding (scope), registered earlier. Fiber's path form
+// Use("/x", mw) only applies to routes under that prefix.
 func (fr *fileResolver) usesBefore(name string, line int, b *binding, scope *funcScope, state *routeState) []mwRef {
 	var out []mwRef
 	for _, u := range fr.uses {
@@ -266,11 +320,30 @@ func (fr *fileResolver) usesBefore(name string, line int, b *binding, scope *fun
 		} else if fr.bindingAt(name, u.Line) != b {
 			continue // the call belongs to a shadowing group or router
 		}
-		for _, expr := range factArgs(u) {
-			out = append(out, mwRef{file: fr.file, line: u.Line, expr: expr, place: groupPlace(state)})
+		args := factArgs(u)
+		prefix := ""
+		if fr.framework == "fiber" && len(args) > 0 {
+			if p := unquote(args[0]); strings.HasPrefix(p, "/") {
+				prefix = joinPaths(state.prefixes, p)
+				args = args[1:]
+			}
+		}
+		for _, expr := range args {
+			out = append(out, mwRef{file: fr.file, line: u.Line, expr: expr, place: groupPlace(state), prefix: prefix})
 		}
 	}
 	return out
+}
+
+// prefixApplies reports whether a path-scoped middleware applies to routePath.
+// Fiber matches prefixes on segment boundaries: "/admin" covers "/admin" and
+// "/admin/users", not "/administrators".
+func prefixApplies(prefix, routePath string) bool {
+	if prefix == "" || prefix == "/" {
+		return true
+	}
+	prefix = strings.TrimSuffix(prefix, "/")
+	return routePath == prefix || strings.HasPrefix(routePath, prefix+"/")
 }
 
 // paramState resolves a router function parameter from the call sites in the
@@ -507,41 +580,53 @@ func unquote(s string) string {
 
 // parseGoScope reads the file's syntax for function parameters and call sites.
 // Facts cannot express "this call passes a group to this parameter"; the Go
-// parser can, and it is the same file the facts came from.
-func parseGoScope(path string) ([]funcScope, []callSite) {
+// parser can, and it is the same file the facts came from. Function and
+// closure ranges let bindings stay inside their declaring scope.
+func parseGoScope(path string) ([]funcScope, []callSite, []lineScope) {
 	src, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, src, 0)
 	if err != nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	var funcs []funcScope
 	var calls []callSite
+	var scopes []lineScope
 	for _, decl := range file.Decls {
 		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil {
 			funcs = append(funcs, scopeOf(src, fset, fn))
+			scopes = append(scopes, lineScope{
+				start: fset.Position(fn.Body.Pos()).Line,
+				end:   fset.Position(fn.Body.End()).Line,
+			})
 		}
 	}
 	ast.Inspect(file, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
+		switch node := n.(type) {
+		case *ast.FuncLit:
+			if node.Body != nil {
+				scopes = append(scopes, lineScope{
+					start: fset.Position(node.Body.Pos()).Line,
+					end:   fset.Position(node.Body.End()).Line,
+				})
+			}
+		case *ast.CallExpr:
+			ident, ok := node.Fun.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			args := make([]string, len(node.Args))
+			for i, arg := range node.Args {
+				args[i] = exprText(src, fset, arg)
+			}
+			calls = append(calls, callSite{fn: ident.Name, args: args, line: fset.Position(node.Pos()).Line})
 		}
-		ident, ok := call.Fun.(*ast.Ident)
-		if !ok {
-			return true
-		}
-		args := make([]string, len(call.Args))
-		for i, arg := range call.Args {
-			args[i] = exprText(src, fset, arg)
-		}
-		calls = append(calls, callSite{fn: ident.Name, args: args, line: fset.Position(call.Pos()).Line})
 		return true
 	})
-	return funcs, calls
+	return funcs, calls, scopes
 }
 
 func scopeOf(src []byte, fset *token.FileSet, fn *ast.FuncDecl) funcScope {

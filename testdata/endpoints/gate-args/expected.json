@@ -1,0 +1,39 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "POST",
+      "path": "/payouts",
+      "handler": "transferFunds",
+      "file": "app.js",
+      "line": 6,
+      "protection": "public",
+      "evidence": [
+        "app.js:6 no gate middleware on the route",
+        "app.js:5 middleware cors({allowedHeaders['Authorization']}) on app (does not match the gate list)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/transfer",
+      "handler": "transferFunds",
+      "file": "main.go",
+      "line": 11,
+      "protection": "public",
+      "evidence": [
+        "main.go:11 no gate middleware on the route",
+        "main.go:10 middleware cors.New(cors Config{AllowOrigins[]string{\"*\"}AllowHeaders[]string{\"Authorization\"}}) on router (does not match the gate list)"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "public": 2
+  }
+}

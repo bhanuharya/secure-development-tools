@@ -31,3 +31,15 @@ func newGateMatcher(names []string) *gateMatcher {
 	}
 	return &gateMatcher{re: regexp.MustCompile(expr)}
 }
+
+// callableName returns the name a middleware expression calls, without its
+// argument list. Gate matching must look at this and never at argument values:
+// cors.Config{AllowHeaders: []string{"Authorization"}} is configuration, not
+// authentication.
+func callableName(expr string) string {
+	expr = strings.TrimSpace(expr)
+	if i := strings.Index(expr, "("); i >= 0 {
+		return strings.TrimSpace(expr[:i])
+	}
+	return expr
+}
