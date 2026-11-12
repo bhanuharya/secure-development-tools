@@ -19,11 +19,15 @@ func (cfg *springConfig) decideConcrete(path, method string) (Protection, []stri
 	if protection, roles, evidence, confidence, ok := cfg.decideIgnored(path, method); ok {
 		return protection, roles, evidence, confidence, ""
 	}
-	if len(cfg.ignoredUnknown) > 0 {
-		return ProtUnknown, nil, []string{cfg.ignoredUnknown[0]}, "low", cfg.ignoredUnknown[0]
+	for _, issue := range cfg.ignoredUnknown {
+		if issue.affects(path, method) {
+			return ProtUnknown, nil, []string{issue.note}, "low", issue.note
+		}
 	}
-	if cfg.ownershipUnknown {
-		return ProtUnknown, nil, []string{"security configuration ownership cannot be established"}, "low", cfg.ownershipNote
+	for _, issue := range cfg.ownershipUnknown {
+		if issue.affects(path, method) {
+			return ProtUnknown, nil, []string{"security configuration ownership cannot be established"}, "low", issue.note
+		}
 	}
 	if len(cfg.chains) == 0 {
 		return decideSpringMatchers(cfg.matchers, path, method)
@@ -112,7 +116,7 @@ func (cfg *springConfig) routeWitnesses(path, method string) ([]string, []string
 			uncertain = append(uncertain, fmt.Sprintf("%s:%d matcher %s", m.file, m.line, strconv.Quote(m.pattern)))
 		}
 	}
-	for _, pattern := range append(cfg.scopePatterns(), cfg.ignoredPatterns()...) {
+	for _, pattern := range append(append(cfg.scopePatterns(), cfg.ignoredPatterns()...), cfg.unknownPatterns()...) {
 		for _, witness := range springOverlapCandidates(pattern, path) {
 			if !seen[witness] {
 				seen[witness] = true
@@ -135,7 +139,7 @@ func (cfg *springConfig) scopePatterns() []string {
 	var out []string
 	for _, c := range cfg.chains {
 		for _, scope := range c.scopes {
-			out = append(out, scope.patterns...)
+			out = append(out, scope.allPatterns()...)
 		}
 	}
 	return out
@@ -145,6 +149,21 @@ func (cfg *springConfig) ignoredPatterns() []string {
 	out := make([]string, 0, len(cfg.ignored))
 	for _, ignored := range cfg.ignored {
 		out = append(out, ignored.pattern)
+	}
+	return out
+}
+
+// Unknown expressions need witnesses too: a literal path may overlap only a
+// small part of a template, away from its generic representative.
+func (cfg *springConfig) unknownPatterns() []string {
+	var out []string
+	for _, issue := range append(append([]springUncertainty{}, cfg.ignoredUnknown...), cfg.ownershipUnknown...) {
+		out = append(out, issue.bounds.allPatterns()...)
+	}
+	for _, m := range cfg.matcherPatterns() {
+		if m.unknown {
+			out = append(out, springVisibleScope(m.raw).allPatterns()...)
+		}
 	}
 	return out
 }

@@ -14,142 +14,82 @@ type springArgValue struct {
 	literal bool
 }
 
-// springWrapperPrefixes are the matcher constructors whose path strings the
-// resolver can read. Any other constructor stays unmodelled.
-var springWrapperPrefixes = []string{
-	"new AntPathRequestMatcher(",
-	"new PathPatternParserServerWebExchangeMatcher(",
-	"new MvcRequestMatcher(",
-	"new OrRequestMatcher(",
-	"ServerWebExchangeMatchers.pathMatchers(",
-}
-
-// springArgumentValues parses the raw argument list of a scope or ignored
-// matcher. It returns the values, an optional HttpMethod, and whether the form
-// is understood. A literal may need no substitution; a name does.
+// springArgumentValues reads a literal/constant path list and its optional
+// method. Both source commas and the engine's adjacent arguments are accepted.
 func springArgumentValues(raw string) ([]springArgValue, string, bool) {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return nil, "", false // requestMatchers() is a builder, not a scope
+	parts, ok := springArgumentParts(raw)
+	if !ok || len(parts) == 0 {
+		return nil, "", false
 	}
 	method := ""
-	if m := springMethodArgRe.FindStringSubmatch(s); m != nil {
+	if m := springMethodArgRe.FindStringSubmatch(parts[0]); m != nil && len(m[0]) == len(parts[0]) {
 		method = normalizeMethod(m[1])
-		s = strings.TrimSpace(s[len(m[0]):])
+		parts = parts[1:]
 	}
-	if s == "" {
-		return nil, method, false
-	}
-	if values, ok := springQuotedSequence(s); ok {
-		return namedArgs(values), method, true
-	}
-	if springIdentRe.MatchString(s) {
-		return []springArgValue{{value: s}}, method, true
-	}
-	if values, ok := springWrapperLiterals(s); ok {
-		return namedArgs(values), method, true
-	}
-	return nil, method, false
-}
-
-// springNegatedPrefixes are the negated request-matcher constructors whose
-// semantics the resolver models: the chain applies to every request the inner
-// matcher does not match (T37).
-var springNegatedPrefixes = []string{
-	"new NegatedRequestMatcher(",
-	"new NegatedServerWebExchangeMatcher(",
-}
-
-// springScopeArguments parses a chain-scope call. A negated wrapper keeps its
-// negation even when the inner matcher is unreadable, so the caller records an
-// unknown scope instead of applying the chain to every request.
-func springScopeArguments(raw string) ([]springArgValue, string, bool, bool) {
-	if values, negated, ok := springNegatedScopeValues(raw); negated {
-		return namedArgs(values), "", true, ok
-	}
-	values, method, ok := springArgumentValues(raw)
-	return values, method, false, ok
-}
-
-// springNegatedScopeValues reads the inner path matchers of a negated wrapper.
-// The inner matcher must be one of the wrappers the resolver already reads,
-// alone or inside an OrRequestMatcher; anything else stays unknown.
-func springNegatedScopeValues(raw string) (values []string, negated, ok bool) {
-	s := strings.TrimSpace(raw)
-	for _, prefix := range springNegatedPrefixes {
-		if !strings.HasPrefix(s, prefix) {
-			continue
+	var values []springArgValue
+	for _, part := range parts {
+		if value, next, ok := readSpelString(part, 0); ok && next == len(part) {
+			values = append(values, springArgValue{value: value, literal: true})
+		} else if springIdentRe.MatchString(part) {
+			values = append(values, springArgValue{value: part})
+		} else {
+			return nil, method, false
 		}
-		if !strings.HasSuffix(s, ")") {
-			return nil, true, false
-		}
-		inner := strings.TrimSpace(s[len(prefix) : len(s)-1])
-		values, ok := springWrapperLiterals(inner)
-		if !ok {
-			return nil, true, false
-		}
-		return values, true, true
 	}
-	return nil, false, false
+	return values, method, len(values) > 0
 }
 
-func namedArgs(values []string) []springArgValue {
-	out := make([]springArgValue, len(values))
-	for i, value := range values {
-		out[i] = springArgValue{value: value, literal: true}
-	}
-	return out
-}
-
-// springQuotedSequence reads one or more adjacent Java string literals, the
-// shape a variadic literal argument list takes after the engine strips commas.
-func springQuotedSequence(s string) ([]string, bool) {
+// springArgumentParts splits balanced Java arguments, including the comma-less
+// lists emitted by the fact engine. Quotes protect commas and parentheses.
+func springArgumentParts(raw string) ([]string, bool) {
 	var out []string
-	for {
-		s = strings.TrimSpace(s)
+	for s := strings.TrimSpace(raw); s != ""; {
+		s = strings.TrimLeft(s, " ,\t\r\n")
 		if s == "" {
-			return out, len(out) > 0
-		}
-		if s[0] != '"' {
-			return nil, false
-		}
-		value, next, ok := readSpelString(s, 0)
-		if !ok {
-			return nil, false
-		}
-		out = append(out, value)
-		s = s[next:]
-	}
-}
-
-// springWrapperLiterals reads the path literals inside the matcher wrappers the
-// resolver models. Everything outside those wrappers must be syntax only.
-func springWrapperLiterals(s string) ([]string, bool) {
-	rest := s
-	var values []string
-	for {
-		i := strings.IndexByte(rest, '"')
-		if i < 0 {
 			break
 		}
-		value, next, ok := readSpelString(rest, i)
-		if !ok {
+		depth, end := 0, len(s)
+		for i := 0; i < len(s); i++ {
+			switch s[i] {
+			case '\'', '"':
+				if depth == 0 && i > 0 {
+					end = i
+					break
+				}
+				_, next, ok := readSpelString(s, i)
+				if !ok {
+					return nil, false
+				}
+				i = next - 1
+				if depth == 0 {
+					end = next
+				}
+			case '(':
+				depth++
+			case ')':
+				depth--
+				if depth < 0 {
+					return nil, false
+				}
+				if depth == 0 {
+					end = i + 1
+				}
+			case ',':
+				if depth == 0 {
+					end = i
+				}
+			}
+			if end < len(s) {
+				break
+			}
+		}
+		if depth != 0 || end == 0 {
 			return nil, false
 		}
-		values = append(values, value)
-		rest = rest[:i] + rest[next:]
+		out = append(out, strings.TrimSpace(s[:end]))
+		s = strings.TrimSpace(s[end:])
 	}
-	if len(values) == 0 {
-		return nil, false
-	}
-	for _, prefix := range springWrapperPrefixes {
-		rest = strings.ReplaceAll(rest, prefix, "")
-	}
-	rest = strings.NewReplacer(" ", "", "\t", "", "\n", "", "\r", "", ",", "", ")", "").Replace(rest)
-	if rest != "" {
-		return nil, false // an unknown constructor, identifier or operator
-	}
-	return values, true
+	return out, true
 }
 
 // resolvePattern substitutes one simple constant name. Literal values pass

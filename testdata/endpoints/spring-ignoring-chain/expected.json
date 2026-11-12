@@ -1,0 +1,122 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/api/orders",
+      "handler": "Controller.orders",
+      "file": "Controller.java",
+      "line": 7,
+      "protection": "authenticated",
+      "evidence": [
+        "Security.java:18 .anyRequest().authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "OPTIONS",
+      "path": "/api/orders",
+      "handler": "Controller.options",
+      "file": "Controller.java",
+      "line": 28,
+      "protection": "public",
+      "evidence": [
+        "Security.java:6 web.ignoring().antMatchers(HttpMethod.OPTIONS, \"/**\") (bypasses the security filter chain)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/api/orders",
+      "handler": "Controller.create",
+      "file": "Controller.java",
+      "line": 10,
+      "protection": "authenticated",
+      "evidence": [
+        "Security.java:18 .anyRequest().authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "handler": "Controller.order",
+      "file": "Controller.java",
+      "line": 13,
+      "protection": "authenticated",
+      "evidence": [
+        "Security.java:18 .anyRequest().authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/api/register",
+      "handler": "Controller.register",
+      "file": "Controller.java",
+      "line": 16,
+      "protection": "public",
+      "evidence": [
+        "Security.java:17 .antMatchers(\"/api/register\").permitAll()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/docs/index",
+      "handler": "Controller.docs",
+      "file": "Controller.java",
+      "line": 25,
+      "protection": "public",
+      "evidence": [
+        "Security.java:12 web.ignoring().mvcMatchers(\"/docs/**\") (bypasses the security filter chain)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/h2-console/status",
+      "handler": "Controller.console",
+      "file": "Controller.java",
+      "line": 22,
+      "protection": "public",
+      "evidence": [
+        "Security.java:11 web.ignoring().antMatchers(\"/h2-console/**\") (bypasses the security filter chain)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/i18n/messages",
+      "handler": "Controller.messages",
+      "file": "Controller.java",
+      "line": 19,
+      "protection": "public",
+      "evidence": [
+        "Security.java:8 web.ignoring().antMatchers(\"/i18n/**\") (bypasses the security filter chain)"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 3,
+    "public": 5
+  }
+}

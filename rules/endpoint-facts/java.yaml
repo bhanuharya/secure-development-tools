@@ -164,7 +164,9 @@ rules:
     metadata:
       fact: security_matcher_expression
     patterns:
-      - pattern: $CHAIN.$MATCHER(..., $PATTERN, ...).$ACCESS($...ARGS)
+      - pattern-either:
+          - pattern: $CHAIN.$MATCHER(HttpMethod.$METHOD, ..., $PATTERN, ...).$ACCESS($...ARGS)
+          - pattern: $CHAIN.$MATCHER(..., $PATTERN, ...).$ACCESS($...ARGS)
       - metavariable-regex:
           metavariable: $MATCHER
           regex: ^(antMatchers|mvcMatchers|requestMatchers|pathMatchers)$
@@ -185,10 +187,16 @@ rules:
     metadata:
       fact: security_matcher_unmodelled
     patterns:
-      - pattern: $CHAIN.$MATCHER(..., "$PATTERN", ...).$ACCESS($...ARGS)
+      - pattern-either:
+          - pattern: $CHAIN.$MATCHER(HttpMethod.$METHOD, ..., "$PATTERN", ...).$ACCESS($...ARGS)
+          - pattern: $CHAIN.$MATCHER(..., "$PATTERN", ...).$ACCESS($...ARGS)
       - metavariable-regex:
           metavariable: $MATCHER
           regex: ^(antMatchers|mvcMatchers|requestMatchers|pathMatchers)$
+      # A following matcher in a builder is not an access rule.
+      - metavariable-regex:
+          metavariable: $ACCESS
+          regex: ^(?!(antMatchers|mvcMatchers|requestMatchers|pathMatchers)$).+
       - pattern-not: $CHAIN.$MATCHER(..., "$PATTERN", ...).$ACCESS()
       - pattern-not: $CHAIN.$MATCHER(..., "$PATTERN", ...).permitAll($...ARGS)
       - pattern-not: $CHAIN.$MATCHER(..., "$PATTERN", ...).authenticated($...ARGS)
@@ -288,7 +296,7 @@ rules:
 
   # Paths excluded from the security filter chain entirely. They are public by
   # design, so they must decide before any chain is selected. Unsupported
-  # expressions are kept as a raw argument list and make the rest unknown.
+  # expressions keep their visible path/method bounds for route-local unknowns.
   - id: fact.java.security_ignored
     languages: [java]
     severity: INFO
@@ -296,10 +304,14 @@ rules:
     metadata:
       fact: security_ignored
     patterns:
-      - pattern: $WEB.ignoring().$IGNORE($...ARGS)
+      - pattern: $IGNORED.$IGNORE($...ARGS)
+      - metavariable-regex:
+          metavariable: $IGNORED
+          regex: '[\s\S]*\.ignoring\(\)[\s\S]*'
       - metavariable-regex:
           metavariable: $IGNORE
           regex: ^(requestMatchers|antMatchers|mvcMatchers|pathMatchers)$
+      - focus-metavariable: $IGNORE
 
   # Authentication mechanisms and filters of a chain. A chain without
   # authorization rules is public only when none of these is present.
