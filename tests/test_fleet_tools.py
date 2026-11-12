@@ -2142,6 +2142,202 @@ def test_run_codex_passes_reasoning_effort_only_when_set(tmp_path, monkeypatch):
     assert "-c" not in captured["cmd"]
 
 
+GUIDANCE_FIXTURE = Path(__file__).resolve().parents[1] / "testdata/endpoints/advisory"
+
+
+def _guidance_fixture():
+    findings = json.loads((GUIDANCE_FIXTURE / "findings.json").read_text())
+    answer = json.loads((GUIDANCE_FIXTURE / "answer.json").read_text())
+    return findings, answer
+
+
+@pytest.mark.parametrize("second", [False, True])
+def test_detailed_guidance_schema_and_both_prompts(second):
+    findings, _ = _guidance_fixture()
+    group = sdt_to_docx.from_findings(findings)["code"][0]
+    prompt = sdt_triage_codex.build_prompt(group, [("o1", group.occurrences[0], "orders.save(order);")], second)
+    schema = sdt_triage_codex.RESPONSE_SCHEMA["properties"]["results"]["items"]
+    for key in ("impact", "fix_steps", "fix_example", "verify_fix"):
+        assert key in schema["required"] and f"- {key}:" in prompt
+    assert schema["properties"]["fix_steps"]["items"] == {"type": "string"}
+    assert "2-5" in prompt and "12 lines" in prompt and "before part names its file" in prompt
+    assert "environment or secret-store reference" in prompt
+
+
+def test_guidance_fake_codex_cli_redacts_remembers_and_renders_in_order(tmp_path, monkeypatch):
+    findings, answer = _guidance_fixture()
+    secret = "sk_" + "live_" + "0123456789abcdefghij"
+    note = answer["results"][0]
+    for key in ("impact", "verify_fix"):
+        note[key] += f' apiKey = "{secret}"'
+    note["fix_steps"][0] += f' apiKey = "{secret}"'
+    note["fix_example"] = (f'// Before: src/OrdersController.java:3\nString apiKey = "{secret}";\n'
+                           '// After\nString apiKey = System.getenv("ORDERS_API_KEY");')
+    calls = []
+
+    def fake_codex(command, **kwargs):
+        calls.append(kwargs["input"])
+        schema = json.loads(Path(command[command.index("--output-schema") + 1]).read_text())
+        assert "verify_fix" in schema["properties"]["results"]["items"]["required"]
+        Path(command[command.index("--output-last-message") + 1]).write_text(json.dumps(answer))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(sdt_triage_codex.subprocess, "run", fake_codex)
+    monkeypatch.setattr(sdt_triage_codex, "find_codex", lambda explicit: "fake-codex")
+    monkeypatch.setenv("SDT_AI_TRIAGE", "1")
+    out, store = tmp_path / "triage.json", tmp_path / "memory.json"
+    monkeypatch.setattr(sys, "argv", ["triage", "--findings", str(GUIDANCE_FIXTURE / "findings.json"),
+                                      "--src-root", str(GUIDANCE_FIXTURE), "--out", str(out), "--memory", str(store)])
+    assert sdt_triage_codex.main() == 0
+    first = json.loads(out.read_text())
+    assert "Evidence the scanner used" in calls[0] and '.antMatchers("/api/v1/feign/**").permitAll()' in calls[0]
+    assert sdt_triage_codex.main() == 0
+    again = json.loads(out.read_text())
+    assert len(calls) == 1 and again["remembered"] == 1
+    assert secret not in out.read_text() + store.read_text()
+    reviewed = first["results"][0]
+    assert 'String apiKey = "[REDACTED]";' in reviewed["fix_example"]
+    assert "src/OrdersController.java:3" in reviewed["fix_example"] and "\n// After\n" in reviewed["fix_example"]
+    found = sdt_to_docx.from_findings(findings)
+    assert sdt_to_docx.apply_triage(found["code"], again) == 1
+    text, document, *_ = _write_report(tmp_path, found)
+    assert secret not in document
+    block = text[text.index("Assessment: Real issue"):]
+    labels = ["Assessment:", "Impact:", "Evidence:", "Confirm impact:", "Fix:", "Fix steps:", "Example:",
+              "Verify the fix:"]
+    assert [block.index(label) for label in labels] == sorted(block.index(label) for label in labels)
+    assert "1. In config/" in block and "2. Add an authorization" in block
+    assert sdt_to_docx.code_block(reviewed["fix_example"].splitlines()) in document
+    compact = sdt_to_docx.ai_line(reviewed)
+    assert reviewed["suggested_fix"] in compact and all(label not in compact for label in labels[5:])
+
+
+@pytest.mark.parametrize("grouped", [False, True])
+def test_guidance_matches_golden_and_renders_in_both_layouts(tmp_path, monkeypatch, grouped):
+    findings, answer = _guidance_fixture()
+    note = sdt_triage_codex.validate(answer, {"o1"})[0]
+    golden = json.loads((GUIDANCE_FIXTURE / "review-golden.json").read_text())
+    assert [list(row) for row in sdt_to_docx.review_lines(note)] == golden
+    found = sdt_to_docx.from_findings(findings)
+    found["code"][0].occurrences[0].ai = note
+    monkeypatch.setattr(sdt_to_docx, "GROUP_THRESHOLD", 0 if grouped else 10)
+    text, document, *_ = _write_report(tmp_path, found, src_root=GUIDANCE_FIXTURE)
+    full = text[text.index("Assessment: Real issue"):]
+    if grouped:
+        full = text[text.index("AdvisoryAssessment: Real issue"):]
+    positions = [full.index(name + ":") for name, _ in golden]
+    assert positions == sorted(positions)
+    assert sdt_to_docx.code_block(note["fix_example"].splitlines()) in document
+    assert sdt_to_docx._code_action(note) == note["suggested_fix"]
+
+
+def test_guidance_manual_check_false_positive_and_legacy_memory(tmp_path):
+    _, answer = _guidance_fixture()
+    note = answer["results"][0]
+    note["verdict"] = "needs_context"
+    rows = sdt_to_docx.review_lines(note)
+    assert [name for name, _ in rows] == ["Assessment", "Evidence", "Check", "Then", "Fix steps"]
+    note["verdict"] = "likely_false_positive"
+    clean = sdt_triage_codex.validate(answer, {"o1"})[0]
+    assert clean["fix_steps"] == [] and clean["impact"] == clean["fix_example"] == clean["verify_fix"] == ""
+    root, groups = _triage_groups(tmp_path)
+    occurrence = groups[0].occurrences[0]
+    code = sdt_triage_codex.context(root, occurrence)
+    key = sdt_triage_codex.memory_key("gpt-6-luna", groups[0].rule, occurrence.path, code)
+    legacy = {"verdict": "likely_true_positive", "confidence": "high", "reason": "r", "check": "c",
+              "suggested_fix": "f"}
+    report = _run_triage(root, groups, lambda *args: pytest.fail("old memory must still load"),
+                         memory={key: legacy}, max_per_rule=1)
+    assert report["remembered"] == 1
+    assert sdt_to_docx.review_lines(report["results"][0]) == [
+        ("Assessment", "Real issue - fix required (certainty: High)"),
+        ("Evidence", "r"), ("Confirm impact", "c"), ("Fix", "f")]
+
+
+@pytest.mark.parametrize("adapter", ["endpoints", "opengrep"])
+@pytest.mark.parametrize("sonar", [False, True])
+def test_triage_finds_evidence_by_rule_path_and_line(adapter, sonar):
+    findings, answer = _guidance_fixture()
+    findings["findings"][0]["scanner"]["adapter"] = adapter
+    groups = sdt_to_docx.from_findings(findings)["code"]
+    if sonar:
+        groups[0].rule = ("external_opengrep:sensitive-route-public" if adapter == "opengrep" else
+                          "external_sdt-endpoints:sdt-endpoints-sensitive-route-public-0123456789abcdef")
+    other = json.loads(json.dumps(findings["findings"][0]))
+    other["location"]["startLine"] = 4
+    other["metadata"]["evidence"] = ["src/OrdersController.java:1"]
+    findings["findings"].insert(0, other)
+
+    def fake_codex(codex, model, prompt, timeout):
+        evidence = prompt.split("Evidence the scanner used:", 1)[1]
+        assert "config/SecurityConfiguration.java:5" in evidence
+        assert '>    5  ' in evidence and '.antMatchers("/api/v1/feign/**").permitAll()' in evidence
+        assert "void configure(HttpSecurity http)" in evidence and "    8  }" in evidence
+        assert "// src/OrdersController.java:1" not in evidence
+        return answer
+
+    report = _run_triage(GUIDANCE_FIXTURE, groups, fake_codex, findings=findings)
+    assert report["calls"] == 1 and report["failed_calls"] == 0
+
+
+def test_evidence_is_confined_redacted_and_part_of_memory_identity(tmp_path):
+    root = tmp_path / "source"
+    root.mkdir()
+    (root / "Controller.java").write_text("void save() { orders.save(order); }\n")
+    secret = "private-" + "value123"
+    (root / "security.yml").write_text(f"password: {secret}\naccess: public\n")
+    (tmp_path / "outside.java").write_text("OUTSIDE_SOURCE\n")
+    (root / "link.java").symlink_to(tmp_path / "outside.java")
+    finding = {"rule": {"id": "route"}, "scanner": {"adapter": "endpoints"},
+               "location": {"path": "Controller.java", "startLine": 1},
+               "metadata": {"evidence": ["security.yml:2", "../outside.java:1", "link.java:1", "missing.java:1"]}}
+    groups = sdt_to_docx.from_findings({"findings": [finding]})["code"]
+    memory, prompts = {}, []
+
+    def fake_codex(*args):
+        prompts.append(args[2])
+        return _fp_answer(*args)
+
+    for _ in range(2):
+        _run_triage(root, groups, fake_codex, findings={"findings": [finding]}, memory=memory)
+    assert len(prompts) == 1 and "password: [REDACTED]" in prompts[0]
+    assert secret not in prompts[0] and "OUTSIDE_SOURCE" not in prompts[0]
+    (root / "security.yml").write_text("access: authenticated\n")
+    finding["metadata"]["evidence"] = ["security.yml:1"]
+    _run_triage(root, groups, fake_codex, findings={"findings": [finding]}, memory=memory)
+    assert len(prompts) == 2 and "access: authenticated" in prompts[1]
+
+
+def test_both_opinions_batch_at_six_even_when_more_per_rule_are_requested(tmp_path):
+    (tmp_path / "api.java").write_text("\n".join(f"call{i}();" for i in range(14)))
+    group = sdt_to_docx.Group("r", "Rule", "Finding", "High", occurrences=[
+        sdt_to_docx.Occurrence("api.java", line, "m", "Open", "") for line in range(1, 15)])
+    batches = []
+
+    def fake_codex(codex, model, prompt, timeout):
+        ids = re.findall(r"^### (o\d+):", prompt, re.M)
+        batches.append((prompt.startswith(sdt_triage_codex.SECOND_OPINION), len(ids)))
+        return {"results": [{**_fp_answer(codex, model, prompt, timeout)["results"][0], "id": item_id}
+                            for item_id in ids]}
+
+    report = _run_triage(tmp_path, [group], fake_codex, max_per_rule=14, confirm=True)
+    assert batches == [(False, 6), (False, 6), (False, 2), (True, 6), (True, 6), (True, 2)]
+    assert len(report["results"]) == 14
+    assert all(note["second_opinion"] == "likely_false_positive" for note in report["results"])
+
+
+def test_prompt_version_invalidates_remembered_advice_without_guidance(tmp_path, monkeypatch):
+    root, groups = _triage_groups(tmp_path)
+    occurrence = groups[0].occurrences[0]
+    code = sdt_triage_codex.context(root, occurrence)
+    with monkeypatch.context() as old:
+        old.setattr(sdt_triage_codex, "PROMPT_VERSION", "4")
+        key = sdt_triage_codex.memory_key("gpt-6-luna", groups[0].rule, occurrence.path, code)
+    memory = {key: _fp_answer(None, None, None, None)["results"][0]}
+    report = _run_triage(root, groups, _fp_answer, memory=memory, max_per_rule=1)
+    assert report["calls"] == 1 and report["remembered"] == 0
+
+
 def test_resolved_findings_move_to_an_appendix_and_leave_the_counts(tmp_path):
     (tmp_path / "a.ts").write_text("const x = s.replace(/\\/+$/, '')\n")
     found = {

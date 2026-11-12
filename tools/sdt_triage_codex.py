@@ -45,8 +45,10 @@ DEFAULT_MODEL = "gpt-6.1-sol"
 VERDICTS = ("likely_true_positive", "likely_false_positive", "needs_context")
 CONFIDENCE = ("low", "medium", "high")
 CONTEXT_LINES = 64  # lines of surrounding code: enough to see where a flagged value comes from and how it is sanitised
-PROMPT_VERSION = "4"  # part of every remembered verdict: change it when the prompt or context changes
+PROMPT_VERSION = "5"  # part of every remembered verdict: change it when the prompt or context changes
 MAX_REASON = 400
+MAX_PER_CALL = 6
+GUIDANCE_TEXT = ("impact", "verify_fix")
 
 RESPONSE_SCHEMA = {
     "type": "object",
@@ -58,7 +60,8 @@ RESPONSE_SCHEMA = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["id", "verdict", "confidence", "reason", "check", "suggested_fix"],
+                "required": ["id", "verdict", "confidence", "reason", "check", "suggested_fix",
+                             "impact", "fix_steps", "fix_example", "verify_fix"],
                 "properties": {
                     "id": {"type": "string"},
                     "verdict": {"type": "string", "enum": list(VERDICTS)},
@@ -66,6 +69,10 @@ RESPONSE_SCHEMA = {
                     "reason": {"type": "string"},
                     "check": {"type": "string"},
                     "suggested_fix": {"type": "string"},
+                    "impact": {"type": "string"},
+                    "fix_steps": {"type": "array", "items": {"type": "string"}, "maxItems": 5},
+                    "fix_example": {"type": "string"},
+                    "verify_fix": {"type": "string"},
                 },
             },
         },
@@ -195,6 +202,69 @@ def memory_key(model: str, rule: str, path: str, code: str) -> str:
     return "sha256:" + digest
 
 
+EVIDENCE_LOCATION = re.compile(r"([^\s:`\"'()]+):([1-9]\d*)\b")
+
+
+def finding_evidence(findings: dict) -> dict[tuple, list[str]]:
+    """Index scanner evidence by rule, path and line, including findings imported into Sonar."""
+    indexed: dict[tuple, list[str]] = {}
+    for finding in findings.get("findings", []):
+        if finding.get("suppression"):
+            continue
+        location = finding.get("location") or {}
+        evidence = (finding.get("metadata") or {}).get("evidence") or []
+        if isinstance(evidence, str):
+            evidence = evidence.splitlines()
+        key = (str((finding.get("rule") or {}).get("id") or ""),
+               str(location.get("path") or ""), int(location.get("startLine") or 0))
+        indexed.setdefault(key, []).extend(e for e in evidence if isinstance(e, str))
+    return indexed
+
+
+def evidence_context(src_root: Path | None, evidence: list[str]) -> str:
+    """The scanner's cited lines with +/-3 lines; confine reads to the source checkout."""
+    if not src_root:
+        return ""
+    root, seen, blocks = src_root.resolve(), set(), []
+    for path, number in EVIDENCE_LOCATION.findall("\n".join(evidence)):
+        line = int(number)
+        target = (root / path).resolve()
+        if (target, line) in seen or root not in target.parents:
+            continue
+        seen.add((target, line))
+        try:
+            lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        if not 1 <= line <= len(lines):
+            continue
+        indices = range(max(0, line - 4), min(len(lines), line + 3))
+        shown = redact_lines({n: lines[n] for n in indices}, path)
+        blocks.append(f"// {path}:{line}\n" + "\n".join(
+            f"{'>' if n == line - 1 else ' '}{n + 1:>5}  {shown[n][:200]}" for n in indices))
+    return "\n\nEvidence the scanner used:\n" + redact("\n\n".join(blocks)) if blocks else ""
+
+
+def sanitise_review(item: dict, path: str = "") -> dict:
+    """Redact fresh and remembered advice alike, preserving snippet layout and legacy fields."""
+    result = dict(item)
+    for part in ("reason", "check", "suggested_fix") + GUIDANCE_TEXT:
+        if part in result:
+            result[part] = redact(" ".join(str(result[part] or "").split()))[:MAX_REASON]
+    if "fix_steps" in result:
+        steps = result["fix_steps"] if isinstance(result["fix_steps"], list) else []
+        result["fix_steps"] = [redact(" ".join(step.split()))[:MAX_REASON]
+                               for step in steps[:5] if isinstance(step, str) and step.strip()]
+    if "fix_example" in result:
+        example = redact(str(result["fix_example"] or ""), path)
+        result["fix_example"] = "\n".join(example.splitlines()[:12])
+    if result.get("verdict") == "likely_false_positive":
+        for part in GUIDANCE_TEXT + ("fix_steps", "fix_example"):
+            if part in result:
+                result[part] = [] if part == "fix_steps" else ""
+    return result
+
+
 def load_memory(path: Path | None) -> dict:
     """Remembered verdicts; an unreadable or foreign file is an empty memory, never an error."""
     try:
@@ -217,7 +287,8 @@ def default_memory_path(project: str, environ) -> Path:
 def save_memory(path: Path, entries: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps({"version": 1, "entries": entries}, indent=1) + "\n")
+    safe = {key: sanitise_review(value) for key, value in entries.items() if isinstance(value, dict)}
+    temporary.write_text(json.dumps({"version": 1, "entries": safe}, indent=1) + "\n")
     temporary.replace(path)
 
 
@@ -278,6 +349,20 @@ Answer rules (short, factual, no hedging words like "may" or "might"):
 - suggested_fix: real issue -> one short concrete code change; false positive -> the note to
   record when marking it Safe (e.g. "constant URL, no user input"); needs context -> what to
   do for each outcome of the check.
+- impact: one concrete sentence saying what an attacker or user can do through this code
+  if it is not fixed; name the route, value or call.
+- fix_steps: 2-5 short ordered steps, each naming the file and line or identifier to change.
+  For needs_context, say what to do IF the check confirms the issue.
+- fix_example: a before/after snippet of at most 12 lines total in the occurrence's language,
+  using the identifiers shown. Use an empty string when a snippet does not help (for example,
+  a pure configuration value change). For a secret finding, the before part names its file,
+  line and key or variable with the value written as [REDACTED]; the after part uses an
+  environment or secret-store reference. Never include a credential value.
+- verify_fix: a test to add, a request that must now be refused, or a setting to check to
+  prove the fix works.
+- For likely_true_positive, impact, fix_steps and verify_fix must be non-empty; fix_example
+  is optional. For likely_false_positive, these new text fields stay empty and fix_steps is [].
+  For needs_context, use empty strings for inapplicable text fields, and [] for absent steps.
 - confidence: low, medium or high.
 - Answer every id exactly once. Values shown as [REDACTED] were removed on purpose: each one is a
   real-looking literal in the code. A value you can still read (password, changeit, ${{DB_PASSWORD}})
@@ -288,7 +373,7 @@ Answer rules (short, factual, no hedging words like "may" or "might"):
 """
 
 
-def validate(answer: object, ids: set[str]) -> list[dict]:
+def validate(answer: object, ids: set[str], paths: dict[str, str] | None = None) -> list[dict]:
     """Only well-formed results for ids we asked about; everything else is dropped."""
     if not isinstance(answer, dict) or not isinstance(answer.get("results"), list):
         raise ValueError("answer has no results list")
@@ -302,9 +387,10 @@ def validate(answer: object, ids: set[str]) -> list[dict]:
         if item.get("verdict") not in VERDICTS or item.get("confidence") not in CONFIDENCE:
             continue
         seen.add(item_id)
-        out.append({"id": item_id, "verdict": item["verdict"], "confidence": item["confidence"],
-                    **{part: redact(" ".join(str(item.get(part, "")).split()))[:MAX_REASON]
-                       for part in ("reason", "check", "suggested_fix")}})
+        parts = ("reason", "check", "suggested_fix") + GUIDANCE_TEXT + ("fix_steps", "fix_example")
+        out.append(sanitise_review({"id": item_id, "verdict": item["verdict"], "confidence": item["confidence"],
+                                    **{part: item[part] for part in parts if part in item}},
+                                   (paths or {}).get(item_id, "")))
     return out
 
 
@@ -332,9 +418,51 @@ def run_codex(codex: str, model: str, prompt: str, timeout: float, response_sche
         return json.loads(answer.read_text())
 
 
+def collect_reviews(group, src_root, model, max_per_rule, memory, report, evidence) -> tuple[list, dict, dict]:
+    """Collect unanswered occurrences; the memory identity includes the scanner's evidence code."""
+    items, keys, shown, considered = [], {}, {}, 0
+    for occurrence in group.occurrences:
+        code = context(src_root, occurrence, bool(CREDENTIAL_RULE.search(group.rule)))
+        if not code:
+            continue
+        considered += 1
+        location = (sdt_to_docx.external_id(group.rule), occurrence.path, occurrence.line)
+        code += evidence_context(src_root, evidence.get(location, []))
+        key = memory_key(model, group.rule, occurrence.path, code)
+        if isinstance(memory.get(key), dict):
+            report["remembered"] += 1
+            remembered = sanitise_review(memory[key], occurrence.path)
+            memory[key] = remembered
+            result = {**remembered, "rule": group.rule, "path": occurrence.path,
+                      "line": occurrence.line, "remembered": True}
+            report["results"].append(result)
+            shown[key] = (occurrence, code, result)
+        else:
+            shown[key] = (occurrence, code, None)
+            item_id = f"o{len(items) + 1}"
+            items.append((item_id, occurrence, code))
+            keys[item_id] = key
+        if considered >= max_per_rule:
+            break
+    return items, keys, shown
+
+
+def review_batch(group, items, keys, shown, memory, report, codex, model, call, timeout) -> None:
+    lookup = {item_id: occurrence for item_id, occurrence, _ in items}
+    answer = call(codex, model, build_prompt(group, items), timeout)
+    results = validate(answer, set(lookup), {key: o.path for key, o in lookup.items()})
+    for result in results:
+        item_id = result.pop("id")
+        occurrence, key = lookup[item_id], keys[item_id]
+        memory[key] = dict(result)
+        report["results"].append({"rule": group.rule, "path": occurrence.path, "line": occurrence.line, **result})
+        shown[key] = (occurrence, shown[key][1], report["results"][-1])
+
+
 def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, model: str, *,
            per_call_timeout: float, budget: float, max_rules: int, max_per_rule: int, max_failures: int,
-           call=run_codex, clock=time.monotonic, memory: dict | None = None, confirm: bool = False) -> dict:
+           call=run_codex, clock=time.monotonic, memory: dict | None = None, confirm: bool = False,
+           findings: dict | None = None) -> dict:
     """Review up to max_rules code rules, stopping on budget or repeated failure.
 
     ``memory`` holds earlier verdicts by memory_key: a question already answered for the same
@@ -350,38 +478,23 @@ def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, m
               "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
               "calls": 0, "failed_calls": 0, "remembered": 0, "stopped": "", "results": []}
     memory = {} if memory is None else memory
+    evidence = finding_evidence(findings or {})
     for group in groups[:max_rules]:
         remaining = budget - (clock() - started)
         if remaining < 10:
             report["stopped"] = "time budget spent"
             break
-        items, lookup, keys, considered = [], {}, {}, 0
-        shown: dict[str, tuple] = {}  # memory key -> (occurrence, code, its result in the report)
-        for occurrence in group.occurrences:
-            code = context(src_root, occurrence, bool(CREDENTIAL_RULE.search(group.rule)))
-            if not code:
-                continue
-            considered += 1
-            key = memory_key(model, group.rule, occurrence.path, code)
-            if isinstance(memory.get(key), dict):
-                report["remembered"] += 1
-                remembered = {name: redact(value) if name in ("reason", "check", "suggested_fix") else value
-                              for name, value in memory[key].items()}
-                report["results"].append({"rule": group.rule, "path": occurrence.path, "line": occurrence.line,
-                                          **remembered, "remembered": True})
-                shown[key] = (occurrence, code, report["results"][-1])
-            else:
-                shown[key] = (occurrence, code, None)
-                item_id = f"o{len(items) + 1}"
-                items.append((item_id, occurrence, code))
-                lookup[item_id], keys[item_id] = occurrence, key
-            if considered >= max_per_rule:
-                break
-        if items:
+        items, keys, shown = collect_reviews(group, src_root, model, max_per_rule, memory, report, evidence)
+        for offset in range(0, len(items), MAX_PER_CALL):
+            # Account for time spent in every batch, even when a rule spans several calls.
+            remaining = budget - (clock() - started)
+            if remaining < 10:
+                report["stopped"] = "time budget spent"
+                return report
             report["calls"] += 1
             try:
-                answer = call(codex, model, build_prompt(group, items), min(per_call_timeout, remaining))
-                results = validate(answer, set(lookup))
+                review_batch(group, items[offset:offset + MAX_PER_CALL], keys, shown, memory, report,
+                             codex, model, call, min(per_call_timeout, remaining))
             except (subprocess.TimeoutExpired, RuntimeError, ValueError, OSError) as exc:
                 failures += 1
                 report["failed_calls"] += 1
@@ -389,41 +502,42 @@ def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, m
                 print(f"sdt_triage_codex: {group.rule}: {reason}", file=sys.stderr)
                 if failures >= max_failures:
                     report["stopped"] = f"{failures} consecutive failed calls (last: {reason[:200]})"
-                    break
+                    return report
                 continue
             failures = 0
-            for result in results:
-                item_id = result.pop("id")
-                occurrence = lookup[item_id]
-                memory[keys[item_id]] = dict(result)
-                report["results"].append({"rule": group.rule, "path": occurrence.path, "line": occurrence.line, **result})
-                shown[keys[item_id]] = (occurrence, shown[keys[item_id]][1], report["results"][-1])
         if confirm:
             second_opinions(group, shown, memory, report, codex, model, call,
-                            min(per_call_timeout, budget - (clock() - started)))
+                            min(per_call_timeout, budget - (clock() - started)), clock=clock)
     return report
 
 
-def second_opinions(group, shown: dict, memory: dict, report: dict, codex: str, model: str, call, timeout: float) -> None:
+def second_opinions(group, shown: dict, memory: dict, report: dict, codex: str, model: str, call, timeout: float,
+                    clock=time.monotonic) -> None:
     """Put this rule's high-confidence false positives to a sceptical second review, once each."""
     pending = [(key, occurrence, code, result) for key, (occurrence, code, result) in shown.items()
                if result and result.get("verdict") == "likely_false_positive" and result.get("confidence") == "high"
                and not result.get("second_opinion")]
     if not pending or timeout < 10:
         return
-    items = [(f"o{n + 1}", occurrence, code) for n, (_, occurrence, code, _) in enumerate(pending)]
-    report["calls"] += 1
-    try:
-        answers = {r["id"]: r for r in validate(call(codex, model, build_prompt(group, items, second=True), timeout),
-                                                {item_id for item_id, _, _ in items})}
-    except (subprocess.TimeoutExpired, RuntimeError, ValueError, OSError) as exc:
-        report["failed_calls"] += 1
-        print(f"sdt_triage_codex: {group.rule}: second opinion failed ({str(exc)[:120]})", file=sys.stderr)
-        return
-    for (item_id, _, _), (key, _, _, result) in zip(items, pending):
-        if item_id in answers:
-            result["second_opinion"] = answers[item_id]["verdict"]
-            memory.setdefault(key, {})["second_opinion"] = answers[item_id]["verdict"]
+    deadline = clock() + timeout
+    for offset in range(0, len(pending), MAX_PER_CALL):
+        remaining = deadline - clock()
+        if remaining < 10:
+            return
+        batch = pending[offset:offset + MAX_PER_CALL]
+        items = [(f"o{n + 1}", occurrence, code) for n, (_, occurrence, code, _) in enumerate(batch)]
+        report["calls"] += 1
+        try:
+            answers = {r["id"]: r for r in validate(call(codex, model, build_prompt(group, items, second=True), remaining),
+                                                    {item_id for item_id, _, _ in items})}
+        except (subprocess.TimeoutExpired, RuntimeError, ValueError, OSError) as exc:
+            report["failed_calls"] += 1
+            print(f"sdt_triage_codex: {group.rule}: second opinion failed ({str(exc)[:120]})", file=sys.stderr)
+            return
+        for (item_id, _, _), (key, _, _, result) in zip(items, batch):
+            if item_id in answers:
+                result["second_opinion"] = answers[item_id]["verdict"]
+                memory.setdefault(key, {})["second_opinion"] = answers[item_id]["verdict"]
 
 
 def find_codex(explicit: str) -> str:
@@ -438,7 +552,7 @@ def main() -> int:
     ap.add_argument("--project-key")
     ap.add_argument("--branch", default="")
     ap.add_argument("--pull-request", default="")
-    ap.add_argument("--findings", type=Path, help="SDT findings.json (used when SonarQube is not given)")
+    ap.add_argument("--findings", type=Path, help="SDT findings.json (also supplies scanner evidence for SonarQube)")
     ap.add_argument("--src-root", type=Path, required=True)
     ap.add_argument("--codex", default="", help="codex binary (default: $SDT_CODEX_BIN, else codex on PATH)")
     ap.add_argument("--model", default=os.environ.get("SDT_CODEX_MODEL", DEFAULT_MODEL))
@@ -446,7 +560,7 @@ def main() -> int:
     ap.add_argument("--budget", type=float, default=float(os.environ.get("SDT_CODEX_BUDGET", 900)),
                     help="seconds for the whole review")
     ap.add_argument("--max-rules", type=int, default=15)
-    ap.add_argument("--max-per-rule", type=int, default=8)
+    ap.add_argument("--max-per-rule", type=int, default=6)
     ap.add_argument("--max-failures", type=int, default=2, help="stop after this many consecutive failed calls")
     ap.add_argument("--memory", type=Path, help="file of remembered verdicts (default: $SDT_TRIAGE_MEMORY, else "
                                                 "$SDT_STATE_DIR/triage/<project>.json, else ~/.cache/sdt/triage/); "
@@ -461,11 +575,12 @@ def main() -> int:
         print("sdt_triage_codex: Codex not available (or SDT_AI_TRIAGE=0): normal report, no AI review")
         return 0
     try:
+        findings = json.loads(args.findings.read_text()) if args.findings else {}
         if args.sonar_url:
             _, found = sdt_to_docx.from_sonar(sdt_to_docx.Sonar(args.sonar_url, os.environ.get("SONAR_TOKEN", "")),
                                               args.project_key, args.branch, args.pull_request)
         elif args.findings:
-            found = sdt_to_docx.from_findings(json.loads(args.findings.read_text()), args.src_root)
+            found = sdt_to_docx.from_findings(findings, args.src_root)
         else:
             print("sdt_triage_codex: give --sonar-url or --findings", file=sys.stderr)
             return 0
@@ -477,7 +592,7 @@ def main() -> int:
     memory = {} if args.refresh else load_memory(memory_path)
     report = triage(groups, args.src_root, codex, args.model, per_call_timeout=args.per_call_timeout,
                     budget=args.budget, max_rules=args.max_rules, max_per_rule=args.max_per_rule,
-                    max_failures=args.max_failures, memory=memory, confirm=args.confirm)
+                    max_failures=args.max_failures, memory=memory, confirm=args.confirm, findings=findings)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2) + "\n")
     try:

@@ -741,15 +741,26 @@ def review_lines(note: dict) -> list[tuple[str, str]]:
     """(label, text) rows of one review recommendation, in a fixed order."""
     outcome, check_label, action_label = REVIEW_OUTCOME[note["verdict"]]
     rows = [("Assessment", f"{outcome} (certainty: {str(note.get('confidence', 'low')).title()})")]
+    real = note["verdict"] == "likely_true_positive"
+    if real and note.get("impact"):
+        rows.append(("Impact", note["impact"]))
     for label_text, key in (("Evidence", "reason"), (check_label, "check"), (action_label, "suggested_fix")):
         if note.get(key):
             rows.append((label_text, note[key]))
+    if note["verdict"] != "likely_false_positive" and note.get("fix_steps"):
+        rows.append(("Fix steps", "\n".join(f"{i}. {step}" for i, step in enumerate(note["fix_steps"], 1))))
+    if real:
+        for label_text, key in (("Example", "fix_example"), ("Verify the fix", "verify_fix")):
+            if note.get(key):
+                rows.append((label_text, note[key]))
     return rows
 
 
 def ai_line(note: dict) -> str:
-    """The same recommendation on one line (for occurrences listed without code)."""
-    return "; ".join(f"{name}: {text}" for name, text in review_lines(note))
+    """A compact assessment and action summary, without detailed guidance or code."""
+    rows = review_lines(note)
+    action_label = REVIEW_OUTCOME[note["verdict"]][2]
+    return "; ".join(f"{name}: {text}" for name, text in rows if name in ("Assessment", action_label))
 
 
 def consolidate(rows: list[DependencyRow]) -> list[DependencyRow]:
@@ -1146,6 +1157,13 @@ def advisory_block(note: dict) -> list[str]:
     rows = review_lines(note)
     out = [para(run("Advisory", bold=True, color=ADVISORY_COLOR), before=0, after=20)]
     for n, (name, text) in enumerate(rows, 1):
+        if name in ("Fix steps", "Example"):
+            out.append(para(run(name + ":", bold=True, color=ADVISORY_COLOR), before=0, after=20))
+            if name == "Example":
+                out.append(code_block(text.splitlines()))
+            else:
+                out += [para(run(step), before=0, after=20) for step in text.splitlines()]
+            continue
         out.append(f'<w:p><w:pPr><w:keepLines/><w:spacing w:before="0" w:after="{120 if n == len(rows) else 20}"/>'
                    f'<w:ind w:left="288"/></w:pPr>{run(name + ": ", bold=True, color=ADVISORY_COLOR)}'
                    f'{run(text)}</w:p>')
@@ -1440,7 +1458,8 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
                 if note.get("source") == "rules" and note.get("verdict") == "needs_context":
                     text = f"{o.message or g.name} - manual check as described for this rule above."
                 elif note:
-                    text = "; ".join(f"{name}: {value}" for name, value in review_lines(note)[1:])
+                    text = "; ".join(f"{name}: {value}" for name, value in review_lines(note)[1:]
+                                     if name not in ("Impact", "Fix steps", "Example", "Verify the fix"))
                 else:
                     text = o.message or g.name
                 url = target([o]) if o.path else ""
@@ -1453,6 +1472,10 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
             for block in snippet_blocks(src_root, where, [o.line for o in occs], cited=cited,
                                         credential=bool(sdt_advisory.CREDENTIAL_RULE.search(g.rule))):
                 parts.append(code_block(block))
+            for o in occs:
+                if o.ai and any(o.ai.get(key) for key in ("impact", "fix_steps", "fix_example", "verify_fix")):
+                    parts.append(para(run(f"{where}:{o.line}", bold=True), before=120, after=20))
+                    parts += advisory_block(o.ai)
 
     # ------------------------------------------------ 2. secret leaks
     parts.append(section_heading("2. Secret Leaks", 1, "sec_secrets", page_break=True))

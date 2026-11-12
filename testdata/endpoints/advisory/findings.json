@@ -1,0 +1,13 @@
+{
+  "findings": [{
+    "scanner": {"adapter": "endpoints"},
+    "category": "sast",
+    "rule": {"id": "sensitive-route-public", "name": "Sensitive route is public"},
+    "severity": {"canonical": "high"},
+    "message": "Review unauthenticated order updates.",
+    "location": {"path": "src/OrdersController.java", "startLine": 3},
+    "metadata": {"evidence": [
+      "config/SecurityConfiguration.java:5 .antMatchers(\"/api/v1/feign/**\").permitAll()"
+    ]}
+  }]
+}
