@@ -2,7 +2,7 @@
   "findings": [{
     "scanner": {"adapter": "endpoints"},
     "category": "sast",
-    "rule": {"id": "sensitive-route-public", "name": "Sensitive route is public"},
+    "rule": {"id": "scp.endpoints.sensitive-route-public", "name": "Sensitive route is public"},
     "severity": {"canonical": "high"},
     "message": "Review unauthenticated order updates.",
     "location": {"path": "src/OrdersController.java", "startLine": 3},

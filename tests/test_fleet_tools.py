@@ -2261,7 +2261,8 @@ def test_triage_finds_evidence_by_rule_path_and_line(adapter, sonar):
     findings["findings"][0]["scanner"]["adapter"] = adapter
     groups = sdt_to_docx.from_findings(findings)["code"]
     if sonar:
-        groups[0].rule = ("external_opengrep:sensitive-route-public" if adapter == "opengrep" else
+        # The keys SonarQube really uses: the plugin keeps the full id, sdt_to_sonar only its last segment.
+        groups[0].rule = ("external_opengrep:scp.endpoints.sensitive-route-public" if adapter == "opengrep" else
                           "external_sdt-endpoints:sdt-endpoints-sensitive-route-public-0123456789abcdef")
     other = json.loads(json.dumps(findings["findings"][0]))
     other["location"]["startLine"] = 4

@@ -215,9 +215,12 @@ def finding_evidence(findings: dict) -> dict[tuple, list[str]]:
         evidence = (finding.get("metadata") or {}).get("evidence") or []
         if isinstance(evidence, str):
             evidence = evidence.splitlines()
-        key = (str((finding.get("rule") or {}).get("id") or ""),
-               str(location.get("path") or ""), int(location.get("startLine") or 0))
-        indexed.setdefault(key, []).extend(e for e in evidence if isinstance(e, str))
+        rule_id = str((finding.get("rule") or {}).get("id") or "")
+        where = (str(location.get("path") or ""), int(location.get("startLine") or 0))
+        # SonarQube keys an SDT external rule by the id's last segment (sdt_to_sonar._rule_key), so
+        # index the full id and that tail: scp.endpoints.sensitive-route-public and sensitive-route-public.
+        for name in {rule_id, re.split(r"[./]", rule_id)[-1]}:
+            indexed.setdefault((name, *where), []).extend(e for e in evidence if isinstance(e, str))
     return indexed
 
 
