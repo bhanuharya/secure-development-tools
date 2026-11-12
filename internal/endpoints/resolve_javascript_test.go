@@ -1,6 +1,10 @@
 package endpoints
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func jsRouteFact(file string, line int, receiver, method, path string) Fact {
 	return Fact{
@@ -165,6 +169,89 @@ func TestJSPathlessMount(t *testing.T) {
 				t.Fatalf("got %s %s, want /transfer %s", routes[0].Path, routes[0].Protection, tc.protection)
 			}
 		})
+	}
+}
+
+// TestJSFactoryBindingsAreLexical pins T36 finding 10: two functions may each
+// declare their own `app`; a use() in the first factory must not protect a
+// route registered in the second.
+func TestJSFactoryBindingsAreLexical(t *testing.T) {
+	dir := t.TempDir()
+	src := `const express = require('express');
+
+function privateApp() {
+  const app = express();
+  app.use(requireAuth);
+  app.post('/private', handle);
+}
+
+function publicApp() {
+  const app = express();
+  app.post('/transfer', handle);
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "app.js"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	facts := []Fact{
+		{Kind: "express_import", File: "app.js", Line: 1},
+		{Kind: "engine", File: "app.js", Line: 4, Metavars: map[string]string{"$R": "app"}},
+		{Kind: "use", File: "app.js", Line: 5, Metavars: map[string]string{"$R": "app", "$A1": "requireAuth"}},
+		jsRouteFact("app.js", 6, "app", "post", "'/private'"),
+		{Kind: "engine", File: "app.js", Line: 10, Metavars: map[string]string{"$R": "app"}},
+		jsRouteFact("app.js", 11, "app", "post", "'/transfer'"),
+	}
+	routes, _ := resolveJS(facts, dir, defaultGates)
+	got := map[string]Protection{}
+	for _, r := range routes {
+		got[r.Path] = r.Protection
+	}
+	if got["/private"] != ProtAuthenticated || got["/transfer"] != ProtPublic {
+		t.Fatalf("got %v, want /private authenticated and /transfer public", got)
+	}
+}
+
+// TestJSRouterBindingsAreLexical covers the router half: each factory owns its
+// router, so its use() and its mount apply to that declaration only.
+func TestJSRouterBindingsAreLexical(t *testing.T) {
+	dir := t.TempDir()
+	src := `const express = require('express');
+const app = express();
+
+function privateApi() {
+  const router = express.Router();
+  router.use(requireAuth);
+  router.post('/orders', handle);
+  app.use('/api/private', router);
+}
+
+function publicApi() {
+  const router = express.Router();
+  router.post('/transfer', handle);
+  app.use('/api/public', router);
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "app.js"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	facts := []Fact{
+		{Kind: "express_import", File: "app.js", Line: 1},
+		{Kind: "engine", File: "app.js", Line: 2, Metavars: map[string]string{"$R": "app"}},
+		{Kind: "router", File: "app.js", Line: 5, Metavars: map[string]string{"$R": "router"}},
+		{Kind: "use", File: "app.js", Line: 6, Metavars: map[string]string{"$R": "router", "$A1": "requireAuth"}},
+		jsRouteFact("app.js", 7, "router", "post", "'/orders'"),
+		{Kind: "use", File: "app.js", Line: 8, Metavars: map[string]string{"$R": "app", "$A1": "'/api/private'", "$A2": "router"}},
+		{Kind: "router", File: "app.js", Line: 12, Metavars: map[string]string{"$R": "router"}},
+		jsRouteFact("app.js", 13, "router", "post", "'/transfer'"),
+		{Kind: "use", File: "app.js", Line: 14, Metavars: map[string]string{"$R": "app", "$A1": "'/api/public'", "$A2": "router"}},
+	}
+	routes, _ := resolveJS(facts, dir, defaultGates)
+	got := map[string]Protection{}
+	for _, r := range routes {
+		got[r.Path] = r.Protection
+	}
+	if got["/api/private/orders"] != ProtAuthenticated || got["/api/public/transfer"] != ProtPublic {
+		t.Fatalf("got %v, want /api/private/orders authenticated and /api/public/transfer public", got)
 	}
 }
 

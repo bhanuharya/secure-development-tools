@@ -148,9 +148,10 @@ rules:
         - "**/sites-available/**"
     # Skip comments and stop at braces so another location cannot supply the protection.
     # Access rules use the first match: a deny all only counts while no allow all came
-    # before it, so allow all before deny all still leaves the location public.
+    # before it, so allow all before deny all still leaves the location public. An
+    # unrestricted CIDR (0.0.0.0/0 or ::/0) is allow all for that address family.
     pattern-regex: |-
       (?mxi)^[ \t]*location[ \t]+(?:=[ \t]*|~\*?[ \t]*\^?|\^~[ \t]*)?["']?/(?:management|actuator|jhipster-registry|eureka|admin|internal|feign|v1/kv|swagger|v2/api-docs|v3/api-docs)(?!/health(?:/|["'\s{]|$))(?=/|["'\s{]|$)[^\n{]*\{
       (?!(?:[^{}\#]|\#[^\n]*(?:\n|$))*?(?:^[ \t]*|(?<=[;{])[ \t]*)internal[ \t]*;)
-      (?!(?:(?!(?:^[ \t]*|(?<=[;{])[ \t]*)allow[ \t]+all[ \t]*;)[^{}\#]|\#[^\n]*(?:\n|$))*?(?:^[ \t]*|(?<=[;{])[ \t]*)deny[ \t]+all[ \t]*;)
+      (?!(?:(?!(?:^[ \t]*|(?<=[;{])[ \t]*)allow[ \t]+(?:all|0\.0\.0\.0/0|::/0)[ \t]*;)[^{}\#]|\#[^\n]*(?:\n|$))*?(?:^[ \t]*|(?<=[;{])[ \t]*)deny[ \t]+all[ \t]*;)
       (?:[^{}\#]|\#[^\n]*(?:\n|$))*?(?:^[ \t]*|(?<=[;{])[ \t]*)proxy_pass\b

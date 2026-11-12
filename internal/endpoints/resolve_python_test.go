@@ -194,6 +194,42 @@ async def transfer():
 	}
 }
 
+// TestPySourceRoutesSkipStrings pins T36 finding 13: decorators written inside
+// a module docstring or a function docstring are examples, not registrations.
+func TestPySourceRoutesSkipStrings(t *testing.T) {
+	dir := t.TempDir()
+	src := `from fastapi import FastAPI
+
+app = FastAPI()
+
+DOCS = """
+@app.post("/transfer")
+async def transfer():
+    return {}
+"""
+
+
+@app.post("/orders")
+async def orders():
+    """Example:
+
+    @app.post("/internal")
+    async def internal():
+        return {}
+    """
+    return {}
+`
+	if err := os.WriteFile(filepath.Join(dir, "main.py"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	facts := append(pySourceRoutes(dir, "main.py"),
+		Fact{Kind: "fastapi_app", File: "main.py", Line: 3, Metavars: map[string]string{"$R": "app"}})
+	routes, _ := resolvePython(facts, dir, defaultGates)
+	if len(routes) != 1 || routes[0].Path != "/orders" {
+		t.Fatalf("got %+v, want only /orders", routes)
+	}
+}
+
 // TestPyEmptyBlueprintPrefixOverrides pins T31: url_prefix="" is an explicit
 // override that removes the blueprint's own prefix, unlike an absent keyword.
 func TestPyEmptyBlueprintPrefixOverrides(t *testing.T) {

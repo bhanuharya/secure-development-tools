@@ -132,6 +132,7 @@ type jsResolver struct {
 	engines     map[string]bool
 	routers     map[string]bool
 	routerCalls map[string]bool
+	bindings    []jsBinding
 	uses        []jsUse
 	routes      []Fact
 	nest        bool
@@ -205,6 +206,7 @@ func newJSResolver(file string, facts []Fact, root string, gates *gateMatcher) *
 			js.routers[name] = true
 		}
 	}
+	js.bindings = jsBindings(root, file, facts, js.expressImport)
 	sort.Slice(js.routes, func(i, j int) bool { return js.routes[i].Line < js.routes[j].Line })
 	return js
 }
@@ -333,27 +335,32 @@ func (js *jsResolver) expressRoute(f Fact) (Route, error) {
 }
 
 // stateOf resolves a router variable at a line: the mounts that reach it, then
-// its own use() calls registered before the line.
+// its own use() calls registered before the line. Only the declaration visible
+// at that line counts: two functions may each have their own `app` or `router`.
 func (js *jsResolver) stateOf(name string, line, depth int) *jsState {
 	name = strings.TrimSpace(name)
 	if depth > 8 {
 		return &jsState{unknown: true, reason: receiverName(name)}
 	}
-	mounts := js.mountsFor(name)
-	if len(mounts) == 0 && !js.engines[name] {
-		return &jsState{unknown: true, reason: receiverName(name), exported: js.routers[name]}
+	b := js.bindingAt(name, line)
+	mounts := js.mountsFor(name, b)
+	if len(mounts) == 0 && (b == nil || !b.engine) {
+		return &jsState{unknown: true, reason: receiverName(name), exported: b != nil && b.router}
 	}
 	state, ok := js.mountState(mounts, depth)
 	if !ok {
 		return &jsState{unknown: true, reason: receiverName(name)}
 	}
 	place := "on router"
-	if js.engines[name] {
+	if b != nil && b.engine {
 		place = "on app"
 	}
 	for _, u := range js.uses {
 		if u.receiver != name || u.line >= line || js.classifyUse(u) != "middleware" {
 			continue
+		}
+		if js.bindingAt(name, u.line) != b {
+			continue // the call belongs to a shadowing application or router
 		}
 		for _, expr := range u.args {
 			state.mws = append(state.mws, mwRef{file: js.file, line: u.line, expr: expr, place: place})
@@ -363,11 +370,15 @@ func (js *jsResolver) stateOf(name string, line, depth int) *jsState {
 }
 
 // mountsFor returns the mount calls that target the router: the router being
-// mounted is the last argument, not the receiver.
-func (js *jsResolver) mountsFor(name string) []jsMount {
+// mounted is the last argument, not the receiver, and it must be the same
+// declaration the route is registered on.
+func (js *jsResolver) mountsFor(name string, b *jsBinding) []jsMount {
 	var out []jsMount
 	for _, u := range js.uses {
 		if js.classifyUse(u) != "mount" || u.args[len(u.args)-1] != name {
+			continue
+		}
+		if b == nil || js.bindingAt(name, u.line) != b {
 			continue
 		}
 		out = append(out, js.mountOf(u))

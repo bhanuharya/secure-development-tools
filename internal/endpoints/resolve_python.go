@@ -131,6 +131,7 @@ func newPyResolver(file string, facts []Fact, root string, gates *gateMatcher) *
 			py.addParamGate(f)
 		}
 	}
+	py.routeLines = pyDropQuotedRouteDecorators(py.root, py.file, py.routeLines)
 	py.routeLines = append(py.routeLines, pySourceRoutes(py.root, py.file)...)
 	py.addStackedRoutes()
 	for _, m := range mounts {

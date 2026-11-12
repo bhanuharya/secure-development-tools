@@ -24,13 +24,18 @@ func pySourceRoutes(root, file string) []Fact {
 		return nil
 	}
 	lines := strings.Split(string(src), "\n")
+	masked := pyQuoteMask(string(src))
+	offsets := pyLineOffsets(lines)
 	var out []Fact
 	for i := 0; i < len(lines); i++ {
+		if !pyCodeLine(masked, offsets, lines, i) {
+			continue
+		}
 		dec, ok := pyDecoratorAt(lines, i)
 		if !ok {
 			continue
 		}
-		handler, defLine, ok := pyHandlerAfter(lines, dec.end+1)
+		handler, defLine, ok := pyHandlerAfter(lines, dec.end+1, masked, offsets)
 		if !ok {
 			continue
 		}
@@ -92,8 +97,11 @@ func pyDecoratorAt(lines []string, i int) (pyDecorator, bool) {
 
 // pyHandlerAfter finds the def below a decorator stack. Gate decorators between
 // the route decorator and the def are skipped, including multi-line ones.
-func pyHandlerAfter(lines []string, from int) (string, int, bool) {
+func pyHandlerAfter(lines []string, from int, masked []bool, offsets []int) (string, int, bool) {
 	for i := from; i < len(lines); i++ {
+		if !pyCodeLine(masked, offsets, lines, i) {
+			continue
+		}
 		trimmed := strings.TrimSpace(lines[i])
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
