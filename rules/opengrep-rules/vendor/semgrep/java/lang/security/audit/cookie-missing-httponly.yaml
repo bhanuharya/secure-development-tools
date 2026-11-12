@@ -1,7 +1,6 @@
 rules:
 - id: cookie-missing-httponly
   metadata:
-    title: Session cookie missing the HttpOnly flag
     cwe:
     - "CWE-1004: Sensitive Cookie Without 'HttpOnly' Flag"
     owasp:

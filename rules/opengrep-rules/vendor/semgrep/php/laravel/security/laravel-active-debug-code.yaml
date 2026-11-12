@@ -17,7 +17,6 @@ rules:
   - php
   severity: ERROR
   metadata:
-    title: Laravel debug mode enabled
     category: security
     cwe:
     - 'CWE-489: Active Debug Code'

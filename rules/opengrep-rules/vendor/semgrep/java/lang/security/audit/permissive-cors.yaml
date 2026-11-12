@@ -6,7 +6,6 @@ rules:
     the victim application in an inappropriate way, leading to spoofing, data theft,
     relay and other attacks.
   metadata:
-    title: Permissive CORS policy allows any origin
     cwe:
     - 'CWE-183: Permissive List of Allowed Inputs'
     asvs:

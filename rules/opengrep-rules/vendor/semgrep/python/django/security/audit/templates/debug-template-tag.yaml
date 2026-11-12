@@ -14,7 +14,6 @@ rules:
     include:
       - '*.html'
   metadata:
-    title: Debug template tag left in a template
     owasp: 'A06:2017 - Security Misconfiguration'
     cwe:
     - 'CWE-489: Active Debug Code'

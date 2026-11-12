@@ -4,7 +4,6 @@ rules:
     If unverified user data can reach the `phantom` methods it can result in Server-Side Request Forgery
     vulnerabilities
   metadata:
-    title: User input reaches the phantom module
     owasp:
     - A10:2021 - Server-Side Request Forgery (SSRF)
     - A01:2025 - Broken Access Control

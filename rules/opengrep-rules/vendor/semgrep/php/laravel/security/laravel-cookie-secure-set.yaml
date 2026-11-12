@@ -33,7 +33,6 @@ rules:
   - php
   severity: ERROR
   metadata:
-    title: Laravel cookie Secure flag not set
     category: security
     cwe:
     - "CWE-614: Sensitive Cookie in HTTPS Session Without 'Secure' Attribute"

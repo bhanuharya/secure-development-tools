@@ -3,7 +3,6 @@ rules:
   message: >-
     Use %s, %d, %c... to format your variables, otherwise this could leak information.
   metadata:
-    title: User input used as a printf format string
     cwe:
     - 'CWE-532: Insertion of Sensitive Information into Log File'
     references:

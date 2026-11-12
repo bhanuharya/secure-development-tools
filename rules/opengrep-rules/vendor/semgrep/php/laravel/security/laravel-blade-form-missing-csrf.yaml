@@ -7,7 +7,6 @@ rules:
     Request Forgery (CSRF) attacks.
   severity: WARNING
   metadata:
-    title: Laravel form missing a CSRF token
     likelihood: LOW
     impact: MEDIUM
     confidence: LOW

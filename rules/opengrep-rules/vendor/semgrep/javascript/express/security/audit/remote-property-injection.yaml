@@ -5,7 +5,6 @@ rules:
     attacker to access all properties of the object and even it's prototype. Use
     literal values for object properties.
   metadata:
-    title: User input used as an object property name
     confidence: LOW
     owasp:
     - A02:2017 - Broken Authentication

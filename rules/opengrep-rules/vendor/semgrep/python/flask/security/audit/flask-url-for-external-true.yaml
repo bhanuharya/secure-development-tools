@@ -4,7 +4,6 @@ rules:
     using the `Host` header of the HTTP request, which may lead to security risks
     such as Host header injection
   metadata:
-    title: url_for builds an external URL
     cwe:
     - 'CWE-673: External Influence of Sphere Definition'
     owasp:

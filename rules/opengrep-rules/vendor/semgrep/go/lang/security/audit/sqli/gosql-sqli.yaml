@@ -43,7 +43,6 @@ rules:
     use parameterized queries or prepared statements instead.
     You can use prepared statements with the 'Prepare' and 'PrepareContext' calls.
   metadata:
-    title: SQL query built from concatenated input
     cwe:
     - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
     references:

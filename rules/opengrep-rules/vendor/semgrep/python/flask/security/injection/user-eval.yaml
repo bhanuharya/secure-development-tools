@@ -5,7 +5,6 @@ rules:
   severity: ERROR
   message: Detected user data flowing into eval. This is code injection and should be avoided.
   metadata:
-    title: User input reaches eval
     cwe:
     - "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection')"
     owasp:

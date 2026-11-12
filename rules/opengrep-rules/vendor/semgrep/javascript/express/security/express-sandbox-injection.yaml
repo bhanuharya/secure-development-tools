@@ -3,7 +3,6 @@ rules:
   message: >-
     Make sure that unverified user data can not reach `sandbox`.
   metadata:
-    title: User input reaches the sandbox module
     owasp:
     - A03:2021 - Injection
     - A05:2025 - Injection

@@ -24,7 +24,6 @@ rules:
     temporarily consider using a tmpfs. Add 'readOnlyRootFilesystem: true' to this
     container to prevent this.
   metadata:
-    title: Container has a writable root filesystem
     cwe:
     - 'CWE-732: Incorrect Permission Assignment for Critical Resource'
     owasp:

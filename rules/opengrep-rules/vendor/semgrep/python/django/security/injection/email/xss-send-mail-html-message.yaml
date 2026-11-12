@@ -5,7 +5,6 @@ rules:
     This is dangerous because HTML emails are susceptible to XSS.
     An attacker could inject data into this HTML email, causing XSS.
   metadata:
-    title: Request data used in an HTML e-mail
     cwe:
     - "CWE-74: Improper Neutralization of Special Elements in Output Used by a Downstream Component ('Injection')"
     owasp:

@@ -4,7 +4,6 @@ rules:
   message: >-
     Callable based on user input risks remote code execution.
   metadata:
-    title: User input reaches a dynamic function call
     technology:
     - php
     category: security

@@ -6,7 +6,6 @@ rules:
   options:
     interfile: true
   metadata:
-    title: HMAC key hard-coded in source
     interfile: true
     category: security
     technology:

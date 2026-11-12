@@ -1,7 +1,6 @@
 rules:
 - id: object-deserialization
   metadata:
-    title: ObjectInputStream deserializes untrusted data
     cwe:
     - 'CWE-502: Deserialization of Untrusted Data'
     owasp:

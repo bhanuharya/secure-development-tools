@@ -4,7 +4,6 @@ rules:
     Possible writing outside of the destination,
     make sure that the target path is nested in the intended destination
   metadata:
-    title: Path built from user input can escape the directory
     owasp:
     - A05:2017 - Broken Access Control
     - A01:2021 - Broken Access Control

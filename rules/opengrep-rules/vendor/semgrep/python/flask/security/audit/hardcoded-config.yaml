@@ -3,7 +3,6 @@ rules:
   message: Hardcoded variable `TESTING` detected. Use environment variables or config files instead
   severity: WARNING
   metadata:
-    title: Hard-coded TESTING configuration value
     likelihood: LOW
     impact: LOW
     confidence: LOW
@@ -31,7 +30,6 @@ rules:
   message: Hardcoded variable `SECRET_KEY` detected. Use environment variables or config files instead
   severity: ERROR
   metadata:
-    title: Hard-coded SECRET_KEY value
     likelihood: LOW
     impact: LOW
     confidence: LOW
@@ -57,7 +55,6 @@ rules:
   message: Hardcoded variable `ENV` detected. Set this by using FLASK_ENV environment variable
   severity: WARNING
   metadata:
-    title: Hard-coded ENV configuration value
     likelihood: LOW
     impact: LOW
     confidence: LOW
@@ -83,7 +80,6 @@ rules:
   message: Hardcoded variable `DEBUG` detected. Set this by using FLASK_DEBUG environment variable
   severity: WARNING
   metadata:
-    title: Hard-coded DEBUG configuration value
     likelihood: LOW
     impact: LOW
     confidence: LOW

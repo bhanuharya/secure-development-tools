@@ -4,7 +4,6 @@ rules:
   languages:
   - java
   metadata:
-    title: Code runs with elevated privileges
     cwe:
     - 'CWE-269: Improper Privilege Management'
     references:

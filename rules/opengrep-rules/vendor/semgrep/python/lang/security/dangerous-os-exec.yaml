@@ -133,7 +133,6 @@ rules:
     Found user controlled content when spawning a process. This is dangerous because it allows
     a malicious actor to execute commands.
   metadata:
-    title: User input reaches os.exec
     cwe:
     - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
     owasp:

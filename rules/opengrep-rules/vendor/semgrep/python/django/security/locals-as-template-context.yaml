@@ -10,7 +10,6 @@ rules:
     Do not use 'locals()'. Instead, specify each variable in a dictionary or
     'django.template.Context' object, like '{"var1": "hello"}' and use that instead.
   metadata:
-    title: locals() exposed as template context
     category: security
     cwe:
     - "CWE-96: Improper Neutralization of Directives in Statically Saved Code ('Static Code Injection')"

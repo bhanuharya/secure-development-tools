@@ -8,7 +8,6 @@ rules:
     it could result
     in path traversal attacks.
   metadata:
-    title: Request data used in open()
     cwe:
     - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
     owasp:

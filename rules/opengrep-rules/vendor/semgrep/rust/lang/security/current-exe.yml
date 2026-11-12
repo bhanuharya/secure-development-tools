@@ -7,7 +7,6 @@ rules:
       executable, they can change the output arbitrarily."
     pattern: "std::env::current_exe()"
     metadata:
-      title: current_exe can be replaced by an attacker
       references:
         - https://doc.rust-lang.org/stable/std/env/fn.current_exe.html#security
       technology:

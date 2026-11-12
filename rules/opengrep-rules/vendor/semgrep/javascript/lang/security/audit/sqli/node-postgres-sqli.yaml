@@ -8,7 +8,6 @@ rules:
     You can use parameterized statements like so:
     `client.query('SELECT $1 from table', [userinput])`
   metadata:
-    title: SQL query built from concatenated input
     owasp:
     - A08:2021 - Software and Data Integrity Failures
     - A08:2025 - Software or Data Integrity Failures

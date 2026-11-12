@@ -7,7 +7,6 @@ rules:
     severity: WARNING
     languages: [javascript, typescript]
     metadata:
-      title: Default session cookie name used
       cwe:
       - 'CWE-522: Insufficiently Protected Credentials'
       owasp:
@@ -53,7 +52,6 @@ rules:
     severity: WARNING
     languages: [javascript, typescript]
     metadata:
-      title: Session cookie missing the Secure flag
       cwe:
       - 'CWE-522: Insufficiently Protected Credentials'
       owasp:
@@ -117,7 +115,6 @@ rules:
     severity: WARNING
     languages: [javascript, typescript]
     metadata:
-      title: Session cookie missing the HttpOnly flag
       cwe:
       - 'CWE-522: Insufficiently Protected Credentials'
       owasp:
@@ -182,7 +179,6 @@ rules:
     severity: WARNING
     languages: [javascript, typescript]
     metadata:
-      title: Session cookie has no domain set
       cwe:
       - 'CWE-522: Insufficiently Protected Credentials'
       owasp:
@@ -246,7 +242,6 @@ rules:
     severity: WARNING
     languages: [javascript, typescript]
     metadata:
-      title: Session cookie has no path set
       cwe:
       - 'CWE-522: Insufficiently Protected Credentials'
       owasp:
@@ -310,7 +305,6 @@ rules:
     severity: WARNING
     languages: [javascript, typescript]
     metadata:
-      title: Session cookie has no expiry set
       cwe:
       - 'CWE-522: Insufficiently Protected Credentials'
       owasp:

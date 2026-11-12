@@ -1,7 +1,6 @@
 rules:
 - id: ldap-entry-poisoning
   metadata:
-    title: LDAP search returns attacker-controlled entries
     owasp:
     - A01:2017 - Injection
     - A03:2021 - Injection

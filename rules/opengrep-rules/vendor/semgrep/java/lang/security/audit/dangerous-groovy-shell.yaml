@@ -25,7 +25,6 @@ rules:
     A expression is built with a dynamic value. The source of the value(s) should
     be verified to avoid that unfiltered values fall into this risky code evaluation.
   metadata:
-    title: Groovy shell command built from dynamic input
     cwe:
     - "CWE-94: Improper Control of Generation of Code ('Code Injection')"
     owasp:

@@ -7,7 +7,6 @@ rules:
     that will automatically be verified. Do not explicitly use the 'none'
     algorithm. Instead, use an algorithm such as 'HS256'.
   metadata:
-    title: JWT accepts the none algorithm
     cwe:
     - 'CWE-327: Use of a Broken or Risky Cryptographic Algorithm'
     owasp:

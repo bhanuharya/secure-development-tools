@@ -60,9 +60,11 @@ func checksumFiles(files []string) []string {
 // isRuleFile reports whether a basename is a loadable rule file.
 // Annotated test fixtures (*.test.*) and autofix fixtures (*.fixed.*) are
 // never rules: passing a multi-doc test target as --config fails the whole
-// engine run (exit 7), so discovery must exclude them.
+// engine run (exit 7), so discovery must exclude them. The vendored-title
+// overlay is data for the rules harness, not a rule file: the engine refuses
+// it for a missing `rules:` key.
 func isRuleFile(base string) bool {
-	if strings.Contains(base, ".test.") || strings.Contains(base, ".fixed.") {
+	if strings.Contains(base, ".test.") || strings.Contains(base, ".fixed.") || base == "titles.yaml" {
 		return false
 	}
 	return strings.HasSuffix(base, ".yaml") || strings.HasSuffix(base, ".yml")

@@ -10,7 +10,6 @@ rules:
     JavaScript-specific encoder, such as the one available
     in OWASP ESAPI.
   metadata:
-    title: Template variable used inside a script tag
     cwe:
     - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
     owasp:

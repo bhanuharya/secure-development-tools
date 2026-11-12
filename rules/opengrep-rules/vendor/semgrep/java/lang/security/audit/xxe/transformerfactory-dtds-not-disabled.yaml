@@ -2,7 +2,6 @@ rules:
   - id: transformerfactory-dtds-not-disabled
     severity: ERROR
     metadata:
-      title: DOCTYPE declarations enabled in XML parser
       cwe:
         - "CWE-611: Improper Restriction of XML External Entity Reference"
       owasp:

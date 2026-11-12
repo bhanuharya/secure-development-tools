@@ -101,6 +101,36 @@ func TestOpengrepRuleNameFromTitleOrID(t *testing.T) {
 	}
 }
 
+// Vendored rules stay verbatim, so their name comes from the pack overlay.
+// A rule's own metadata.title still wins when it has one.
+func TestOpengrepRuleNameFromVendoredOverlay(t *testing.T) {
+	pack := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(pack, "vendor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	overlay := "vendor.semgrep.python.lang.security.rule: Overlay readable name\n"
+	if err := os.WriteFile(filepath.Join(pack, "vendor", "titles.yaml"), []byte(overlay), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SDT_RULES_PACK_DIR", pack)
+	payload := func(metadata string) []byte {
+		extra := `"message": "m", "severity": "ERROR"`
+		if metadata != "" {
+			extra += `, "metadata": ` + metadata
+		}
+		return []byte(`{"results": [{"check_id": "rules.opengrep-rules.vendor.semgrep.python.lang.security.rule", "path": "/repo/app.py", "start": {"line": 1}, "end": {"line": 1}, "extra": {` + extra + `}}]}`)
+	}
+	a := &OpengrepAdapter{}
+	pr := a.Parse("1.29.0", "/repo", payload(""), "", 1)
+	if got := pr.Findings[0].Rule.Name; got != "Overlay readable name" {
+		t.Fatalf("overlay title not used as rule name: %q", got)
+	}
+	pr = a.Parse("1.29.0", "/repo", payload(`{"title": "Rule's own name"}`), "", 1)
+	if got := pr.Findings[0].Rule.Name; got != "Rule's own name" {
+		t.Fatalf("metadata title must win over the overlay: %q", got)
+	}
+}
+
 // Regression (pilot): four identical `hardcoded-conditional` messages in one
 // file collapsed to one fingerprint. Flagged-code content must dominate.
 func TestOpengrepContentSeparatesSameFileFindings(t *testing.T) {

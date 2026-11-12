@@ -20,7 +20,6 @@ rules:
     an attacker. Include the `secure=True`, `httponly=True`, `samesite='Lax'` arguments
     or set these to be true in the Flask configuration.
   metadata:
-    title: Flask cookie set insecurely
     cwe:
     - "CWE-614: Sensitive Cookie in HTTPS Session Without 'Secure' Attribute"
     owasp:

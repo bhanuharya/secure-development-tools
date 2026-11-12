@@ -8,7 +8,6 @@ rules:
     by default in most database engines. Alternatively, consider using an
     object-relational mapper (ORM) such as SQLAlchemy which will protect your queries.
   metadata:
-    title: User input concatenated into a SQL query
     cwe:
     - 'CWE-704: Incorrect Type Conversion or Cast'
     owasp:

@@ -16,7 +16,6 @@ rules:
     'DEFAULT_THROTTLE_CLASSES' and 'DEFAULT_THROTTLE_RATES'
     to add rate-limiting to your application.
   metadata:
-    title: Django REST throttle settings missing
     owasp:
     - A05:2021 - Security Misconfiguration
     - A06:2017 - Security Misconfiguration

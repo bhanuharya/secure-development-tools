@@ -17,5 +17,3 @@ rules:
       - pattern-either:
           - pattern: npm publish
           - pattern: yarn npm publish
-    metadata:
-      title: NPM package published without staged approval

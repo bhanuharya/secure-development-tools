@@ -9,7 +9,6 @@ rules:
     Language or Schema Definition Language. In most cases, SQLAlchemy ORM
     will be a better option.
   metadata:
-    title: Raw SQL executed with untrusted input
     cwe:
     - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
     owasp:

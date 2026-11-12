@@ -8,7 +8,6 @@ rules:
       type instead.
     severity: WARNING
     metadata:
-      title: Untrusted data deserialised into interface{}
       cwe:
         - "CWE-502: Deserialization of Untrusted Data"
       owasp:

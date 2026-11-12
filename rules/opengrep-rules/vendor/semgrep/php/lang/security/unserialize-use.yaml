@@ -8,7 +8,6 @@ rules:
     execution.
     Consider using JSON or structured data approaches (e.g. Google Protocol Buffers).
   metadata:
-    title: unserialize() called with user input
     references:
     - https://www.php.net/manual/en/function.unserialize.php
     - https://owasp.org/www-project-top-ten/2017/A8_2017-Insecure_Deserialization.html

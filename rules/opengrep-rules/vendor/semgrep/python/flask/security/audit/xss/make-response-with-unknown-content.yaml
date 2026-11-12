@@ -30,7 +30,6 @@ rules:
     If you are returning data from an API, consider using `flask.jsonify()`.
   severity: WARNING
   metadata:
-    title: make_response() called with unknown content
     cwe:
     - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
     references:

@@ -4,7 +4,6 @@ rules:
     Detected usage of crypto.pseudoRandomBytes, which does not produce secure random
     numbers.
   metadata:
-    title: Non-cryptographic random bytes generated
     cwe:
     - 'CWE-338: Use of Cryptographically Weak Pseudo-Random Number Generator (PRNG)'
     owasp:

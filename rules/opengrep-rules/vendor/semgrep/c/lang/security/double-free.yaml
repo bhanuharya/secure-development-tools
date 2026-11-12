@@ -24,7 +24,6 @@ rules:
   message: >-
     Variable '$VAR' was freed twice. This can lead to undefined behavior.
   metadata:
-    title: Memory freed twice
     cwe:
     - 'CWE-415: Double Free'
     owasp:

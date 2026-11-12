@@ -7,7 +7,6 @@ rules:
   languages: [java]
   severity: WARNING
   metadata:
-    title: Predictable random generator used for security
     functional-categories:
       - 'crypto::search::randomness::java.security'
     owasp:

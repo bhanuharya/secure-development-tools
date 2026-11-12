@@ -15,7 +15,6 @@ rules:
     E.g. in https://www.example.com//attacker.com, the value of REQUEST_URI
     is //attacker.com, and redirecting to it will redirect to that domain.
   metadata:
-    title: Redirect uses the current request URL
     references:
     - https://www.php.net/manual/en/reserved.variables.server.php
     - https://owasp.org/www-project-top-ten/2017/A5_2017-Broken_Access_Control.html

@@ -1,7 +1,6 @@
 rules:
 - id: httpservlet-path-traversal
   metadata:
-    title: Request path used in file access
     cwe:
     - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
     owasp:

@@ -160,9 +160,14 @@ func newRulesCmd() *cobra.Command {
 			if len(invalid) > 0 {
 				return failf(ExitInvalidInput, "%d invalid rule files", len(invalid))
 			}
-			// Readable names: every rule needs a short metadata.title, which
-			// reports and SonarQube show instead of the raw id.
-			titleProblems := rules.TitleProblems(files)
+			// Readable names: first-party rules carry a short metadata.title;
+			// vendored rules take theirs from the overlay so their files stay
+			// verbatim. Reports and SonarQube show the name instead of the id.
+			titles, err := rules.LoadTitles(rules.TitleOverlayPath())
+			if err != nil {
+				return failf(ExitInvalidInput, "%v", err)
+			}
+			titleProblems := rules.TitleProblems(files, titles)
 			for _, p := range titleProblems {
 				fmt.Fprintln(cmd.ErrOrStderr(), "title: "+p)
 			}
@@ -191,14 +196,8 @@ func newRulesCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "warning: opengrep not installed; engine validation and rule tests skipped")
 				return nil
 			}
-			var dirs []string
-			for _, r := range roots {
-				if fi, err := os.Stat(r); err == nil && fi.IsDir() {
-					dirs = append(dirs, r)
-				}
-			}
 			// The engine loads rule files one by one here: allow for a slow CI runner.
-			if err := rules.Validate(bin, dirs, 900); err != nil {
+			if err := rules.Validate(bin, files, 900); err != nil {
 				return failf(ExitInvalidInput, "rule validation failed: %v", err)
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "validate: clean")

@@ -6,7 +6,6 @@ rules:
   options:
     interfile: true
   metadata:
-    title: Untrusted data passed to a deserializer
     interfile: true
     technology:
     - express

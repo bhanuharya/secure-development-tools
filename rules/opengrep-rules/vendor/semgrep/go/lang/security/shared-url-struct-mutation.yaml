@@ -37,7 +37,6 @@ rules:
         - pattern-not: $X.$Y
         - pattern-not: $X[...]
   metadata:
-    title: Shared URL struct mutated unsafely
     cwe:
     - "CWE-436: Interpretation Conflict"
     category: security

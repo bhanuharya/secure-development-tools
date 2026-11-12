@@ -44,7 +44,6 @@ rules:
   - php
   severity: ERROR
   metadata:
-    title: Validator ignore rule built from request data
     category: security
     cwe:
     - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"

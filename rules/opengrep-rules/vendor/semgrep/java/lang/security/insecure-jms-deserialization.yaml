@@ -4,7 +4,6 @@ rules:
   languages:
   - java
   metadata:
-    title: JMS ObjectMessage deserializes untrusted data
     cwe:
     - 'CWE-502: Deserialization of Untrusted Data'
     owasp:

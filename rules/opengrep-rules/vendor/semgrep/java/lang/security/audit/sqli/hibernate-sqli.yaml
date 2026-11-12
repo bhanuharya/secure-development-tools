@@ -62,7 +62,6 @@ rules:
     Use a prepared statements (java.sql.PreparedStatement) instead. You
     can obtain a PreparedStatement using 'connection.prepareStatement'.
   metadata:
-    title: SQL statement built with string formatting
     cwe:
     - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
     source-rule-url: https://find-sec-bugs.github.io/bugs.htm#SQL_INJECTION_HIBERNATE

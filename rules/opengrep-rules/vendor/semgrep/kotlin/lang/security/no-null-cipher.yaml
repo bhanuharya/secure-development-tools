@@ -2,7 +2,6 @@ rules:
 - id: no-null-cipher
   pattern: NullCipher(...)
   metadata:
-    title: NullCipher leaves data unencrypted
     cwe:
     - 'CWE-327: Use of a Broken or Risky Cryptographic Algorithm'
     owasp:

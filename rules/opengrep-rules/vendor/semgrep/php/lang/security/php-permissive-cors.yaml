@@ -14,7 +14,6 @@ rules:
     Access-Control-Allow-Origin response header is set to "*".
     This will disable CORS Same Origin Policy restrictions.
   metadata:
-    title: CORS allows any origin
     references:
     - https://developer.mozilla.org/ru/docs/Web/HTTP/Headers/Access-Control-Allow-Origin
     owasp:

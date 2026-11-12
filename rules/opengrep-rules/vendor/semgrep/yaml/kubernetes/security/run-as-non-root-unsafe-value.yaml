@@ -40,7 +40,6 @@ rules:
     help to ensure that your containerized applications are more secure and 
     less vulnerable to privilege escalation attacks.
   metadata:
-    title: runAsNonRoot set to a false value
     references:
     - https://kubernetes.io/blog/2016/08/security-best-practices-kubernetes-deployment/
     - https://kubernetes.io/docs/concepts/policy/pod-security-policy/

@@ -6,7 +6,6 @@ rules:
     the `eval` package is an up to date alternative. Be sure that only trusted input
     reaches an `eval()` function.
   metadata:
-    title: Unmaintained notevil package used
     category: security
     references:
     - https://github.com/mmckegg/notevil

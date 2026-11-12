@@ -2,7 +2,6 @@ rules:
 - id: use-of-rc4 
   pattern: $CIPHER.getInstance("RC4") 
   metadata:
-    title: RC4 cipher used
     functional-categories:
       - 'crypto::search::symmetric-algorithm::javax.crypto'
     cwe:

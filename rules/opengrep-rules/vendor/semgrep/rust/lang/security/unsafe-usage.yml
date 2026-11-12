@@ -3,7 +3,6 @@ rules:
     message: Detected 'unsafe' usage, please audit for secure usage
     pattern: "unsafe { ... }"
     metadata:
-      title: Unsafe code needs a security review
       references:
         - https://doc.rust-lang.org/std/keyword.unsafe.html
       technology:

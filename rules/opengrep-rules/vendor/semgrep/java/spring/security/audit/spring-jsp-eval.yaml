@@ -8,7 +8,6 @@ rules:
   severity: WARNING
   languages: [generic]
   metadata:
-    title: Spring expression built from dynamic input
     cwe:
     - "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection')"
     owasp:

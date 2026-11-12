@@ -9,7 +9,6 @@ rules:
     like this: a(href='/'+url). You may also consider setting
     the Content Security Policy (CSP) header.
   metadata:
-    title: Template variable used in an href attribute
     cwe:
     - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
     owasp:

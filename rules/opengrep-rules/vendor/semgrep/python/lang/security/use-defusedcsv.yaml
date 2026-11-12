@@ -12,7 +12,6 @@ rules:
     drop-in replacement with the same API that will attempt to mitigate formula
     injection attempts. You can use `defusedcsv` instead of `csv` to safely generate CSVs.
   metadata:
-    title: Built-in csv module vulnerable to injection
     cwe:
     - 'CWE-1236: Improper Neutralization of Formula Elements in a CSV File'
     owasp:

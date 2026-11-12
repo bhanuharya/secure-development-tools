@@ -28,5 +28,3 @@ rules:
               metavariable: $ANY
               pattern-regex: .*--(allowedTools|allowed-tools)
       - focus-metavariable: $ANY
-    metadata:
-      title: Untrusted input concatenated into a GitHub prompt

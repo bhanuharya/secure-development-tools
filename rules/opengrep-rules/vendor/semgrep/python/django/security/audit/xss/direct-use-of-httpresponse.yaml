@@ -6,7 +6,6 @@ rules:
     (XSS) defenses and could result in an XSS vulnerability. Use Django's
     template engine to safely render HTML.
   metadata:
-    title: Data rendered directly in an HttpResponse
     cwe:
     - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
     owasp:

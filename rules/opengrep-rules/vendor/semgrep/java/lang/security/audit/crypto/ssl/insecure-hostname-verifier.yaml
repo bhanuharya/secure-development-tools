@@ -5,7 +5,6 @@ rules:
     any SSL certificate with any hostname, which creates the possibility
     for man-in-the-middle attacks.
   metadata:
-    title: Hostname verification disabled
     cwe:
     - 'CWE-295: Improper Certificate Validation'
     owasp:

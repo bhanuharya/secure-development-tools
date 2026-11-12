@@ -2,7 +2,6 @@ rules:
 - id: xmlinputfactory-possible-xxe
   severity: WARNING
   metadata:
-    title: XML external entities not disabled
     cwe:
     - 'CWE-611: Improper Restriction of XML External Entity Reference'
     owasp:

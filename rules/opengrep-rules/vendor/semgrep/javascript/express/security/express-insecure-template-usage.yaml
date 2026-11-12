@@ -5,7 +5,6 @@ rules:
   options:
     interfile: true
   metadata:
-    title: User input compiled into a template
     interfile: true
     category: security
     cwe:

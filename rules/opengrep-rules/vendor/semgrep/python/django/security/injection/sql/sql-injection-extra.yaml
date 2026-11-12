@@ -4,7 +4,6 @@ rules:
     and therefore protected information could be leaked. Instead, use parameterized queries or escape
     the user-controlled data by using `params` and not using quote placeholders in the SQL string.
   metadata:
-    title: Request data reaches a raw SQL clause
     cwe:
     - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
     owasp:

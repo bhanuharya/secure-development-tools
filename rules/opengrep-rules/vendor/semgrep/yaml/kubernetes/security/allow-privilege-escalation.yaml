@@ -42,7 +42,6 @@ rules:
     ensure that your containerized applications are more secure and less
     vulnerable to privilege escalation attacks.
   metadata:
-    title: Pod allows privilege escalation
     cwe:
     - 'CWE-732: Incorrect Permission Assignment for Critical Resource'
     owasp:

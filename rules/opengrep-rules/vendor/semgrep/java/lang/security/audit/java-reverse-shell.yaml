@@ -22,7 +22,6 @@ rules:
   message: Semgrep found potential reverse shell behavior
   severity: WARNING
   metadata:
-    title: Reverse shell command executed
     cwe:
     - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
     category: security

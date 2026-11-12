@@ -18,7 +18,6 @@ rules:
   - c
   severity: WARNING
   metadata:
-    title: Sensitive buffer not securely erased
     cwe:
     - 'CWE-14: Compiler Removal of Code to Clear Buffers'
     owasp:

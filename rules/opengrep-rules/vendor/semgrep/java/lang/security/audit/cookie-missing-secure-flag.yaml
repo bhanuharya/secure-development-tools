@@ -1,7 +1,6 @@
 rules:
 - id: cookie-missing-secure-flag
   metadata:
-    title: Cookie missing the Secure flag
     cwe:
     - "CWE-614: Sensitive Cookie in HTTPS Session Without 'Secure' Attribute"
     owasp:

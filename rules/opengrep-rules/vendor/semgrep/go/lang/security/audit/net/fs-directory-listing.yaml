@@ -30,7 +30,6 @@ rules:
           metavariable: $FN
           regex: (ListenAndServe|ListenAndServeTLS|Handle|HandleFunc)
   metadata:
-    title: Directory listing enabled on a file server
     category: security
     cwe:
     - 'CWE-548: Exposure of Information Through Directory Listing'

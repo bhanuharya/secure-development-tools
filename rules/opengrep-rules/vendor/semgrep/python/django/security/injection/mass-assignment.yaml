@@ -8,7 +8,6 @@ rules:
     assign each field you want to edit individually to prevent mass assignment. You
     can read more about mass assignment at https://cheatsheetseries.owasp.org/cheatsheets/Mass_Assignment_Cheat_Sheet.html.
   metadata:
-    title: Mass assignment from request data
     cwe:
     - 'CWE-915: Improperly Controlled Modification of Dynamically-Determined Object Attributes'
     owasp:

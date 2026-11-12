@@ -26,7 +26,6 @@ rules:
   languages: [go]
   severity: WARNING
   metadata:
-    title: SHA-224 used for security purposes
     owasp:
     - A03:2017 - Sensitive Data Exposure
     - A02:2021 - Cryptographic Failures

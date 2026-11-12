@@ -6,7 +6,6 @@ rules:
     by attackers. Instead, explicitly specify what to include. If that is not a viable solution, validate
     user input thoroughly.
   metadata:
-    title: File inclusion built from user input
     cwe:
     - "CWE-98: Improper Control of Filename for Include/Require Statement in PHP Program ('PHP Remote\
       \ File Inclusion')"

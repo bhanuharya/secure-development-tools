@@ -8,7 +8,6 @@ rules:
   languages: [java]
   severity: WARNING
   metadata:
-    title: SHA-1 used for security purposes
     functional-categories:
       - 'crypto::search::hash-algorithm::javax.crypto'
     owasp:

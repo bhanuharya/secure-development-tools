@@ -1,7 +1,6 @@
 rules:
 - id: gcm-detection
   metadata:
-    title: GCM mode needs a unique nonce
     category: security
     cwe:
     - 'CWE-323: Reusing a Nonce, Key Pair in Encryption'

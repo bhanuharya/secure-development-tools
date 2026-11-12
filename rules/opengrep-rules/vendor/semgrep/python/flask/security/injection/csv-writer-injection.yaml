@@ -9,7 +9,6 @@ rules:
     is a drop-in replacement with the same API that will attempt to mitigate formula injection attempts.
     You can use `defusedcsv` instead of `csv` to safely generate CSVs.
   metadata:
-    title: User input written unescaped to CSV
     category: security
     confidence: MEDIUM
     cwe:

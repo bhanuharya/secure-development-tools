@@ -8,7 +8,6 @@ rules:
     command injection. Ensure your variables are not controlled by users or sufficiently
     sanitized.
   metadata:
-    title: Runtime.exec built from a formatted string
     cwe:
     - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
     owasp:

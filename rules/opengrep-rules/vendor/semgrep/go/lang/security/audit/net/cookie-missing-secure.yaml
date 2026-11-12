@@ -17,7 +17,6 @@ rules:
     the cookie over insecure channels such as HTTP. Set the 'Secure'
     flag by setting 'Secure' to 'true' in the Options struct.
   metadata:
-    title: Session cookie missing the Secure flag
     cwe:
     - "CWE-614: Sensitive Cookie in HTTPS Session Without 'Secure' Attribute"
     owasp:

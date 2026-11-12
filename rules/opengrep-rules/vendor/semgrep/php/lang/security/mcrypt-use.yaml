@@ -9,7 +9,6 @@ rules:
     Mcrypt functionality has been deprecated and/or removed in recent PHP
     versions. Consider using Sodium or OpenSSL.
   metadata:
-    title: Deprecated mcrypt extension used
     cwe:
     - 'CWE-676: Use of Potentially Dangerous Function'
     references:

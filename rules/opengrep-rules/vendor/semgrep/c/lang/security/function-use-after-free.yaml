@@ -24,7 +24,6 @@ rules:
           ...
     message: Variable '$VAR' was passed to a function after being freed. This can lead to undefined behavior.
     metadata:
-      title: Freed memory passed to a function
       cwe:
         - "CWE-416: Use After Free"
       references:

@@ -12,7 +12,6 @@ rules:
   languages:
   - php
   metadata:
-    title: Empty guarded array allows mass assignment
     category: security
     technology:
     - php

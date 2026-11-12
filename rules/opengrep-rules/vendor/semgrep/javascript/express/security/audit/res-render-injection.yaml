@@ -9,7 +9,6 @@ rules:
   options:
     interfile: true
   metadata:
-    title: User input controls the rendered template
     interfile: true
     owasp:
     - A01:2021 - Broken Access Control

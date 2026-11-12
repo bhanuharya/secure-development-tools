@@ -9,7 +9,6 @@ rules:
     the server. This makes your HTTPS connections insecure. Remove the
     'insecure-skip-tls-verify: true' key to secure communication.
   metadata:
-    title: Cluster skips TLS verification
     cwe:
     - 'CWE-319: Cleartext Transmission of Sensitive Information'
     references:

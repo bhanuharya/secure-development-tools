@@ -54,7 +54,6 @@ rules:
                   - pattern: |
                       $ARGLIST.add(...);
   metadata:
-    title: Request input reaches a system command
     category: security
     technology:
     - java

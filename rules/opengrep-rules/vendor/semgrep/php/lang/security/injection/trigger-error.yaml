@@ -44,7 +44,6 @@ rules:
   - pattern: escapeHtml(...)
   - pattern: escapeHtmlAttr(...)
   metadata:
-    title: Error message not HTML-encoded
     technology:
     - php
     cwe:

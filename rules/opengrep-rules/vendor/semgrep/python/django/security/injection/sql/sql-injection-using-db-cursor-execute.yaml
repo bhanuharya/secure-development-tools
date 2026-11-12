@@ -5,7 +5,6 @@ rules:
     with query parameterization and therefore not vulnerable to sql injection. For example, you could
     use `Entry.objects.filter(date=2006)`.
   metadata:
-    title: Request data reaches execute()
     cwe:
     - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
     owasp:

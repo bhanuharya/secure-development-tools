@@ -3,7 +3,6 @@ rules:
     message: >-
       If unverified user data can reach the `phantom` methods it can result in Server-Side Request Forgery vulnerabilities
     metadata:
-      title: User input reaches wkhtmltoimage
       owasp:
       - A10:2021 - Server-Side Request Forgery (SSRF)
       - A01:2025 - Broken Access Control
@@ -65,7 +64,6 @@ rules:
       If unverified user data can reach the `wkhtmltopdf` methods it can result in Server-Side Request Forgery
       vulnerabilities
     metadata:
-      title: User input reaches wkhtmltopdf
       owasp:
       - A10:2021 - Server-Side Request Forgery (SSRF)
       - A01:2025 - Broken Access Control

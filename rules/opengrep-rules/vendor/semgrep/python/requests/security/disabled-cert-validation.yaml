@@ -5,7 +5,6 @@ rules:
     permits insecure connections to insecure servers. Re-enable
     certification validation.
   metadata:
-    title: TLS certificate verification disabled
     cwe:
     - 'CWE-295: Improper Certificate Validation'
     owasp:

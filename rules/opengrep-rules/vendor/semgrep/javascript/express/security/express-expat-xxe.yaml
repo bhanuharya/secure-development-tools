@@ -7,7 +7,6 @@ rules:
   options:
     interfile: true
   metadata:
-    title: User input reaches an XML parser
     interfile: true
     owasp:
     - A04:2017 - XML External Entities (XXE)

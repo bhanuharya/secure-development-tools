@@ -1,7 +1,6 @@
 rules:
 - id: laravel-sql-injection
   metadata:
-    title: SQL query built from user input
     owasp:
     - A01:2017 - Injection
     - A03:2021 - Injection

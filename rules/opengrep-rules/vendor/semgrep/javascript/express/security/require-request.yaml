@@ -6,7 +6,6 @@ rules:
   options:
     interfile: true
   metadata:
-    title: require() called with user input
     interfile: true
     owasp:
     - A01:2021 - Broken Access Control

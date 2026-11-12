@@ -7,7 +7,6 @@ rules:
     untrusted data if you can. If you must do this, consider checking the SHA sum of the content returned
     by the server to verify its integrity.
   metadata:
-    title: Remote script piped into a shell
     category: security
     cwe:
     - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"

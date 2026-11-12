@@ -3,7 +3,6 @@ rules:
   message: Detected use of parseXml() function with the `noent` field set to `true`. This can lead to
     an XML External Entities (XXE) attack if untrusted data is passed into it.
   metadata:
-    title: XML external entities enabled
     references:
     - https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html
     owasp:

@@ -1,7 +1,6 @@
 rules:
 - id: rsa-no-padding
   metadata:
-    title: RSA used without OAEP padding
     functional-categories:
       - 'crypto::search::mode::javax.crypto'
     cwe:

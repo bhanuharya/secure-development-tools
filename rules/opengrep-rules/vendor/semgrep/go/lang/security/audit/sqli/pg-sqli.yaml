@@ -10,7 +10,6 @@ rules:
     queries like so:
     '(SELECT ? FROM table, data1)'
   metadata:
-    title: SQL query built from concatenated input
     cwe:
     - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
     references:

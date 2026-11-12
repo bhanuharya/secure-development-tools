@@ -1,7 +1,6 @@
 rules:
 - id: blowfish-insufficient-key-size
   metadata:
-    title: Blowfish key shorter than 128 bits
     cwe:
     - 'CWE-326: Inadequate Encryption Strength'
     owasp:

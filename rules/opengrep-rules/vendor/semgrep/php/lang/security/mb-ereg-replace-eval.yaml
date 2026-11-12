@@ -8,7 +8,6 @@ rules:
     code execution. The eval modifier (`e`) evaluates the replacement argument
     as code.
   metadata:
-    title: mb_ereg_replace evaluates user input
     cwe:
     - "CWE-94: Improper Control of Generation of Code ('Code Injection')"
     references:

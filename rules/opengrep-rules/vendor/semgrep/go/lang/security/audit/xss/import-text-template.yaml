@@ -11,7 +11,6 @@ rules:
     your HTML content, you can help to ensure that your web application is more 
     secure and less susceptible to XSS vulnerabilities.
   metadata:
-    title: text/template renders unescaped HTML
     owasp:
     - A07:2017 - Cross-Site Scripting (XSS)
     - A03:2021 - Injection

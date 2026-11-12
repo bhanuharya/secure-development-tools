@@ -9,7 +9,6 @@ rules:
     See https://owasp.org/www-community/attacks/Server_Side_Request_Forgery to
     learn more about SSRF vulnerabilities.
   metadata:
-    title: Request URL comes from user input
     cwe:
     - 'CWE-918: Server-Side Request Forgery (SSRF)'
     owasp:

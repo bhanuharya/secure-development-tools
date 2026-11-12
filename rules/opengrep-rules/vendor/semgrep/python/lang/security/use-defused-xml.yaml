@@ -1,7 +1,6 @@
 rules:
 - id: use-defused-xml
   metadata:
-    title: Native XML parser exposed to XXE
     owasp:
     - A04:2017 - XML External Entities (XXE)
     - A05:2021 - Security Misconfiguration

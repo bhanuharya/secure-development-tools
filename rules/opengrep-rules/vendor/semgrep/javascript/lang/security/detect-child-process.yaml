@@ -5,7 +5,6 @@ rules:
     if the input is user controllable. Try to avoid calls to child_process, and if it is needed
     ensure user input is correctly sanitized or sandboxed. 
   metadata:
-    title: child_process called with a dynamic module
     cwe:
     - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
     owasp:

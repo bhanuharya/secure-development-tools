@@ -9,7 +9,6 @@ rules:
     the server. This makes your HTTPS connections insecure. Remove the
     'insecureSkipTLSVerify: true' key to secure communication.
   metadata:
-    title: Service skips TLS verification
     cwe:
     - 'CWE-319: Cleartext Transmission of Sensitive Information'
     references:

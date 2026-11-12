@@ -1,7 +1,6 @@
 rules:
 - id: unencrypted-socket
   metadata:
-    title: Socket traffic is not encrypted
     cwe:
     - 'CWE-319: Cleartext Transmission of Sensitive Information'
     owasp:

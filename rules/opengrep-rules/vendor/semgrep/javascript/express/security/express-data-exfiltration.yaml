@@ -4,7 +4,6 @@ rules:
     Depending on the context, user control data in `Object.assign` can cause web response to include data
     that it should not have or can lead to a mass assignment vulnerability.
   metadata:
-    title: Object.assign can expose or overwrite data
     owasp:
     - A08:2021 - Software and Data Integrity Failures
     - A08:2025 - Software or Data Integrity Failures

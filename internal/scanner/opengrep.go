@@ -144,6 +144,7 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 	if err := json.Unmarshal(stdout, &data); err != nil {
 		return ParseResult{Health: HealthMalformed, Diagnostics: []string{"opengrep returned invalid JSON"}}
 	}
+	titles := ruleTitles(rulePackDir(root))
 	var out []*finding.Finding
 	for i, r := range data.Results {
 		sev := finding.MapSeverity(r.Extra.Severity)
@@ -152,6 +153,9 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 		}
 		ruleID := cleanRuleID(r.CheckID)
 		ruleName := strings.TrimSpace(r.Extra.Metadata.Title)
+		if ruleName == "" {
+			ruleName = strings.TrimSpace(overlayTitle(titles, ruleID))
+		}
 		if ruleName == "" {
 			ruleName = ruleNameFromID(ruleID)
 		}
@@ -240,7 +244,9 @@ func rulePackOfExecutable() string {
 	return ""
 }
 
-func ruleFiles(root string, languages []string) []string {
+// rulePackDir is the rule pack a scan rooted at root uses. It is also where
+// the vendored-title overlay is read from.
+func rulePackDir(root string) string {
 	pack := envOr("SDT_RULES_PACK_DIR", filepath.Join(root, "rules", "opengrep-rules"))
 	// Fall back to repo-bundled rules when scanning fixtures elsewhere.
 	if _, err := os.Stat(pack); err != nil {
@@ -252,6 +258,11 @@ func ruleFiles(root string, languages []string) []string {
 			}
 		}
 	}
+	return pack
+}
+
+func ruleFiles(root string, languages []string) []string {
+	pack := rulePackDir(root)
 	var files []string
 	subs := append([]string{"common"}, languages...)
 	for _, l := range languages {

@@ -7,7 +7,6 @@ rules:
     Use parameterized SQL queries or properly sanitize user input instead.
   severity: WARNING
   metadata:
-    title: Request input reaches a SQL statement
     likelihood: HIGH
     impact: MEDIUM
     confidence: HIGH

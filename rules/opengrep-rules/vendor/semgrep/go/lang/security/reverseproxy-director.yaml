@@ -19,7 +19,6 @@ rules:
           - pattern: |
               Director: $FUNC
   metadata:
-    title: ReverseProxy Director can drop added headers
     cwe:
     - "CWE-115: Misinterpretation of Input"
     category: security

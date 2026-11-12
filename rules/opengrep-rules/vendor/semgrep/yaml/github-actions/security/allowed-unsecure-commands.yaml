@@ -13,7 +13,6 @@ rules:
     https://github.com/actions/toolkit/blob/main/docs/commands.md#environment-files for
     more information.
   metadata:
-    title: ACTIONS_ALLOW_UNSECURE_COMMANDS enabled
     cwe:
     - 'CWE-749: Exposed Dangerous Method or Function'
     owasp: 'A06:2017 - Security Misconfiguration'

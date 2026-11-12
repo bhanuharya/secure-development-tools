@@ -29,7 +29,6 @@ rules:
   severity: ERROR
   languages: [go]
   metadata:
-    title: Command built from a non-literal value
     cwe:
     - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
     category: security

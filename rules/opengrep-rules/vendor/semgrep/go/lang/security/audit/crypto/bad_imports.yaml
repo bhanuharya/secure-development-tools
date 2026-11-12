@@ -5,7 +5,6 @@ rules:
     The package is vulnerable to httpoxy attacks (CVE-2015-5386).
     It is recommended to use `net/http` or a web framework to build a web application instead.
   metadata:
-    title: Blocklisted net/http/cgi package imported
     owasp:
     - A03:2017 - Sensitive Data Exposure
     - A02:2021 - Cryptographic Failures

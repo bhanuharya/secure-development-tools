@@ -18,7 +18,6 @@ rules:
     languages: [generic]
     severity: WARNING
     metadata:
-      title: Form missing a CSRF token
       category: security
       cwe: "CWE-352: Cross-Site Request Forgery (CSRF)"
       references:

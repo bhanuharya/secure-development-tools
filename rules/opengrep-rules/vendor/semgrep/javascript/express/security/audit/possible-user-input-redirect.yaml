@@ -4,7 +4,6 @@ rules:
     It looks like '$UNK' is read from user input and it is used to as a redirect. Ensure
     '$UNK' is not externally controlled, otherwise this is an open redirect.
   metadata:
-    title: Redirect target taken from user input
     owasp:
     - A01:2021 - Broken Access Control
     - A01:2025 - Broken Access Control

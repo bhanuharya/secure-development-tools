@@ -32,7 +32,6 @@ rules:
               - pattern: Cipher.getInstance("AES")
               - pattern: (Cipher $CIPHER).getInstance("AES")
     metadata:
-      title: AES initialized without explicit mode
       functional-categories:
         - 'crypto::search::mode::javax.crypto'
       cwe:

@@ -11,6 +11,10 @@
 # across engine versions.
 #   rules/opengrep-rules/vendor/semgrep/<lang>/...   (upstream layout,
 #   hashed + pinned, alongside the existing vendor/aikido source)
+# Readable titles live in rules/opengrep-rules/vendor/titles.yaml, keyed by
+# the id the engine reports. This script never writes or deletes that file
+# (it is outside DEST). New upstream rules need a line in titles.yaml;
+# `sdt rules verify` names the vendored rules that have no title.
 # Scan targets exclude rules/opengrep-rules/vendor/** (pinned third-party
 # content is verified by hash, not scanned as first-party code).
 # License: Semgrep Rules License v1.0 (internal business use permitted;

@@ -22,7 +22,6 @@ rules:
   message: >-
     Calling assert with user input is equivalent to eval'ing.
   metadata:
-    title: assert() called with user input
     owasp:
     - A03:2021 - Injection
     - A05:2025 - Injection

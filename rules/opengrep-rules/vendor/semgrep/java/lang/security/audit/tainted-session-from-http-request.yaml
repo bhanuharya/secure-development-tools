@@ -52,7 +52,6 @@ rules:
   options:
     interfile: true
   metadata:
-    title: Request input reaches a session command
     category: security
     technology:
     - java

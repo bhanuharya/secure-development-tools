@@ -12,7 +12,6 @@ rules:
     safely. Otherwise, use
     templates (`flask.render_template`) which will safely render HTML instead.
   metadata:
-    title: User input built into an HTML string
     cwe:
     - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
     owasp:

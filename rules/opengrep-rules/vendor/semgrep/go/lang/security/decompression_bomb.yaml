@@ -45,7 +45,6 @@ rules:
     regex: (.*)(Copy|CopyBuffer)\((.*?),(.*?)(\)|,.*\))
     replacement: \1CopyN(\3, \4, 1024*1024*256)
   metadata:
-    title: Zip bomb can exhaust server resources
     cwe:
     - 'CWE-400: Uncontrolled Resource Consumption'
     source-rule-url: https://github.com/securego/gosec

@@ -14,7 +14,6 @@ rules:
     SSL verification is disabled but should not be (currently CURLOPT_SSL_VERIFYPEER=
     $IS_VERIFIED)
   metadata:
-    title: TLS verification disabled for cURL
     cwe:
     - 'CWE-319: Cleartext Transmission of Sensitive Information'
     references:

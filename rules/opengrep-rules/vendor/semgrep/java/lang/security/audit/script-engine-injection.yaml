@@ -5,7 +5,6 @@ rules:
     user-controlled data cannot enter '.eval()', otherwise, this is
     a code injection vulnerability.
   metadata:
-    title: ScriptEngine runs attacker-controlled code
     cwe:
     - "CWE-94: Improper Control of Generation of Code ('Code Injection')"
     owasp:

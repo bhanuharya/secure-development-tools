@@ -8,7 +8,6 @@ rules:
     attackers exfiltrating sensitive data. Instead, ensure no user input enters this
     function or that user input is properly sanitized.
   metadata:
-    title: Custom SQL expression extended
     cwe:
     - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
     owasp:

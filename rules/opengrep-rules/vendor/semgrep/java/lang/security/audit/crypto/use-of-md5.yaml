@@ -7,7 +7,6 @@ rules:
   languages: [java]
   severity: WARNING
   metadata:
-    title: MD5 used for security purposes
     functional-categories:
       - 'crypto::search::hash-algorithm::java.security'
     owasp:

@@ -7,7 +7,6 @@ rules:
     you know the signature is valid (because it has been checked previously in the stack) and you want
     to extract values from it.
   metadata:
-    title: JWT decoded without verifying its signature
     cwe:
     - 'CWE-345: Insufficient Verification of Data Authenticity'
     owasp:

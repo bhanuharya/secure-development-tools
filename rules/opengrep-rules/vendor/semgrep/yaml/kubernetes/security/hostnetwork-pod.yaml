@@ -12,7 +12,6 @@ rules:
     snoop on network activity of other pods on the same node. Remove the
     'hostNetwork' key to disable this functionality.
   metadata:
-    title: Pod uses the host network namespace
     cwe:
     - 'CWE-406: Insufficient Control of Network Message Volume (Network Amplification)'
     references:

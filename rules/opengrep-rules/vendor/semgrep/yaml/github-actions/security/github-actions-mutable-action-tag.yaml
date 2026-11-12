@@ -5,7 +5,6 @@ rules:
     languages:
       - yaml
     metadata:
-      title: Action pinned to a mutable tag
       category: security
       cwe:
         - "CWE-1357: Reliance on Insufficiently Trustworthy Component"

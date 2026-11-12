@@ -178,7 +178,6 @@ rules:
     actor to
     execute commands.
   metadata:
-    title: User input reaches a process spawn
     source-rule-url: https://bandit.readthedocs.io/en/latest/plugins/b605_start_process_with_a_shell.html
     cwe:
     - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"

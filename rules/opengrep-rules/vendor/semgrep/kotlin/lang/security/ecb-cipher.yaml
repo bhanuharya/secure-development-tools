@@ -1,7 +1,6 @@
 rules:
 - id: ecb-cipher
   metadata:
-    title: Cipher uses ECB mode
     cwe:
     - 'CWE-327: Use of a Broken or Risky Cryptographic Algorithm'
     owasp:

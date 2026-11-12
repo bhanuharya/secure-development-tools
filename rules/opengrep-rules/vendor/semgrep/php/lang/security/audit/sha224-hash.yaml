@@ -12,7 +12,6 @@ rules:
     in some security policies. Consider updating to a stronger hash function such
     as SHA-384 or higher to ensure compliance and security.
   metadata:
-    title: SHA-224 used for security purposes
     cwe:
     - 'CWE-328: Use of Weak Hash'
     references:

@@ -1,7 +1,6 @@
 rules:
 - id: gcm-nonce-reuse
   metadata:
-    title: GCM nonce reused for encryption
     functional-categories:
       - 'crypto::search::randomness::javax.crypto'
     cwe:

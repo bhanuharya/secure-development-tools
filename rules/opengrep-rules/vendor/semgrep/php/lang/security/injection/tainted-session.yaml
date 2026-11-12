@@ -8,7 +8,6 @@ rules:
     to be set only by the application, and manipulating the session can
     result in access control issues.
   metadata:
-    title: Session key based on user input
     technology:
     - php
     category: security

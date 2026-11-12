@@ -6,7 +6,6 @@ rules:
     Instead, consider migrating to JSF or using the Expression Language
     '${...}' with the escapeXml function in your JSP files.
   metadata:
-    title: JSP scriptlet used
     owasp:
     - A03:2021 - Injection
     - A05:2025 - Injection

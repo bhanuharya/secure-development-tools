@@ -5,7 +5,6 @@ rules:
       - pattern: new NullCipher(...);
       - pattern: new javax.crypto.NullCipher(...);
   metadata:
-    title: NullCipher leaves data unencrypted
     cwe:
     - 'CWE-327: Use of a Broken or Risky Cryptographic Algorithm'
     owasp:

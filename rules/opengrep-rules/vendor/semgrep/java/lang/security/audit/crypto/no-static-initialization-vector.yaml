@@ -6,7 +6,6 @@ rules:
     encrypts to the same ciphertext every time, weakening the strength
     of the encryption.
   metadata:
-    title: Static initialization vector used
     cwe:
     - 'CWE-329: Generation of Predictable IV with CBC Mode'
     owasp:

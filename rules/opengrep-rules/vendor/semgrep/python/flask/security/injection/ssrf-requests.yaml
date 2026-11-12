@@ -8,7 +8,6 @@ rules:
     do not forward the response to the user, and ensure proper authentication and transport-layer security
     in the proxied request.
   metadata:
-    title: Request URL comes from user input
     cwe:
     - 'CWE-918: Server-Side Request Forgery (SSRF)'
     owasp:

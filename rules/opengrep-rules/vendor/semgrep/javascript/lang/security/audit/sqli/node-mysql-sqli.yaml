@@ -6,7 +6,6 @@ rules:
     properly sanitized. In order to prevent SQL injection, it is recommended to
     use parameterized queries or prepared statements.
   metadata:
-    title: SQL query built from concatenated input
     references:
     - https://www.npmjs.com/package/mysql2
     - https://www.npmjs.com/package/mysql

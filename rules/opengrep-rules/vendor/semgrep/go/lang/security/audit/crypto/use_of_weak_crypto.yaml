@@ -7,7 +7,6 @@ rules:
   languages: [go]
   severity: WARNING
   metadata:
-    title: MD5 used for security purposes
     owasp:
     - A03:2017 - Sensitive Data Exposure
     - A02:2021 - Cryptographic Failures
@@ -42,7 +41,6 @@ rules:
   languages: [go]
   severity: WARNING
   metadata:
-    title: SHA-1 used for security purposes
     owasp:
     - A03:2017 - Sensitive Data Exposure
     - A02:2021 - Cryptographic Failures
@@ -76,7 +74,6 @@ rules:
   languages: [go]
   severity: WARNING
   metadata:
-    title: DES cipher used
     owasp:
     - A03:2017 - Sensitive Data Exposure
     - A02:2021 - Cryptographic Failures
@@ -110,7 +107,6 @@ rules:
   languages: [go]
   severity: WARNING
   metadata:
-    title: RC4 cipher used
     owasp:
     - A03:2017 - Sensitive Data Exposure
     - A02:2021 - Cryptographic Failures

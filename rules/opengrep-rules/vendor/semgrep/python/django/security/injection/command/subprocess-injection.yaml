@@ -50,7 +50,6 @@ rules:
     prefer to use Python API versions of system commands. If you must use subprocess,
     use a dictionary to allowlist a set of commands.
   metadata:
-    title: Request data reaches a subprocess call
     category: security
     technology:
     - flask

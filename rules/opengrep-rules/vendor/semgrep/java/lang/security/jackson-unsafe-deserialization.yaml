@@ -55,7 +55,6 @@ rules:
       - java
     severity: WARNING
     metadata:
-      title: Jackson default typing enables deserialization attacks
       category: security
       subcategory:
         - audit

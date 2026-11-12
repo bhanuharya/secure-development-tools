@@ -12,7 +12,6 @@ rules:
   options:
     interfile: true
   metadata:
-    title: User input concatenated into a SQL query
     cwe:
     - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
     owasp:
