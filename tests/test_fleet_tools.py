@@ -1722,11 +1722,14 @@ class _Sonar:
     """SonarQube as from_sonar reads it: one project, these hotspots and issues."""
     url = "http://sonar.example.com"
 
-    def __init__(self, hotspots, issues):
+    def __init__(self, hotspots, issues, names=None):
         self.hotspots, self.issues, self.asked = hotspots, issues, []
+        self.names = names or {}  # rule key -> the name SonarQube shows for it
 
     def get(self, path, **params):
-        return {"component": {"name": "app"}} if path == "/api/components/show" else {"rule": {"name": params["key"]}}
+        if path == "/api/components/show":
+            return {"component": {"name": "app"}}
+        return {"rule": {"name": self.names.get(params["key"], params["key"])}}
 
     def paged(self, path, key, **params):
         self.asked.append(params)
@@ -1782,6 +1785,67 @@ def test_docx_shows_the_decisions_made_in_sonarqube_on_packages_secrets_and_issu
     assert "Upgrade to 3.2.3" not in text  # an accepted package is not in Fix First
     assert "Secrets only in git history" not in text
     assert "package-lock.jsonOpen" in text and "go.modAccepted" in text  # the Status column
+
+
+def _sonar_issue(key, rule):
+    return {"key": key, "rule": rule, "component": "proj:src/A.java", "line": 1,
+            "severity": "MAJOR", "issueStatus": "OPEN", "message": "flagged"}
+
+
+def test_sonarqube_mode_takes_opengrep_titles_from_the_findings_file(tmp_path):
+    sonar = _Sonar([], [_sonar_issue("i1", "external_opengrep:scp.java.x.some-rule"),
+                        _sonar_issue("i2", "external_opengrep:scp.java.x.other-rule"),
+                        _sonar_issue("i3", "java:S2068")],
+                   names={"external_opengrep:scp.java.x.some-rule": "opengrep:scp.java.x.some-rule",
+                          "java:S2068": "Hard-coded credentials should not be used"})
+    titles = sdt_to_docx.finding_titles({"findings": [
+        {"rule": {"id": "scp.java.x.some-rule", "name": "Some rule from the findings"}},
+        {"rule": {"id": "scp.java.x.other-rule"}}]})  # this finding's rule has no title
+    _, found = sdt_to_docx.from_sonar(sonar, "proj", "main", "", titles)
+    names = {g.rule: g.name for g in found["code"]}
+    assert names["external_opengrep:scp.java.x.some-rule"] == "Some rule from the findings"
+    assert names["external_opengrep:scp.java.x.other-rule"] == "Other rule"  # from the last id segment
+    assert names["java:S2068"] == "Hard-coded credentials should not be used"  # SonarQube's own name
+
+    report = sdt_to_docx.Report("app", "ws/app", "branch main", "", "abc", "SonarQube", found["code"], [],
+                                [], [], sdt_to_docx.date(2026, 11, 12))
+    out = tmp_path / "titles.docx"
+    sdt_to_docx.write_docx(report, None, out)
+    text, *_ = _docx(out)
+    assert "Some rule from the findings [some-rule] - 1 Finding" in text
+    assert "Other rule [other-rule] - 1 Finding" in text
+    assert "Hard-coded credentials should not be used [S2068] - 1 Finding" in text
+
+
+def test_sonarqube_mode_derives_opengrep_titles_without_findings():
+    sonar = _Sonar([], [_sonar_issue("i1", "external_opengrep:scp.java.x.some-rule"),
+                        _sonar_issue("i2", "java:S2068")],
+                   names={"external_opengrep:scp.java.x.some-rule": "opengrep:scp.java.x.some-rule",
+                          "java:S2068": "Hard-coded credentials should not be used"})
+    _, found = sdt_to_docx.from_sonar(sonar, "proj", "main", "", None)
+    names = {g.rule: g.name for g in found["code"]}
+    assert names["external_opengrep:scp.java.x.some-rule"] == "Some rule"
+    assert names["java:S2068"] == "Hard-coded credentials should not be used"
+    assert sdt_to_docx.rule_name_from_id("scp.java.x.some_rule-name") == "Some rule name"
+
+
+def test_docx_main_uses_the_findings_title_in_sonarqube_mode(tmp_path, monkeypatch):
+    findings = tmp_path / "findings.json"
+    findings.write_text(json.dumps({"findings": [
+        {"scanner": {"adapter": "opengrep"}, "category": "sast",
+         "rule": {"id": "scp.java.x.some-rule", "name": "Some rule from the findings"},
+         "severity": {"canonical": "high"}, "message": "flagged",
+         "location": {"path": "src/A.java", "startLine": 1}}]}))
+    sonar = _Sonar([], [_sonar_issue("i1", "external_opengrep:scp.java.x.some-rule")],
+                   names={"external_opengrep:scp.java.x.some-rule": "opengrep:scp.java.x.some-rule"})
+    monkeypatch.setattr(sdt_to_docx, "Sonar", lambda url, token: sonar)
+    monkeypatch.setenv("SONAR_TOKEN", "test")
+    out = tmp_path / "report.docx"
+    monkeypatch.setattr(sys, "argv", ["sdt_to_docx.py", "--sonar-url", "http://sonar.example.com",
+                                      "--project-key", "proj", "--findings", str(findings), "--out", str(out)])
+    assert sdt_to_docx.main() == 0
+    text, *_ = _docx(out)
+    assert "Some rule from the findings [some-rule]" in text
 
 
 def _hotspot(key, path, line, **extra):

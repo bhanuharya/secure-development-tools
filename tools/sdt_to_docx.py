@@ -325,7 +325,45 @@ def _worse(a: str, b: str) -> str:
 
 
 # ------------------------------------------------------------------- sonar source
-def from_sonar(sonar: Sonar, project_key: str, branch: str, pull_request: str) -> tuple[str, dict]:
+OPENGREP_EXTERNAL = "external_opengrep:"  # SonarQube's key for an imported rule-pack finding
+
+
+def rule_name_from_id(rule_id: str) -> str:
+    """The last id segment as words: 'scp.java.x.some-rule' -> 'Some rule'.
+
+    Mirrors ruleNameFromID in internal/scanner/helpers.go, the scanner's fallback
+    for a rule without a metadata title, so both reports name a rule the same way.
+    """
+    name = re.split(r"[./]", rule_id)[-1].strip().replace("-", " ").replace("_", " ").strip()
+    return name[:1].upper() + name[1:]
+
+
+def finding_titles(findings: dict | None) -> dict[str, str]:
+    """Rule id -> readable title from findings.json (the scanner writes rule.name since T18)."""
+    titles: dict[str, str] = {}
+    for finding in (findings or {}).get("findings") or []:
+        rule = finding.get("rule") or {}
+        rule_id, name = str(rule.get("id") or ""), str(rule.get("name") or "").strip()
+        if rule_id and name:
+            titles.setdefault(rule_id, name)
+    return titles
+
+
+def sonar_title(rule_key: str, sonar_name: str, titles: dict[str, str] | None = None) -> str:
+    """The title for a SonarQube rule key.
+
+    A finding the plugin imports is keyed 'external_opengrep:<rule id>' and named
+    'opengrep:<rule id>'. Its readable title lives in the findings file; without one,
+    derive it from the id, as the scanner does. Never show the 'opengrep:' prefix.
+    """
+    if not rule_key.startswith(OPENGREP_EXTERNAL):
+        return sonar_name
+    rule_id = rule_key.split(":", 1)[1]
+    return (titles or {}).get(rule_id) or rule_name_from_id(rule_id) or rule_id
+
+
+def from_sonar(sonar: Sonar, project_key: str, branch: str, pull_request: str,
+               titles: dict[str, str] | None = None) -> tuple[str, dict]:
     """Project name and the four categories as SonarQube reports them."""
     scope = {"branch": branch, "pullRequest": pull_request}
     component = sonar.get("/api/components/show", component=project_key, **scope)["component"]
@@ -344,8 +382,10 @@ def from_sonar(sonar: Sonar, project_key: str, branch: str, pull_request: str) -
 
     def code(rule_key: str, kind: str, severity: str, occurrence: Occurrence) -> None:
         if rule_key not in groups:
-            risk, fixes = rule_texts(rule(rule_key))
-            groups[rule_key] = Group(rule_key, rule(rule_key).get("name", rule_key), kind, severity, risk, fixes)
+            data = rule(rule_key)
+            risk, fixes = rule_texts(data)
+            groups[rule_key] = Group(rule_key, sonar_title(rule_key, data.get("name", rule_key), titles),
+                                     kind, severity, risk, fixes)
         group = groups[rule_key]
         group.severity = _worse(group.severity, severity)
         group.occurrences.append(occurrence)
@@ -1804,10 +1844,12 @@ def main() -> int:
         return 2
 
     sdt, doc = None, {}
+    titles: dict[str, str] = {}
     if args.findings:
         try:
             doc = json.loads(args.findings.read_text())
             sdt = from_findings(doc, args.src_root)
+            titles = finding_titles(doc)
         except (OSError, ValueError) as exc:
             print(f"sdt_to_docx: invalid findings: {exc}", file=sys.stderr)
             return 2
@@ -1817,7 +1859,8 @@ def main() -> int:
             print("sdt_to_docx: --sonar-url needs --project-key and SONAR_TOKEN", file=sys.stderr)
             return 2
         try:
-            name, sonar = from_sonar(Sonar(args.sonar_url, token), args.project_key, args.branch, args.pull_request)
+            name, sonar = from_sonar(Sonar(args.sonar_url, token), args.project_key, args.branch,
+                                     args.pull_request, titles)
         except (OSError, ValueError, KeyError) as exc:
             print(f"sdt_to_docx: cannot read SonarQube: {exc}", file=sys.stderr)
             return 2
