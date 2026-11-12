@@ -11,7 +11,7 @@ import (
 // common/secrets.yaml). It must stay in step with the hardcoded-secret rules: a name those
 // rules report must never be copied into evidence, findings or a prompt.
 const secretKeyNames = `password|passwd|pwd|passphrase|secret|token|salt|credentials?|apikey|` +
-	`(?:api|app|auth|access|aes|cookie|encryption|hmac|jwt|master|private|secret|session|signing)[_-]?key`
+	`(?:api|app|auth|access|aes|cookie|encryption|hmac|jwt|master|private|secret|session|signing)[._-]?key`
 
 var (
 	secretAssignment = regexp.MustCompile(`(?i)((?:` + secretKeyNames + `)["']?\s*[:=]\s*)` +

@@ -1242,13 +1242,40 @@ def test_triage_never_sends_secret_values(tmp_path):
 
 def test_the_shared_redactor_covers_every_secret_name_the_rules_report():
     value = "S3cret" + "Value42"  # built at runtime: no key-shaped literal in the source
-    names = ("SIGNING_KEY", "CLIENT_SECRET", "SECRET_KEY", "ENCRYPTION_KEY", "AES_KEY", "HMAC_KEY",
-             "PRIVATE_KEY", "JWT_SECRET", "API_KEY", "ACCESS_KEY", "MASTER_KEY", "DB_PASSWORD")
+    names = ("SIGNING_KEY", "signing.key", "CLIENT_SECRET", "SECRET_KEY", "ENCRYPTION_KEY", "AES_KEY",
+             "HMAC_KEY", "PRIVATE_KEY", "JWT_SECRET", "API_KEY", "ACCESS_KEY", "MASTER_KEY", "DB_PASSWORD")
     for name in names:
         line = f'  static final String {name} = "{value}";'
         assert value not in sdt_advisory.redact(line), name
     # A role and a middleware name are not credentials: evidence keeps them readable.
     assert sdt_advisory.redact('RequireRole("admin")') == 'RequireRole("admin")'
+
+
+def test_the_shared_redactor_removes_middleware_credentials():
+    value = "S3cret" + "Value42"  # built at runtime: no key-shaped literal in the source
+    lines = (
+        f'gin.Accounts{{"operator": "{value}"}}',
+        f'gin.BasicAuth(gin.Accounts{{"operator": "{value}"}})',
+        f'BasicAuth("operator", "{value}")',
+        f'Credentials("operator", "{value}")',
+    )
+    for line in lines:
+        out = sdt_advisory.redact(line)
+        assert value not in out, line
+        assert "[REDACTED]" in out, line
+    assert sdt_advisory.redact('RequireRole("admin")') == 'RequireRole("admin")'
+
+
+def test_the_prompt_redacts_middleware_credentials_in_scanner_messages():
+    value = "S3cret" + "Value42"  # built at runtime: no key-shaped literal in the source
+    container = f'gin.Accounts{{"operator": "{value}"}}'
+    group = sdt_to_docx.Group("scp.endpoints.unprotected-among-protected", "Route is public",
+                              "Finding", "Medium", risk=[f"the peers use gin.BasicAuth({container})"])
+    occurrence = sdt_to_docx.Occurrence("main.go", 1, f"peers use {container}", "Open", "")
+    prompt = sdt_triage_codex.build_prompt(
+        group, [("o1", occurrence, f'api := r.Group("/api", gin.BasicAuth({container}))')])
+    assert value not in prompt
+    assert "[REDACTED]" in prompt
 
 
 def test_a_signing_key_literal_never_reaches_prompt_answer_memory_or_report(tmp_path):

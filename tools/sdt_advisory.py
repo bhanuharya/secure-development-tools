@@ -35,7 +35,7 @@ SECRET_PATTERNS = [
 # The key names the rule pack treats as secret (T11/T17 and common/secrets.yaml). Keep this list
 # in step with rules/opengrep-rules/*/identity.yaml: a name the rules report must never be sent.
 SECRET_WORD = (r"password|passwd|pwd|passphrase|secret|token|salt|credentials?|apikey|"
-               r"(?:api|app|auth|access|aes|cookie|encryption|hmac|jwt|master|private|secret|session|signing)[_-]?key")
+               r"(?:api|app|auth|access|aes|cookie|encryption|hmac|jwt|master|private|secret|session|signing)[._-]?key")
 SECRET_ASSIGNMENT = re.compile(
     rf"""(?i)((?:{SECRET_WORD}|auth)["']?\s*[:=]\s*)(["'])([^"'\s]+)\2""")
 # A literal default of a secret lookup is the value the application runs with when the variable is missing:
@@ -67,6 +67,58 @@ ANY_CONFIG_VALUE = re.compile(
         (?P<quote>["']?)(?P<value>[^"'\s#][^#]*?)(?P=quote)(?P<tail>\s*(?:\#.*)?)$""")
 CREDENTIAL_RULE = re.compile(r"(?i)S6437|S2068|S6418|S6290|hardcoded|hard-coded|secrets?[.:-]|private-key")
 QUOTED = re.compile(r"""(["'])((?:(?!\1).)+)\1""")
+# Middleware credential containers: gin.Accounts{...}, BasicAuth(...), a Credentials(...) helper.
+# Their arguments are values, not names worth keeping. The bracket must follow the name, so a path
+# such as accounts.controller.ts is not mistaken for a container.
+CREDENTIAL_CONTAINER = re.compile(r"(?i)\b(?:accounts|basicauth|credentials?)\s*[({]")
+CONTAINER_QUOTED = re.compile(r"""(["'`])((?:\\.|(?!\1).)*)\1""", re.S)
+
+
+def _matching_bracket(text: str, open_index: int) -> int:
+    """The index of the bracket closing the one at open_index, ignoring quoted brackets."""
+    depth, quote, i = 0, "", open_index
+    while i < len(text):
+        char = text[i]
+        if quote:
+            if char == "\\":
+                i += 2
+                continue
+            if char == quote:
+                quote = ""
+        elif char in "\"'`":
+            quote = char
+        elif char in "({[":
+            depth += 1
+        elif char in ")}]":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+
+def _redact_containers(text: str, withheld: set | None) -> str:
+    """Replace the quoted arguments of a credential container; values join `withheld` when given."""
+    out, offset = text, 0
+    while True:
+        found = CREDENTIAL_CONTAINER.search(out, offset)
+        if not found:
+            return out
+        open_index = found.end() - 1
+        close_index = _matching_bracket(out, open_index)
+        if close_index < 0:
+            return out
+
+        def hide(match: re.Match) -> str:
+            value = match.group(2).strip()
+            if withheld is not None and not _kept(value):
+                withheld.add(value)
+            return f"{match.group(1)}[REDACTED]{match.group(1)}"
+
+        inner = CONTAINER_QUOTED.sub(hide, out[open_index + 1:close_index])
+        out = out[:open_index + 1] + inner + out[close_index:]
+        offset = open_index + 1 + len(inner) + 1
+
 
 # Vue/JS HTML-injection hotspots (S6299). A binding is a false positive when the value is produced by a
 # sanitiser/validator, an i18n call, or a constant. Generic markers are matched below; a project adds its own
@@ -144,6 +196,8 @@ def redact(text: str, path: str = "", withheld: set | None = None) -> str:
             withheld.add(value.strip())
         return hidden
 
+    # A middleware credential has no secret-shaped name, so the container is the only signal.
+    text = _redact_containers(text, withheld)
     for pattern in SECRET_PATTERNS:
         text = pattern.sub("[REDACTED]", text)
 
