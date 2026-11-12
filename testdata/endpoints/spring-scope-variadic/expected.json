@@ -1,0 +1,52 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/admin/audit",
+      "handler": "Controller.audit",
+      "file": "Controller.java",
+      "line": 11,
+      "protection": "authenticated",
+      "evidence": [
+        "Security.java:12 .anyRequest().authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/api/orders",
+      "handler": "Controller.orders",
+      "file": "Controller.java",
+      "line": 8,
+      "protection": "authenticated",
+      "evidence": [
+        "Security.java:12 .anyRequest().authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/transfer",
+      "handler": "Controller.transfer",
+      "file": "Controller.java",
+      "line": 5,
+      "protection": "public",
+      "evidence": [
+        "no chain scope matches; Spring leaves the request unsecured"
+      ],
+      "confidence": "low"
+    }
+  ],
+  "summary": {
+    "authenticated": 2,
+    "public": 1
+  }
+}

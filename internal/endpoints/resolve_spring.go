@@ -18,6 +18,8 @@ var (
 	springRolePrefixRe = regexp.MustCompile(`(?i)^ROLE_`)
 	springPathVarRe    = regexp.MustCompile(`\{([A-Za-z_][A-Za-z0-9_]*)\s*:[^{}]*\}`)
 	springQuotedRe     = regexp.MustCompile(`["']([^"']*)["']`)
+	springIdentRe      = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)*$`)
+	springMethodArgRe  = regexp.MustCompile(`^HttpMethod\.([A-Z]+)\b\s*`)
 )
 
 // springGate is one @PreAuthorize, @Secured or @RolesAllowed annotation.
@@ -37,10 +39,14 @@ type springMatcher struct {
 	line    int
 	column  int
 	name    string // antMatchers, mvcMatchers, requestMatchers, pathMatchers, anyRequest, anyExchange
-	pattern string // path pattern; "/**" for the fallback
+	pattern string // path pattern; "/**" for the fallback; empty when unresolved
 	method  string // HTTP method when the matcher names one, else ""
 	access  string // permitAll, authenticated, hasRole, ...
 	args    string // raw access arguments, e.g. "admin:write"
+	raw     string // source expression when it was a constant or call
+	unknown bool   // the expression could not be resolved to a path
+	// accessUnknown marks an access rule this resolver does not model.
+	accessUnknown bool
 }
 
 // springScope restricts a chain to a request subset (securityMatcher,
@@ -48,6 +54,44 @@ type springMatcher struct {
 type springScope struct {
 	pattern string
 	method  string
+}
+
+// springScopeCall is one chain-scope call before its argument list is parsed.
+type springScopeCall struct {
+	file  string
+	line  int
+	name  string
+	owner string
+	args  string
+}
+
+// springIgnored is one WebSecurityCustomizer path that bypasses the filters.
+type springIgnored struct {
+	file    string
+	line    int
+	name    string
+	raw     string
+	pattern string
+}
+
+func (i springIgnored) evidence() string {
+	return fmt.Sprintf("%s:%d web.ignoring().%s(%s)", i.file, i.line, i.name, i.raw)
+}
+
+// springFilter is one authentication mechanism or filter of a chain.
+type springFilter struct {
+	file string
+	line int
+	name string
+	args string
+}
+
+// springConstant is one static final String declaration.
+type springConstant struct {
+	file  string
+	class string
+	name  string
+	value string
 }
 
 // springChain is one SecurityFilterChain bean or configure(HttpSecurity)
@@ -61,16 +105,20 @@ type springChain struct {
 	order    int
 	scopes   []springScope
 	matchers []springMatcher
+	filters  []springFilter
 }
 
 // springConfig holds the authorization rules of one service.
 type springConfig struct {
 	matchers []springMatcher // flat list when no chain facts were found
 	chains   []*springChain
+	ignored  []springIgnored
 	webflux  bool // pathMatchers/anyExchange: label routes spring-webflux
-	// ownershipUnknown means a rule or order fact could not be tied to a
-	// recognized chain, so applying any chain would guess its boundaries.
+	// ignoredUnknown and ownershipUnknown mean an unmodelled construct could
+	// change the decision, so applying the visible rules would guess.
+	ignoredUnknown   []string
 	ownershipUnknown bool
+	ownershipNote    string
 }
 
 // resolveSpring resolves the Java facts. Kotlin is out of scope (SPEC §9);
@@ -177,12 +225,15 @@ func springRoute(f Fact, prefix string, classGates, methodGates map[string][]spr
 	handler := class + "." + method
 	verb := springVerb(f.Metavars["$VERB"])
 	path := joinPaths([]string{prefix}, springPathVarRe.ReplaceAllString(f.Metavars["$PATH"], "{$1}"))
-	protection, roles, evidence, confidence := springProtection(f, class, method, verb, path, classGates, methodGates, cfg)
+	protection, roles, evidence, confidence, note := springProtection(f, class, method, verb, path, classGates, methodGates, cfg)
 	sentence := ""
 	if protection == ProtUnknown {
-		if cfg == nil {
+		switch {
+		case note != "":
+			sentence = fmt.Sprintf("%s:%d %s: %s", f.File, f.Line, handler, note)
+		case cfg == nil:
 			sentence = fmt.Sprintf("%s:%d %s: no security configuration in the service; protection unknown", f.File, f.Line, handler)
-		} else {
+		default:
 			sentence = fmt.Sprintf("%s:%d %s: protection cannot be decided", f.File, f.Line, handler)
 		}
 	}
@@ -204,7 +255,7 @@ func springRoute(f Fact, prefix string, classGates, methodGates map[string][]spr
 // springProtection prefers the method's own gate; a method gate overrides the
 // class gate (Spring Security applies the most specific annotation). Only a
 // route without any gate is handed to the security configuration.
-func springProtection(f Fact, class, method, verb, path string, classGates, methodGates map[string][]springGate, cfg *springConfig) (Protection, []string, []string, string) {
+func springProtection(f Fact, class, method, verb, path string, classGates, methodGates map[string][]springGate, cfg *springConfig) (Protection, []string, []string, string, string) {
 	gates := methodGates[springMethodKey(f)]
 	classLevel := false
 	if len(gates) == 0 {
@@ -212,13 +263,14 @@ func springProtection(f Fact, class, method, verb, path string, classGates, meth
 		classLevel = len(gates) > 0
 	}
 	if len(gates) > 0 {
-		return springGateDecision(gates, classLevel)
+		protection, roles, evidence, confidence := springGateDecision(gates, classLevel)
+		return protection, roles, evidence, confidence, ""
 	}
 	if cfg != nil {
-		return cfg.decide(path, verb)
+		return cfg.decideWithNote(path, verb)
 	}
 	evidence := fmt.Sprintf("%s:%d no security configuration in the service", f.File, f.Line)
-	return ProtUnknown, nil, []string{evidence}, "low"
+	return ProtUnknown, nil, []string{evidence}, "low", ""
 }
 
 // springGateDecision merges the (rare) multiple gates of one method. All must
@@ -227,7 +279,7 @@ func springProtection(f Fact, class, method, verb, path string, classGates, meth
 // authentication, then an unknown decision, then public.
 func springGateDecision(gates []springGate, classLevel bool) (Protection, []string, []string, string) {
 	var evidence, roles []string
-	authenticated, denied, unknown := false, false, false
+	authenticated, denied, unknown, role := false, false, false, false
 	confidence := "high"
 	for _, g := range gates {
 		protection, gateRoles, known := springGateOutcome(g)
@@ -239,6 +291,7 @@ func springGateDecision(gates []springGate, classLevel bool) (Protection, []stri
 		case ProtDenied:
 			denied = true
 		case ProtRole:
+			role = true
 			roles = append(roles, gateRoles...)
 		case ProtAuthenticated:
 			authenticated = true
@@ -249,7 +302,7 @@ func springGateDecision(gates []springGate, classLevel bool) (Protection, []stri
 	switch {
 	case denied:
 		return ProtDenied, nil, evidence, confidence
-	case len(roles) > 0:
+	case role:
 		return ProtRole, dedupe(roles), evidence, confidence
 	case authenticated:
 		return ProtAuthenticated, nil, evidence, confidence
@@ -270,6 +323,12 @@ func springGateOutcome(g springGate) (Protection, []string, bool) {
 	roles := springRoles(g.expr)
 	if len(roles) > 0 {
 		return ProtRole, roles, true
+	}
+	// @Secured(Constants.ADMIN) and @RolesAllowed(Constants.X) name a role even
+	// when the value lives in a constant; dropping to authenticated would hide
+	// the missing-role convention (T35 finding 11).
+	if strings.TrimSpace(g.expr) != "" {
+		return ProtRole, nil, false
 	}
 	return ProtAuthenticated, nil, false
 }
@@ -332,25 +391,20 @@ func springAnnotationText(g springGate, roles []string) string {
 // springBuild is the per-service accumulator while facts are grouped into
 // chains. Matchers and scopes are attached by source span in finish.
 type springBuild struct {
-	chains   []*springChain
-	orders   []springOrderFact
-	scopes   []springScopeFact
-	matchers []springMatcher
-	webflux  bool
+	chains    []*springChain
+	orders    []springOrderFact
+	scopes    []springScopeCall
+	matchers  []springMatcher
+	constants []springConstant
+	ignored   []springIgnored
+	filters   []springFilter
+	webflux   bool
 }
 
 type springOrderFact struct {
 	file  string
 	line  int
 	order string
-}
-
-type springScopeFact struct {
-	file  string
-	line  int
-	name  string
-	owner string
-	scope springScope
 }
 
 // springConfigs collects the security rules of every service. The service of
@@ -363,7 +417,9 @@ func springConfigs(facts []Fact, root string) map[string]*springConfig {
 			continue
 		}
 		switch f.Kind {
-		case "security_chain", "security_order", "security_scope", "security_matcher", "security_default":
+		case "security_chain", "security_order", "security_scope", "security_matcher",
+			"security_matcher_expression", "security_matcher_unmodelled", "security_default",
+			"security_ignored", "security_filter", "string_constant":
 		default:
 			continue
 		}
@@ -394,55 +450,97 @@ func (b *springBuild) add(f Fact) {
 	case "security_order":
 		b.orders = append(b.orders, springOrderFact{file: f.File, line: f.Line, order: f.Metavars["$ORDER"]})
 	case "security_scope":
-		if f.Metavars["$PATTERN"] == "" {
-			return
-		}
-		b.scopes = append(b.scopes, springScopeFact{
-			file: f.File, line: f.Line, name: f.Metavars["$SCOPE"], owner: f.Metavars["$OWNER"],
-			scope: springScope{pattern: f.Metavars["$PATTERN"], method: normalizeOptionalMethod(f.Metavars["$METHOD"])},
+		b.scopes = append(b.scopes, springScopeCall{
+			file: f.File, line: f.Line,
+			name: f.Metavars["$SCOPE"], owner: f.Metavars["$OWNER"],
+			args: f.Metavars["$...ARGS"],
 		})
-	case "security_matcher":
-		m := springMatcher{
-			file: f.File, line: f.Line, column: f.Column,
-			name:    f.Metavars["$MATCHER"],
-			pattern: f.Metavars["$PATTERN"],
-			method:  normalizeOptionalMethod(f.Metavars["$METHOD"]),
-			access:  f.Metavars["$ACCESS"],
-			args:    f.Metavars["$...ARGS"],
-		}
-		if m.pattern != "" && m.name != "" && m.access != "" {
+	case "security_filter":
+		b.filters = append(b.filters, springFilter{
+			file: f.File, line: f.Line,
+			name: springFilterName(f),
+			args: f.Metavars["$FILTER"],
+		})
+	case "string_constant":
+		b.constants = append(b.constants, springConstant{
+			file: f.File, class: f.Metavars["$C"],
+			name: f.Metavars["$NAME"], value: f.Metavars["$VALUE"],
+		})
+	case "security_ignored":
+		b.ignored = append(b.ignored, springIgnored{
+			file: f.File, line: f.Line,
+			name: f.Metavars["$IGNORE"], raw: f.Metavars["$...ARGS"],
+		})
+	case "security_matcher", "security_matcher_expression":
+		if m, ok := springMatcherFact(f); ok {
 			b.matchers = append(b.matchers, m)
+			b.markFramework(f.Metavars["$MATCHER"], "")
+		}
+	case "security_matcher_unmodelled":
+		m, ok := springMatcherFact(f)
+		if ok {
+			m.accessUnknown = true
+			b.matchers = append(b.matchers, m)
+			b.markFramework(f.Metavars["$MATCHER"], "")
 		}
 	case "security_default":
-		m := springMatcher{
-			file: f.File, line: f.Line, column: f.Column,
-			name:    f.Metavars["$DEFAULT"],
-			pattern: "/**",
-			access:  f.Metavars["$ACCESS"],
-			args:    f.Metavars["$...ARGS"],
-		}
-		if m.name != "" && m.access != "" {
+		if m, ok := springDefaultFact(f); ok {
 			b.matchers = append(b.matchers, m)
-		}
-	}
-	if f.Kind == "security_matcher" {
-		name := f.Metavars["$MATCHER"]
-		if name == "pathMatchers" {
-			b.webflux = true
-		}
-	}
-	if f.Kind == "security_default" {
-		name := f.Metavars["$DEFAULT"]
-		if name == "anyExchange" {
-			b.webflux = true
+			b.markFramework("", f.Metavars["$DEFAULT"])
 		}
 	}
 }
 
+func springMatcherFact(f Fact) (springMatcher, bool) {
+	m := springMatcher{
+		file: f.File, line: f.Line, column: f.Column,
+		name:    f.Metavars["$MATCHER"],
+		pattern: f.Metavars["$PATTERN"],
+		method:  normalizeOptionalMethod(f.Metavars["$METHOD"]),
+		access:  f.Metavars["$ACCESS"],
+		args:    f.Metavars["$...ARGS"],
+	}
+	if f.Kind == "security_matcher_expression" {
+		m.raw = f.Metavars["$PATTERN"]
+	}
+	if m.name == "" || m.access == "" || (m.pattern == "" && m.raw == "") {
+		return springMatcher{}, false
+	}
+	return m, true
+}
+
+func springDefaultFact(f Fact) (springMatcher, bool) {
+	m := springMatcher{
+		file: f.File, line: f.Line, column: f.Column,
+		name:    f.Metavars["$DEFAULT"],
+		pattern: "/**",
+		access:  f.Metavars["$ACCESS"],
+		args:    f.Metavars["$...ARGS"],
+	}
+	return m, m.name != "" && m.access != ""
+}
+
+func (b *springBuild) markFramework(matcher, fallback string) {
+	if matcher == "pathMatchers" || fallback == "anyExchange" {
+		b.webflux = true
+	}
+}
+
+// springFilterName reads the call name of either filter rule: addFilter* names
+// the method metavariable, the mechanism rule names $MECHANISM.
+func springFilterName(f Fact) string {
+	if name := f.Metavars["$MECHANISM"]; name != "" {
+		return name
+	}
+	return f.Metavars["$FILTER_KIND"]
+}
+
 // finish assigns scopes and matchers to the chain whose span contains them,
-// then orders the chains deterministically in source order.
+// then orders the chains deterministically in source order. Unreadable
+// constructs are recorded instead of being dropped, so the decision becomes
+// unknown rather than a guess (T35).
 func (b *springBuild) finish() *springConfig {
-	if len(b.chains) == 0 && len(b.matchers) == 0 {
+	if len(b.chains) == 0 && len(b.matchers) == 0 && len(b.ignored) == 0 {
 		return nil // a scope without a chain is not security configuration we can use
 	}
 	sort.SliceStable(b.chains, func(i, j int) bool {
@@ -453,47 +551,13 @@ func (b *springBuild) finish() *springConfig {
 		return a.line < c.line
 	})
 	cfg := &springConfig{webflux: b.webflux}
-	// An @Order without a recognized chain usually means a chain signature
-	// this resolver does not know; guessing a flat matcher list would erase
-	// the chain boundaries the order exists to define.
-	if len(b.chains) == 0 && len(b.orders) > 0 {
-		cfg.ownershipUnknown = true
-	}
-	for _, order := range b.orders {
-		chain := chainContaining(b.chains, order.file, order.line)
-		if chain == nil || chain.ordered {
-			continue
-		}
-		if value, err := strconv.Atoi(strings.TrimSpace(order.order)); err == nil {
-			chain.ordered, chain.order = true, value
-		}
-	}
+	b.assignOrders(cfg)
 	for _, sc := range b.scopes {
-		chain := chainContaining(b.chains, sc.file, sc.line)
-		if chain == nil {
-			if len(b.chains) > 0 && sc.name != "requestMatchers" {
-				cfg.ownershipUnknown = true
-			}
-			continue
-		}
-		// requestMatchers() is also an authorization matcher inside a lambda;
-		// the owner check keeps that from becoming a chain scope. The other
-		// names only exist on HttpSecurity, so their owner is a formality.
-		if chain.http == sc.owner || sc.name != "requestMatchers" {
-			chain.scopes = append(chain.scopes, sc.scope)
-		}
+		b.addScope(cfg, sc)
 	}
-	var leftover []springMatcher
-	for _, m := range b.matchers {
-		if c := chainFor(b.chains, m); c != nil {
-			c.matchers = append(c.matchers, m)
-		} else if len(b.chains) > 0 {
-			// A matcher that no chain span owns cannot be assigned safely.
-			cfg.ownershipUnknown = true
-		} else {
-			leftover = append(leftover, m)
-		}
-	}
+	cfg.ignored = b.resolveIgnored(cfg)
+	leftover := b.assignMatchers(cfg)
+	b.assignFilters()
 	for _, c := range b.chains {
 		sortSpringMatchers(c.matchers)
 	}
@@ -504,6 +568,142 @@ func (b *springBuild) finish() *springConfig {
 	}
 	cfg.chains = b.chains
 	return cfg
+}
+
+func (b *springBuild) assignOrders(cfg *springConfig) {
+	// An @Order without a recognized chain usually means a chain signature
+	// this resolver does not know; guessing a flat matcher list would erase
+	// the chain boundaries the order exists to define.
+	if len(b.chains) == 0 && len(b.orders) > 0 {
+		cfg.ownershipUnknown = true
+		cfg.ownershipNote = "an @Order fact has no recognized security chain"
+	}
+	for _, order := range b.orders {
+		chain := chainContaining(b.chains, order.file, order.line)
+		if chain == nil || chain.ordered {
+			continue
+		}
+		if value, err := strconv.Atoi(strings.TrimSpace(order.order)); err == nil {
+			chain.ordered, chain.order = true, value
+		}
+	}
+}
+
+// assignMatchers resolves expression patterns and attaches matchers to their
+// chain; without chains the matchers stay flat for the legacy configurer.
+func (b *springBuild) assignMatchers(cfg *springConfig) []springMatcher {
+	var leftover []springMatcher
+	for _, m := range b.matchers {
+		if m.raw != "" && !m.unknown {
+			if value, ok := b.resolvePattern(m.raw, m.file); ok {
+				m.pattern = value
+			} else {
+				m.unknown = true
+			}
+		}
+		if m.pattern == "" && !m.unknown {
+			continue
+		}
+		if c := chainFor(b.chains, m); c != nil {
+			c.matchers = append(c.matchers, m)
+		} else if len(b.chains) > 0 {
+			// A matcher that no chain span owns cannot be assigned safely.
+			cfg.ownershipUnknown = true
+			cfg.ownershipNote = m.evidence() + " belongs to no recognized security chain"
+		} else {
+			leftover = append(leftover, m)
+		}
+	}
+	return leftover
+}
+
+func (b *springBuild) assignFilters() {
+	for _, f := range b.filters {
+		if c := chainContaining(b.chains, f.file, f.line); c != nil {
+			c.filters = append(c.filters, f)
+		}
+	}
+}
+
+// addScope parses one scope call and attaches its patterns. The builder's
+// requestMatchers() has an empty argument list, so that call is skipped here
+// while the following .antMatchers(...) call carries the patterns.
+func (b *springBuild) addScope(cfg *springConfig, sc springScopeCall) {
+	if strings.TrimSpace(sc.args) == "" {
+		return
+	}
+	chain := chainContaining(b.chains, sc.file, sc.line)
+	if chain == nil {
+		if len(b.chains) > 0 && (sc.name == "securityMatcher" || sc.name == "antMatcher" || sc.name == "requestMatcher") {
+			cfg.ownershipUnknown = true
+			cfg.ownershipNote = fmt.Sprintf("%s:%d %s scope belongs to no recognized security chain", sc.file, sc.line, sc.name)
+		}
+		return
+	}
+	// HttpSecurity scopes name the request subset of this chain; the matcher
+	// DSL inside an authorize lambda uses the same method names on another
+	// receiver, so ownership decides. The legacy builder is
+	// requestMatchers().antMatchers(...) on the chain's own variable.
+	if !springScopeOwned(chain, sc) {
+		return
+	}
+	values, method, ok := springArgumentValues(sc.args)
+	if !ok {
+		cfg.ownershipUnknown = true
+		cfg.ownershipNote = fmt.Sprintf("%s:%d %s(%s) cannot be evaluated", sc.file, sc.line, sc.name, sc.args)
+		return
+	}
+	for _, value := range values {
+		pattern, ok := value.value, value.literal
+		if !value.literal {
+			pattern, ok = b.resolvePattern(value.value, sc.file)
+		}
+		if !ok {
+			cfg.ownershipUnknown = true
+			cfg.ownershipNote = fmt.Sprintf("%s:%d %s(%s) cannot be resolved", sc.file, sc.line, sc.name, sc.args)
+			continue
+		}
+		chain.scopes = append(chain.scopes, springScope{pattern: pattern, method: method})
+	}
+}
+
+// springScopeOwned reports whether the call configures the chain's request
+// scope rather than an authorization matcher inside a lambda.
+func springScopeOwned(chain *springChain, sc springScopeCall) bool {
+	switch sc.name {
+	case "securityMatcher", "antMatcher", "requestMatcher":
+		return sc.owner == chain.http
+	case "requestMatchers":
+		return sc.owner == chain.http || sc.owner == chain.http+".requestMatchers()"
+	default: // antMatchers, mvcMatchers, pathMatchers: builder only
+		return sc.owner == chain.http+".requestMatchers()"
+	}
+}
+
+// resolveIgnored parses WebSecurityCustomizer ignored paths. A known path is
+// public; an unreadable expression makes every path it may cover unknown.
+func (b *springBuild) resolveIgnored(cfg *springConfig) []springIgnored {
+	var out []springIgnored
+	for _, ignored := range b.ignored {
+		values, _, ok := springArgumentValues(ignored.raw)
+		if !ok {
+			cfg.ignoredUnknown = append(cfg.ignoredUnknown, ignored.evidence()+": ignore expression cannot be evaluated")
+			continue
+		}
+		for _, value := range values {
+			pattern, ok := value.value, value.literal
+			if !value.literal {
+				pattern, ok = b.resolvePattern(value.value, ignored.file)
+			}
+			if !ok {
+				cfg.ignoredUnknown = append(cfg.ignoredUnknown, ignored.evidence()+": ignore expression cannot be resolved")
+				continue
+			}
+			ignored.pattern = pattern
+			out = append(out, ignored)
+		}
+	}
+	return out
 }
 
 func sortSpringMatchers(matchers []springMatcher) {
@@ -558,6 +758,13 @@ func springFramework(cfg *springConfig) string {
 // inside that chain the first matcher for the method and path wins. A {param}
 // route stands for several paths, so it is decided by the weakest one.
 func (cfg *springConfig) decide(path, method string) (Protection, []string, []string, string) {
+	protection, roles, evidence, confidence, _ := cfg.decideWithNote(path, method)
+	return protection, roles, evidence, confidence
+}
+
+// decideWithNote also returns an Unresolved sentence naming an unmodelled
+// construct when the answer is unknown.
+func (cfg *springConfig) decideWithNote(path, method string) (Protection, []string, []string, string, string) {
 	if method == "ANY" {
 		return cfg.decideAny(path)
 	}
@@ -569,16 +776,16 @@ func (cfg *springConfig) decide(path, method string) (Protection, []string, []st
 
 // decideAny evaluates every method an unrestricted @RequestMapping accepts and
 // reports the weakest protection, naming the method that is weaker.
-func (cfg *springConfig) decideAny(path string) (Protection, []string, []string, string) {
+func (cfg *springConfig) decideAny(path string) (Protection, []string, []string, string, string) {
 	methods := []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
 	var weakest Protection
 	var roles, evidence []string
 	weakestMethod := ""
-	weakestConfidence := ""
+	weakestConfidence, weakestNote := "", ""
 	firstRank := -1
 	varied := false
 	for _, method := range methods {
-		protection, methodRoles, methodEvidence, confidence := cfg.decide(path, method)
+		protection, methodRoles, methodEvidence, confidence, note := cfg.decideWithNote(path, method)
 		if firstRank < 0 {
 			firstRank = protectionRank(protection)
 		} else if protectionRank(protection) != firstRank {
@@ -586,7 +793,7 @@ func (cfg *springConfig) decideAny(path string) (Protection, []string, []string,
 		}
 		if weakestMethod == "" || protectionRank(protection) < protectionRank(weakest) {
 			weakest, roles, evidence = protection, methodRoles, methodEvidence
-			weakestMethod, weakestConfidence = method, confidence
+			weakestMethod, weakestConfidence, weakestNote = method, confidence, note
 		}
 	}
 	if varied {
@@ -594,7 +801,7 @@ func (cfg *springConfig) decideAny(path string) (Protection, []string, []string,
 			evidence[i] = fmt.Sprintf("%s (weakest method %s)", evidence[i], weakestMethod)
 		}
 	}
-	return weakest, roles, evidence, weakestConfidence
+	return weakest, roles, evidence, weakestConfidence, weakestNote
 }
 
 func protectionRank(p Protection) int {
@@ -613,32 +820,47 @@ func protectionRank(p Protection) int {
 	return 0
 }
 
-func (cfg *springConfig) decideChains(path, method string) (Protection, []string, []string, string) {
+func (cfg *springConfig) decideChains(path, method string) (Protection, []string, []string, string, string) {
 	var matching []*springChain
 	for _, c := range cfg.chains {
-		if len(c.matchers) == 0 {
-			continue // a chain that declares no authorization rule cannot decide a route
-		}
 		switch c.scopeMatch(method, path) {
 		case antNo:
 			continue
 		case antUnknown:
-			return ProtUnknown, nil, []string{c.describe() + ": scope constraint cannot be evaluated"}, "low"
+			return ProtUnknown, nil, []string{c.describe() + ": scope constraint cannot be evaluated"}, "low", ""
 		default:
 			matching = append(matching, c)
 		}
 	}
 	if len(matching) == 0 {
-		return ProtPublic, nil, []string{"no chain scope matches; Spring leaves the request unsecured"}, "low"
+		return ProtPublic, nil, []string{"no chain scope matches; Spring leaves the request unsecured"}, "low", ""
 	}
 	sort.SliceStable(matching, func(i, j int) bool { return chainBefore(matching[i], matching[j]) })
 	if len(matching) > 1 && !chainOrderIsDecidable(matching[0], matching[1]) {
 		return ProtUnknown, nil, []string{
 			matching[0].describe(),
 			matching[1].describe() + ": both chains match and their order is not determinable",
-		}, "low"
+		}, "low", ""
 	}
-	return decideSpringMatchers(matching[0].matchers, path, method)
+	chain := matching[0]
+	// Spring selects the first matching chain even when it declares no
+	// authorization rule; later chains are never consulted (T35 finding 4).
+	if len(chain.matchers) == 0 {
+		if len(chain.filters) > 0 {
+			filter := chain.filters[0]
+			return ProtUnknown, nil, []string{filter.evidence()}, "low",
+				fmt.Sprintf("%s has authentication mechanism .%s() that this resolver does not model", chain.describe(), filter.name)
+		}
+		return ProtPublic, nil, []string{chain.describe() + ": no authorization rules; Spring leaves the request unsecured"}, "high", ""
+	}
+	return decideSpringMatchers(chain.matchers, path, method)
+}
+
+func (f springFilter) evidence() string {
+	if f.args != "" {
+		return fmt.Sprintf("%s:%d .%s(%s)", f.file, f.line, f.name, f.args)
+	}
+	return fmt.Sprintf("%s:%d .%s()", f.file, f.line, f.name)
 }
 
 func (c *springChain) scopeMatch(method, path string) antResult {
@@ -688,61 +910,84 @@ func (c *springChain) describe() string {
 	return where
 }
 
-func decideSpringMatchers(matchers []springMatcher, path, method string) (Protection, []string, []string, string) {
+func decideSpringMatchers(matchers []springMatcher, path, method string) (Protection, []string, []string, string, string) {
 	for _, m := range matchers {
 		switch m.matchResult(method, path) {
 		case antNo:
 			continue
 		case antUnknown:
-			return ProtUnknown, nil, []string{m.evidence() + " (constraint cannot be evaluated)"}, "low"
+			note := ""
+			if m.unknown {
+				note = "request matcher pattern " + m.raw + " cannot be resolved"
+			}
+			return ProtUnknown, nil, []string{m.evidence() + " (constraint cannot be evaluated)"}, "low", note
 		default:
-			protection, roles, confidence := m.decision()
-			return protection, roles, []string{m.evidence()}, confidence
+			protection, roles, confidence, note := m.decisionWithNote()
+			return protection, roles, []string{m.evidence()}, confidence, note
 		}
 	}
-	return ProtPublic, nil, []string{"no matcher; Spring permits"}, "low"
+	return ProtPublic, nil, []string{"no matcher; Spring permits"}, "low", ""
 }
 
 func (m springMatcher) matchResult(method, path string) antResult {
 	if m.method != "" && m.method != method {
 		return antNo
 	}
+	if m.unknown {
+		return antUnknown
+	}
 	return antMatchResult(normalizePath(m.pattern), path)
 }
 
-// decision reads the access call. An unrecognised form never becomes public:
-// the route stays protected but with medium confidence.
+// decision reads the access call. An unrecognised form never becomes public.
 func (m springMatcher) decision() (Protection, []string, string) {
+	protection, roles, confidence, _ := m.decisionWithNote()
+	return protection, roles, confidence
+}
+
+// decisionWithNote keeps the reason an unreadable authorization manager could
+// not decide, so the route's Unresolved sentence names it (T35 finding 9).
+func (m springMatcher) decisionWithNote() (Protection, []string, string, string) {
+	if m.accessUnknown {
+		return ProtUnknown, nil, "low", fmt.Sprintf("access rule .%s(%s) cannot be read", m.access, m.args)
+	}
 	switch m.access {
 	case "permitAll":
-		return ProtPublic, nil, "high"
+		return ProtPublic, nil, "high", ""
 	case "authenticated", "fullyAuthenticated":
-		return ProtAuthenticated, nil, "high"
+		return ProtAuthenticated, nil, "high", ""
 	case "denyAll":
-		return ProtDenied, nil, "high"
+		return ProtDenied, nil, "high", ""
 	case "hasRole", "hasAnyRole", "hasAuthority", "hasAnyAuthority":
 		roles := dedupe(quotedValues(m.args))
 		if len(roles) == 0 {
 			// A constant argument (AuthoritiesConstants.ADMIN) is still a
 			// role check even though its value cannot be read here; downgrading
 			// it to authenticated hides the missing role convention.
-			return ProtRole, nil, "medium"
+			return ProtRole, nil, "medium", ""
 		}
-		return ProtRole, roles, "high"
+		return ProtRole, roles, "high", ""
 	case "access":
-		return springAccessDecision(m.args)
+		protection, roles, confidence := springAccessDecision(m.args)
+		if protection == ProtUnknown {
+			return protection, roles, confidence, "authorization manager " + strings.TrimSpace(m.args) + " cannot be read"
+		}
+		return protection, roles, confidence, ""
 	default:
-		return ProtAuthenticated, nil, "medium"
+		return ProtAuthenticated, nil, "medium", ""
 	}
 }
 
 // springAccessDecision interprets the SpEL of access("...") the same way a
 // @PreAuthorize expression is interpreted, so both spell a role identically.
+// Spring Boot 3 passes an AuthorizationManager object instead; its literal
+// expression is unwrapped, and an unreadable manager is unknown (T35).
 func springAccessDecision(args string) (Protection, []string, string) {
-	if strings.TrimSpace(args) == "" {
-		return ProtAuthenticated, nil, "medium"
+	source, ok := springAccessExpression(args)
+	if !ok {
+		return ProtUnknown, nil, "low"
 	}
-	protection, roles, known := springSpelDecision(evalSpel(args))
+	protection, roles, known := springSpelDecision(evalSpel(source))
 	confidence := "medium"
 	if known {
 		confidence = "high"
@@ -753,6 +998,45 @@ func springAccessDecision(args string) (Protection, []string, string) {
 	return protection, nil, confidence
 }
 
+// springAccessExpression returns the expression string access() should
+// evaluate. A string literal is used as written; a constructor of an
+// AuthorizationManager is unwrapped only when its single argument is a
+// literal. Any other Java expression is a manager we cannot read.
+func springAccessExpression(args string) (string, bool) {
+	s := strings.TrimSpace(args)
+	if s == "" {
+		return "", false
+	}
+	if strings.HasPrefix(s, "new ") {
+		open := strings.IndexByte(s, '(')
+		if open < 0 || !strings.HasSuffix(s, ")") {
+			return "", false
+		}
+		class := strings.TrimSpace(s[len("new "):open])
+		if !strings.HasSuffix(class, "AuthorizationManager") {
+			return "", false
+		}
+		inner := strings.TrimSpace(s[open+1 : len(s)-1])
+		if inner == "" {
+			return "", false
+		}
+		if value, next, ok := readSpelString(inner, 0); ok && next == len(inner) {
+			return value, true
+		}
+		return "", false
+	}
+	if s[0] == '"' || s[0] == '\'' {
+		return s, true
+	}
+	if s == "true" || s == "false" {
+		return s, true
+	}
+	if springIdentRe.MatchString(s) {
+		return "", false // a variable holding a manager, not a SpEL expression
+	}
+	return s, true
+}
+
 // evidence rebuilds the matcher call as the developer wrote it.
 func (m springMatcher) evidence() string {
 	call := "." + m.name + "("
@@ -760,7 +1044,11 @@ func (m springMatcher) evidence() string {
 		if m.method != "" {
 			call += "HttpMethod." + m.method + ", "
 		}
-		call += strconv.Quote(m.pattern)
+		if m.unknown {
+			call += m.raw
+		} else {
+			call += strconv.Quote(m.pattern)
+		}
 	}
 	call += ")." + m.access + "(" + m.args + ")"
 	return fmt.Sprintf("%s:%d %s", m.file, m.line, call)

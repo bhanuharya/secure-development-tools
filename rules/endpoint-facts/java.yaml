@@ -131,6 +131,91 @@ rules:
           regex: ^(permitAll|authenticated|hasRole|hasAnyRole|hasAuthority|hasAnyAuthority|denyAll|access|fullyAuthenticated)$
       - focus-metavariable: $PATTERN
 
+  # A simple string constant as a matcher path. The resolver substitutes the
+  # value from fact.java.string_constant; an unresolved name makes the routes
+  # it may affect unknown instead of dropping the rule.
+  - id: fact.java.security_matcher_constant
+    languages: [java]
+    severity: INFO
+    message: Spring Security request matcher with a constant path
+    metadata:
+      fact: security_matcher_expression
+    patterns:
+      - pattern-either:
+          - pattern: $CHAIN.$MATCHER($PATTERN).$ACCESS($...ARGS)
+          - pattern: $CHAIN.$MATCHER(HttpMethod.$METHOD, $PATTERN).$ACCESS($...ARGS)
+      - metavariable-regex:
+          metavariable: $MATCHER
+          regex: ^(antMatchers|mvcMatchers|requestMatchers|pathMatchers)$
+      - metavariable-regex:
+          metavariable: $ACCESS
+          regex: ^(permitAll|authenticated|hasRole|hasAnyRole|hasAuthority|hasAnyAuthority|denyAll|access|fullyAuthenticated)$
+      - metavariable-regex:
+          metavariable: $PATTERN
+          regex: ^[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)*$
+      - focus-metavariable: $PATTERN
+
+  # Any other matcher argument: a call or constructor is not a simple constant,
+  # so the resolver marks the routes it may affect unknown.
+  - id: fact.java.security_matcher_unknown
+    languages: [java]
+    severity: INFO
+    message: Spring Security request matcher with an unreadable path
+    metadata:
+      fact: security_matcher_expression
+    patterns:
+      - pattern: $CHAIN.$MATCHER(..., $PATTERN, ...).$ACCESS($...ARGS)
+      - metavariable-regex:
+          metavariable: $MATCHER
+          regex: ^(antMatchers|mvcMatchers|requestMatchers|pathMatchers)$
+      - metavariable-regex:
+          metavariable: $ACCESS
+          regex: ^(permitAll|authenticated|hasRole|hasAnyRole|hasAuthority|hasAnyAuthority|denyAll|access|fullyAuthenticated)$
+      - metavariable-regex:
+          metavariable: $PATTERN
+          regex: ^(new\s+.+|[A-Za-z_$][A-Za-z0-9_$.]*\(.*\))$
+      - focus-metavariable: $PATTERN
+
+  # An access rule this resolver does not model: the matcher may be public,
+  # role-protected or anything else, so its routes become unknown.
+  - id: fact.java.security_matcher_unmodelled
+    languages: [java]
+    severity: INFO
+    message: Spring Security request matcher with an unmodelled access rule
+    metadata:
+      fact: security_matcher_unmodelled
+    patterns:
+      - pattern: $CHAIN.$MATCHER(..., "$PATTERN", ...).$ACCESS($...ARGS)
+      - metavariable-regex:
+          metavariable: $MATCHER
+          regex: ^(antMatchers|mvcMatchers|requestMatchers|pathMatchers)$
+      - pattern-not: $CHAIN.$MATCHER(..., "$PATTERN", ...).$ACCESS()
+      - pattern-not: $CHAIN.$MATCHER(..., "$PATTERN", ...).permitAll($...ARGS)
+      - pattern-not: $CHAIN.$MATCHER(..., "$PATTERN", ...).authenticated($...ARGS)
+      - pattern-not: $CHAIN.$MATCHER(..., "$PATTERN", ...).fullyAuthenticated($...ARGS)
+      - pattern-not: $CHAIN.$MATCHER(..., "$PATTERN", ...).hasRole($...ARGS)
+      - pattern-not: $CHAIN.$MATCHER(..., "$PATTERN", ...).hasAnyRole($...ARGS)
+      - pattern-not: $CHAIN.$MATCHER(..., "$PATTERN", ...).hasAuthority($...ARGS)
+      - pattern-not: $CHAIN.$MATCHER(..., "$PATTERN", ...).hasAnyAuthority($...ARGS)
+      - pattern-not: $CHAIN.$MATCHER(..., "$PATTERN", ...).denyAll($...ARGS)
+      - pattern-not: $CHAIN.$MATCHER(..., "$PATTERN", ...).access($...ARGS)
+      - focus-metavariable: $PATTERN
+
+  # Simple `static final String` constants. They are the only matcher or scope
+  # arguments the resolver substitutes; anything else stays unknown.
+  - id: fact.java.string_constant
+    languages: [java]
+    severity: INFO
+    message: Java string constant
+    metadata:
+      fact: string_constant
+    patterns:
+      - pattern-inside: |
+          class $C { ... }
+      - pattern-either:
+          - pattern: static final String $NAME = "$VALUE";
+          - pattern: $MOD static final String $NAME = "$VALUE";
+
   # One SecurityFilterChain bean. The span (first annotation to closing brace)
   # is what assigns the matcher and @Order facts of the same method to this
   # chain. A configure(HttpSecurity) in a SecurityConfigurerAdapter or
@@ -183,10 +268,12 @@ rules:
           class $C { ... }
       - pattern: '@Order($ORDER)'
 
-  # The request scope of one chain. $OWNER is the HttpSecurity variable; the
-  # resolver only uses a scope whose owner is the chain's own parameter, so
-  # requestMatchers() inside an authorize lambda is a matcher, not a scope.
-  # WebFlux wraps its pattern in a matcher object; unwrap the common ones.
+  # The request scope of one chain. $OWNER is the HttpSecurity variable (or
+  # the requestMatchers() builder); the resolver only uses a scope whose owner
+  # is the chain's own parameter, so requestMatchers() inside an authorize
+  # lambda is a matcher, not a scope. The whole argument list is kept so
+  # variadic patterns, OrRequestMatcher composites and simple constants can be
+  # enumerated or rejected as unknown (T35 finding 6).
   - id: fact.java.security_scope
     languages: [java]
     severity: INFO
@@ -194,32 +281,51 @@ rules:
     metadata:
       fact: security_scope
     patterns:
-      - pattern-either:
-          - pattern: $OWNER.$SCOPE("$PATTERN")
-          - pattern: $OWNER.$SCOPE(HttpMethod.$METHOD, ..., "$PATTERN", ...)
-          - pattern: $OWNER.$SCOPE(..., "$PATTERN", ...)
-          - pattern: $OWNER.$SCOPE(new PathPatternParserServerWebExchangeMatcher("$PATTERN"))
-          - pattern: $OWNER.$SCOPE(new AntPathRequestMatcher("$PATTERN"))
-          - pattern: $OWNER.$SCOPE(ServerWebExchangeMatchers.pathMatchers("$PATTERN"))
+      - pattern: $OWNER.$SCOPE($...ARGS)
       - metavariable-regex:
           metavariable: $SCOPE
-          regex: ^(securityMatcher|antMatcher|requestMatcher|requestMatchers)$
+          regex: ^(securityMatcher|antMatcher|requestMatcher|requestMatchers|antMatchers|mvcMatchers|pathMatchers)$
 
-  # The legacy matcher builder: requestMatchers().antMatchers("/api/**")
-  # restricts the chain itself. It has no pattern argument on
-  # requestMatchers(), so the rule above cannot see it.
-  - id: fact.java.security_scope_builder
+  # Paths excluded from the security filter chain entirely. They are public by
+  # design, so they must decide before any chain is selected. Unsupported
+  # expressions are kept as a raw argument list and make the rest unknown.
+  - id: fact.java.security_ignored
     languages: [java]
     severity: INFO
-    message: Spring Security matcher-builder request scope
+    message: Spring Security ignored request matcher
     metadata:
-      fact: security_scope
+      fact: security_ignored
     patterns:
-      - pattern: $OWNER.requestMatchers($...IGNORED).$SCOPE("$PATTERN")
+      - pattern: $WEB.ignoring().$IGNORE($...ARGS)
       - metavariable-regex:
-          metavariable: $SCOPE
-          regex: ^(antMatchers|mvcMatchers|requestMatchers|pathMatchers)$
-      - focus-metavariable: $PATTERN
+          metavariable: $IGNORE
+          regex: ^(requestMatchers|antMatchers|mvcMatchers|pathMatchers)$
+
+  # Authentication mechanisms and filters of a chain. A chain without
+  # authorization rules is public only when none of these is present.
+  - id: fact.java.security_filter
+    languages: [java]
+    severity: INFO
+    message: Spring Security authentication filter
+    metadata:
+      fact: security_filter
+    patterns:
+      - pattern: $HTTP.$FILTER_KIND($FILTER, ...)
+      - metavariable-regex:
+          metavariable: $FILTER_KIND
+          regex: ^(addFilter|addFilterBefore|addFilterAfter|addFilterAt)$
+
+  - id: fact.java.security_auth_mechanism
+    languages: [java]
+    severity: INFO
+    message: Spring Security authentication mechanism
+    metadata:
+      fact: security_filter
+    patterns:
+      - pattern: $HTTP.$MECHANISM($...ARGS)
+      - metavariable-regex:
+          metavariable: $MECHANISM
+          regex: ^(httpBasic|formLogin|oauth2Login|oauth2ResourceServer|x509|apply)$
 
   # The fallback of a chain: anyRequest() in the servlet DSL, anyExchange() in
   # WebFlux. Focus on the access call so the fact carries its own line.
