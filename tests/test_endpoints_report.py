@@ -188,3 +188,18 @@ def test_served_path_is_shown_but_matching_uses_the_application_path(tmp_path):
     text = _report(tmp_path, inv)
     assert "/orders-service/api/admin/refunds" in text
 
+
+def test_upstream_authenticated_routes_leave_the_public_list_but_stay_visible(tmp_path):
+    routes = [{"service": ".", "framework": "gin", "method": "POST", "path": "/api/transfer",
+               "upstreamAuth": "API gateway (JWT)", "handler": "transfer", "file": "main.go", "line": 8,
+               "protection": "public", "confidence": "high", "evidence": []},
+              {"service": ".", "framework": "gin", "method": "POST", "path": "/api/payouts", "handler": "payouts",
+               "file": "main.go", "line": 9, "protection": "public", "confidence": "high", "evidence": []}]
+    path = tmp_path / "endpoints.json"
+    path.write_text(json.dumps(dict(INVENTORY, routes=routes, summary={"public": 2})))
+    inv = sdt_to_docx.load_endpoints(path)
+    assert [r.path for r in inv.public_state_changing()] == ["/api/payouts"]
+    assert [r.shown_protection for r in inv.sensitive_to_review()] == ["public (authenticated upstream: API gateway (JWT))"]
+    text = _report(tmp_path, inv)
+    assert "1 route is public in the service but declared as authenticated upstream (API gateway (JWT))" in text
+

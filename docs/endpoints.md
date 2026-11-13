@@ -168,6 +168,28 @@ lists literal middleware or dependency names added to the built-in gate list,
 so a gate unknown to the defaults (`checkCaller`) protects Go, JavaScript and
 Python routes too.
 
+### Authentication upstream (API gateway, mesh)
+
+A service behind an API gateway that validates every request may leave its own
+routes open. Declare it in the repository, in `.secure-dev/endpoints.yaml`:
+
+```yaml
+upstreamAuth:
+  - service: "."             # service directory; omit (or "*") for every service
+    paths: ["/api/**"]       # Ant patterns on the in-app path; omit for every route
+    by: API gateway (JWT)    # who authenticates; required, shown as evidence
+```
+
+The same list is accepted as `endpoints.upstreamAuth` in a scan configuration,
+and both apply. A covered route keeps the protection the service itself enforces
+(`public` stays `public`: inside the network it is reachable without the gateway)
+and gains `upstreamAuth` plus an evidence line naming the declaration. The
+convention findings judge it as `authenticated`: no "public" finding, but
+"sensitive route accepts any authenticated user" still applies when the service
+checks roles elsewhere. The Word report leaves such routes out of the public
+list and says how many were declared. A declaration silences findings, so review
+changes to this file like any other security configuration.
+
 ## Limits
 
 - **Same file only.** A router, group or blueprint created or mounted in another

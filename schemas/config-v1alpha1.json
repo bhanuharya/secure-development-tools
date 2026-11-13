@@ -86,7 +86,14 @@
         "publicPaths": {"type": "array", "items": {"type": "string"}},
         "sensitivePaths": {"type": "array", "items": {"type": "string"}},
         "minRoutes": {"type": "integer", "minimum": 0},
-        "majority": {"type": "number", "minimum": 0, "maximum": 1}
+        "majority": {"type": "number", "minimum": 0, "maximum": 1},
+        "upstreamAuth": {"type": "array", "items": {
+          "type": "object", "required": ["by"], "additionalProperties": false,
+          "properties": {
+            "service": {"type": "string"},
+            "paths": {"type": "array", "items": {"type": "string", "pattern": "^/"}},
+            "by": {"type": "string", "minLength": 1}
+          }}}
       }
     }
   }

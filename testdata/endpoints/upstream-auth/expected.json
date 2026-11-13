@@ -1,0 +1,73 @@
+{
+  "root": ".",
+  "routes": [
+    {
+      "confidence": "high",
+      "evidence": [
+        "main.go:10 middleware RequireRole(...)"
+      ],
+      "file": "main.go",
+      "framework": "gin",
+      "handler": "updateRoles",
+      "line": 10,
+      "method": "POST",
+      "path": "/admin/roles",
+      "protection": "role",
+      "roles": [
+        "admin"
+      ],
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "main.go:9 no gate middleware on the route",
+        ".secure-dev/endpoints.yaml: authenticated upstream by API gateway (JWT)"
+      ],
+      "file": "main.go",
+      "framework": "gin",
+      "handler": "listOrders",
+      "line": 9,
+      "method": "GET",
+      "path": "/api/orders",
+      "protection": "public",
+      "service": ".",
+      "upstreamAuth": "API gateway (JWT)"
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "main.go:8 no gate middleware on the route",
+        ".secure-dev/endpoints.yaml: authenticated upstream by API gateway (JWT)"
+      ],
+      "file": "main.go",
+      "framework": "gin",
+      "handler": "transfer",
+      "line": 8,
+      "method": "POST",
+      "path": "/api/transfer",
+      "protection": "public",
+      "service": ".",
+      "upstreamAuth": "API gateway (JWT)"
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "main.go:7 no gate middleware on the route"
+      ],
+      "file": "main.go",
+      "framework": "gin",
+      "handler": "health",
+      "line": 7,
+      "method": "GET",
+      "path": "/health",
+      "protection": "public",
+      "service": "."
+    }
+  ],
+  "schema": "sdt-endpoints/v1",
+  "summary": {
+    "public": 3,
+    "role": 1
+  }
+}

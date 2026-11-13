@@ -237,6 +237,9 @@ func BuildInventory(dir string, cfg config.EndpointsCfg) (*Inventory, error) {
 	routes, unresolved := resolveFacts(facts, absDir, newGateMatcher(cfg.AuthGates))
 	routes, baseNotes := applyBasePaths(absDir, routes)
 	unresolved = append(unresolved, baseNotes...)
+	decls, declNotes := upstreamDecls(absDir, cfg)
+	routes = applyUpstreamAuth(routes, decls)
+	unresolved = append(unresolved, declNotes...)
 	routes = sanitizeRoutes(routes)
 	unresolved = sanitizeStrings(unresolved)
 	sort.Slice(routes, func(i, j int) bool {
