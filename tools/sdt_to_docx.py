@@ -723,6 +723,21 @@ REVIEW_OUTCOME = {
 AI_VERDICT_TEXT = REVIEW_OUTCOME  # verdicts this report understands
 
 
+def ai_status(ai: dict | None) -> str:
+    """One line when the AI review did not cover the scan, so a fallback to the rule advice is visible
+    (for example when the model service refused every call)."""
+    ai = ai or {}
+    if ai.get("engine") != "codex":
+        return ("AI review: not available for this scan (not run, failed or no answer); every finding shows "
+                "the built-in rule advice.")
+    failed, calls, stopped = int(ai.get("failed_calls") or 0), int(ai.get("calls") or 0), str(ai.get("stopped") or "")
+    if not failed and not stopped:
+        return ""
+    reasons = ([f"{failed} of {calls} calls failed"] if failed else []) + ([f"stopped: {stopped}"] if stopped else [])
+    return (f"AI review incomplete ({'; '.join(reasons)}): findings it did not reach show the built-in rule "
+            "advice.")
+
+
 def apply_triage(groups: list[Group], triage: dict) -> int:
     """Attach advisory AI notes to their occurrences (by rule, file, line); how many matched."""
     notes = {(r.get("rule"), r.get("path"), r.get("line")): r for r in triage.get("results", [])
@@ -971,6 +986,9 @@ def executive_summary(report: Report) -> list[str]:
             agree = sum(1 for advised, actual in decided if advised == actual)
             lines.append(f"Advisory accuracy so far: it agreed with {agree} of {len(decided)} findings already decided "
                          "in SonarQube.")
+        status = ai_status(report.ai)
+        if status:
+            lines.append(status)
     lines.append(f"Dependencies: {plural(advisories, 'advisory')} in {plural(len(report.dependencies), 'package')}"
                  + (f", {fixable} with a fixed version" if report.dependencies else "")
                  + (f"; {plural(len(report.config), 'configuration check')} failed" if report.config else "") + ".")

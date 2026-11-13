@@ -220,8 +220,8 @@ func Defaults() *ScanConfiguration {
 		Project:    Project{Root: ".", DefaultBranch: "main", Include: []string{"**"}},
 		Profiles: map[string]Profile{
 			"pr": {
-				Mode: "changed", Scanners: []string{"opengrep", "gitleaks", "trivy-fs"},
-				RequiredScanners: []string{"opengrep", "gitleaks", "trivy-fs"},
+				Mode: "changed", Scanners: []string{"opengrep", "gitleaks", "trivy-fs", "endpoints"},
+				RequiredScanners: []string{"opengrep", "gitleaks", "trivy-fs", "endpoints"},
 				Timeout:          "15m", Parallelism: 3, MissingHistory: "fail",
 			},
 			"full": {

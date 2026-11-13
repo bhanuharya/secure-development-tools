@@ -91,7 +91,7 @@ func TestEndpointsRejectsInvalidValues(t *testing.T) {
 
 // The inventory is a full-profile scanner only: it reads a whole service and
 // is too slow for a changed-file scan (SPEC §8).
-func TestEndpointsScannerOnlyInFullProfile(t *testing.T) {
+func TestEndpointsScannerInFullAndPRProfiles(t *testing.T) {
 	cfg := Defaults()
 	has := func(list []string, want string) bool {
 		for _, s := range list {
@@ -101,13 +101,15 @@ func TestEndpointsScannerOnlyInFullProfile(t *testing.T) {
 		}
 		return false
 	}
-	if !has(cfg.Profiles["full"].Scanners, "endpoints") || !has(cfg.Profiles["full"].RequiredScanners, "endpoints") {
-		t.Fatal("full profile must select and require endpoints")
-	}
-	for _, name := range []string{"pr", "release"} {
-		if has(cfg.Profiles[name].Scanners, "endpoints") {
-			t.Fatalf("profile %s must not select endpoints", name)
+	// Full and pull request scans inventory endpoints: a pull request that adds a public sensitive
+	// route is reported on the pull request, not only by the next branch scan.
+	for _, name := range []string{"full", "pr"} {
+		if !has(cfg.Profiles[name].Scanners, "endpoints") || !has(cfg.Profiles[name].RequiredScanners, "endpoints") {
+			t.Fatalf("profile %s must select and require endpoints", name)
 		}
+	}
+	if has(cfg.Profiles["release"].Scanners, "endpoints") {
+		t.Fatal("profile release must not select endpoints")
 	}
 	if err := Validate(cfg); err != nil {
 		t.Fatalf("defaults with endpoints do not validate: %v", err)

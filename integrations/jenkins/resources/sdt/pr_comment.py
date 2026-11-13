@@ -377,6 +377,25 @@ def body(result, conditions, rows, gone, links, commit, base):
     return "\n".join(lines)
 
 
+def prune_downloads(client, quoted, repo, pr_id, keep):
+    """Delete this pull request's older reports from Downloads. Report names carry the scan time,
+    so without this every scan of a pull request would leave one more file behind."""
+    prefix = f"SAST Report - {repo} - PR {pr_id}"
+    url = f"{client.api}{quoted}/downloads?pagelen=100"
+    try:
+        for _ in range(20):
+            page = client.call("GET", url)
+            for item in page.get("values", []):
+                name = str(item.get("name") or "")
+                if name != keep and name.endswith(".docx") and (name == prefix + ".docx" or name.startswith(prefix + " - ")):
+                    client.call("DELETE", f"{client.api}{quoted}/downloads/{urllib.parse.quote(name)}")
+            url = page.get("next")
+            if not url:
+                break
+    except RuntimeError as err:  # an old file left behind is harmless; the new report is already up
+        log(f"older reports not removed from Downloads: {err}")
+
+
 def report_links(client, quoted, out, repo, workspace, pr_id, build_url, upload):
     """Where the report can be read, as (label, address) pairs."""
     report = report_docx(out, repo)
@@ -398,6 +417,7 @@ def report_links(client, quoted, out, repo, workspace, pr_id, build_url, upload)
             # Downloads are readable by everyone who can read the repository.
             if client.json("GET", quoted).get("is_private") is True:
                 client.upload(f"{quoted}/downloads", name, open(report, "rb").read())
+                prune_downloads(client, quoted, repo, pr_id, keep=name)
                 return [("Full report (.docx)", f"https://bitbucket.org/{workspace}/{repo}/downloads/{urllib.parse.quote(name)}")]
             log("repository is not private: the report is not put in its Downloads")
         except RuntimeError as err:

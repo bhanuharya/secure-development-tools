@@ -2591,3 +2591,12 @@ def test_report_puts_a_signing_secret_found_as_a_generic_key_at_p1(tmp_path):
     assert group.priority.level == "P1" and "named as a signing key or password" in group.priority.why
     text, _, _, _ = _write_report(tmp_path, found, src_root=tmp_path)
     assert "not-a-real-secret" not in text and "Secret: generic-api-key (current code)" in text
+
+
+def test_ai_status_makes_a_missing_or_cut_short_review_visible():
+    assert sdt_to_docx.ai_status({"engine": "codex", "calls": 5, "failed_calls": 0, "stopped": ""}) == ""
+    assert "not available" in sdt_to_docx.ai_status({"engine": "rules"})
+    assert "not available" in sdt_to_docx.ai_status(None)
+    cut = sdt_to_docx.ai_status({"engine": "codex", "calls": 3, "failed_calls": 3,
+                                 "stopped": "3 consecutive failed calls (last: out of credits)"})
+    assert cut.startswith("AI review incomplete (3 of 3 calls failed; stopped: 3 consecutive") and "rule advice" in cut

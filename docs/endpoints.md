@@ -28,6 +28,9 @@ or a rule directory fails.
 
 When the scan profile includes the `endpoints` scanner, `sdt scan` runs the same
 inventory, writes `endpoints.json` next to `findings.json`, and adds them to the run.
+The default `full` and `pr` profiles include it. In a pull request scan the inventory
+covers the whole repository, and the baseline comparison keeps only the findings the pull
+request adds, so a new public sensitive route is reported on the pull request itself.
 
 ## Reading the inventory
 
