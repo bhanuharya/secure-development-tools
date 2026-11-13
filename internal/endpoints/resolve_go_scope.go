@@ -12,13 +12,15 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
-// This file is the same-file scope model behind resolve_go.go. Facts say what
-// is registered where; this model says which group/router a receiver refers to
-// at that line. Only the current file is consulted (SPEC §5): a router that is
-// created or mounted elsewhere stays unknown.
+// This file is the scope model behind resolve_go.go. Facts say what is
+// registered where; this model says which group/router a receiver refers to at
+// that line. A router parameter is followed to its callers, in the same file
+// or elsewhere in the service (resolve_go_project.go); a router no caller
+// reaches stays unknown.
 
 // mwRef is one middleware expression on a route's chain. prefix is set for a
 // Fiber Use("/x", mw): the entry only applies under that path.
@@ -37,7 +39,16 @@ type routeState struct {
 	mws      []mwRef
 	unknown  bool
 	reason   string // the receiver name, for the Unresolved sentence
+	why      string // goNoCaller or goCallersDiffer for a parameter; "" otherwise
+	fn       string // the function whose parameter it is
 }
+
+const (
+	goNoCaller      = "no caller"
+	goCallersDiffer = "callers differ"
+	// wrapsRouter marks a wrapper constructor (x := NewRoleRouter(group, ...)).
+	wrapsRouter = "wraps the router"
+)
 
 // groupNode is a group assignment. It is evaluated lazily because its base may
 // itself be a group whose Use calls are only known once the whole file is read.
@@ -55,7 +66,10 @@ type binding struct {
 	start int
 	end   int // math.MaxInt for file-wide bindings
 	node  *groupNode
-	state *routeState // snapshots for chi closures (captured at closure start)
+	chi   *Fact // a chi.Route/Group closure parameter, resolved when first needed
+	// resolving is set while the closure's base is read: the parameter
+	// usually shadows the router it comes from (r.Route("/x", func(r chi.Router)).
+	resolving bool
 }
 
 type paramRef struct {
@@ -68,12 +82,36 @@ type funcScope struct {
 	start  int
 	end    int
 	params []paramRef
+	method bool // declared with a receiver: called as x.name(...)
 }
 
+// callSite is a call to fn, qualified by qual for pkg.Fn(...) or x.Method(...).
 type callSite struct {
 	fn   string
+	qual string
 	args []string
 	line int
+}
+
+// goWrapper is `name := callee(base, ...)` or `var name = callee(base, ...)`:
+// a value built from another expression, such as a router type that wraps a
+// group and adds its own checks.
+type goWrapper struct {
+	name   string
+	line   int
+	callee string
+	base   string // first argument; "" for a call without arguments
+	value  string // the whole call
+}
+
+// goSyntax is what the Go parser reads from one file beyond the facts.
+type goSyntax struct {
+	pkg      string
+	imports  map[string]string // local name ("" for none) -> import path
+	funcs    []funcScope
+	calls    []callSite
+	scopes   []lineScope
+	wrappers []goWrapper
 }
 
 // lineScope is the source range of a lexical block: a function body, a closure
@@ -99,6 +137,10 @@ type fileResolver struct {
 	calls     []callSite
 	scopes    []lineScope
 	unknown   []string
+	pkg       string
+	imports   map[string]string
+	wrappers  []goWrapper
+	project   *goProject
 }
 
 var routerParamRe = regexp.MustCompile(`(?i)(gin\.(RouterGroup|Engine|IRouter|IRoutes)|echo\.(Group|Echo)|fiber\.(Router|App)|chi\.(Router|Mux)|http\.ServeMux)`)
@@ -125,7 +167,9 @@ func newFileResolver(file string, facts []Fact, root string, gates *gateMatcher)
 		}
 	}
 	fr.framework = frameworkFor(imports)
-	fr.funcs, fr.calls, fr.scopes = parseGoScope(filepath.Join(root, file))
+	syn := parseGoScope(filepath.Join(root, file))
+	fr.funcs, fr.calls, fr.scopes = syn.funcs, syn.calls, syn.scopes
+	fr.pkg, fr.imports, fr.wrappers = syn.pkg, syn.imports, syn.wrappers
 	fr.addEngineBindings()
 	fr.addGroupBindings()
 	fr.addChiBindings()
@@ -192,14 +236,15 @@ func (fr *fileResolver) addGroupBindings() {
 				baseName: f.Metavars["$BASE"],
 				baseLine: f.Line,
 				prefix:   f.Metavars["$PREFIX"],
-				mws:      factMWs(fr.file, f),
+				mws:      fr.resolveMWs(factMWs(fr.file, f)),
 			},
 		})
 	}
 }
 
-// addChiBindings turns each chi.Route/Group closure into a scoped binding. The
-// snapshot is taken in source order so nested closures inherit the outer one.
+// addChiBindings turns each chi.Route/Group closure into a scoped binding. Its
+// state is read when a route needs it, so a closure inside a function whose
+// router comes from another file still finds its callers.
 func (fr *fileResolver) addChiBindings() {
 	sort.Slice(fr.chis, func(i, j int) bool { return fr.chis[i].Line < fr.chis[j].Line })
 	for _, f := range fr.chis {
@@ -207,11 +252,8 @@ func (fr *fileResolver) addChiBindings() {
 		if name == "" {
 			continue
 		}
-		state := fr.stateOfExpr(f.Metavars["$R"], f.Line, 0)
-		if prefix := f.Metavars["$PREFIX"]; prefix != "" {
-			state.prefixes = append(state.prefixes, prefix)
-		}
-		fr.bindings = append(fr.bindings, binding{name: name, start: f.Line, end: f.EndLine, state: state})
+		fact := f
+		fr.bindings = append(fr.bindings, binding{name: name, start: f.Line, end: f.EndLine, chi: &fact})
 	}
 }
 
@@ -220,7 +262,7 @@ func (fr *fileResolver) bindingAt(name string, line int) *binding {
 	var best *binding
 	for i := range fr.bindings {
 		b := &fr.bindings[i]
-		if b.name != name || line < b.start || line > b.end {
+		if b.name != name || line < b.start || line > b.end || b.resolving {
 			continue
 		}
 		if best == nil || b.start > best.start || (b.start == best.start && b.end < best.end) {
@@ -254,12 +296,12 @@ func (fr *fileResolver) stateOfExpr(expr string, line, depth int) *routeState {
 		}
 		if method == "Group" {
 			for _, arg := range args[1:] {
-				state.mws = append(state.mws, mwRef{file: fr.file, line: line, expr: arg, place: groupPlace(state)})
+				state.mws = append(state.mws, mwRef{file: fr.file, line: line, expr: fr.mwExpr(arg, line), place: groupPlace(state)})
 			}
 		}
 	case "With":
 		for _, arg := range args {
-			state.mws = append(state.mws, mwRef{file: fr.file, line: line, expr: arg, place: groupPlace(state)})
+			state.mws = append(state.mws, mwRef{file: fr.file, line: line, expr: fr.mwExpr(arg, line), place: groupPlace(state)})
 		}
 	default:
 		return &routeState{unknown: true, reason: receiverName(expr)}
@@ -277,8 +319,13 @@ func (fr *fileResolver) stateOfVar(name string, line, depth int) *routeState {
 	var scope *funcScope
 	if b != nil {
 		switch {
-		case b.state != nil:
-			state = cloneState(b.state)
+		case b.chi != nil:
+			b.resolving = true
+			state = fr.stateOfExpr(b.chi.Metavars["$R"], b.chi.Line, depth+1)
+			b.resolving = false
+			if prefix := b.chi.Metavars["$PREFIX"]; prefix != "" {
+				state.prefixes = append(state.prefixes, prefix)
+			}
 		case b.node != nil:
 			state = fr.stateOfNode(b.node, depth)
 		default:
@@ -287,6 +334,8 @@ func (fr *fileResolver) stateOfVar(name string, line, depth int) *routeState {
 	} else if fn, idx := fr.paramAt(name, line); fn != nil {
 		scope = fn
 		state = fr.paramState(fn, idx, depth)
+	} else if w := fr.wrapperAt(name, line); w != nil {
+		state = fr.wrapperState(w, depth)
 	} else if name == "http" {
 		state = &routeState{}
 	} else {
@@ -330,7 +379,7 @@ func (fr *fileResolver) usesBefore(name string, line int, b *binding, scope *fun
 			}
 		}
 		for _, expr := range args {
-			out = append(out, mwRef{file: fr.file, line: u.Line, expr: expr, place: groupPlace(state), prefix: prefix})
+			out = append(out, mwRef{file: fr.file, line: u.Line, expr: fr.mwExpr(expr, u.Line), place: groupPlace(state), prefix: prefix})
 		}
 	}
 	return out
@@ -347,26 +396,94 @@ func prefixApplies(prefix, routePath string) bool {
 	return routePath == prefix || strings.HasPrefix(routePath, prefix+"/")
 }
 
-// paramState resolves a router function parameter from the call sites in the
-// same file. No call site means the router was passed in from another file.
+// paramState resolves a router function parameter from its call sites: in
+// this file, in the other files of the package, and in packages that import
+// it. No call site, or callers that pass routers with different prefixes or
+// middleware, leave it unknown.
 func (fr *fileResolver) paramState(fn *funcScope, idx, depth int) *routeState {
-	var states []*routeState
-	for _, c := range fr.calls {
-		if c.fn != fn.name || idx >= len(c.args) {
-			continue
+	var sites []goCallSite
+	for _, site := range fr.callersOf(fn) {
+		if idx < len(site.call.args) {
+			sites = append(sites, site)
 		}
-		states = append(states, fr.stateOfExpr(c.args[idx], c.line, depth+1))
 	}
-	if len(states) == 0 {
-		return &routeState{unknown: true, reason: fn.params[idx].name}
+	param := fn.params[idx].name
+	if len(sites) == 0 {
+		return &routeState{unknown: true, reason: param, why: goNoCaller, fn: fn.name}
 	}
-	state := cloneState(states[0])
-	for _, other := range states[1:] {
-		if !sameState(state, other) {
-			return &routeState{unknown: true, reason: fn.params[idx].name}
+	resolve := func(site goCallSite) *routeState {
+		return site.fr.stateOfExpr(site.call.args[idx], site.call.line, depth+1)
+	}
+	key := fmt.Sprintf("%s:%d:%d", fr.file, fn.start, idx)
+	if p := fr.project; p != nil && p.forced != nil {
+		if i, ok := p.forced[key]; ok && i < len(sites) {
+			return resolve(sites[i]) // statesOf chose this caller
+		}
+	}
+	state := resolve(sites[0])
+	for _, site := range sites[1:] {
+		if !sameState(state, resolve(site)) {
+			if p := fr.project; p != nil && p.pending != nil {
+				p.pending[key] = len(sites)
+			}
+			return &routeState{unknown: true, reason: param, why: goCallersDiffer, fn: fn.name}
 		}
 	}
 	return state
+}
+
+// mwExpr resolves a middleware held in a variable (mw := auth.Jwt(key);
+// grp.Use(mw)) to the call that built it, so the gate list sees the call.
+func (fr *fileResolver) mwExpr(expr string, line int) string {
+	expr = strings.TrimSpace(expr)
+	if !goIdentRe.MatchString(expr) {
+		return expr
+	}
+	if w := fr.wrapperAt(expr, line); w != nil {
+		return w.value
+	}
+	return expr
+}
+
+func (fr *fileResolver) resolveMWs(mws []mwRef) []mwRef {
+	for i := range mws {
+		mws[i].expr = fr.mwExpr(mws[i].expr, mws[i].line)
+	}
+	return mws
+}
+
+var goIdentRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// wrapperAt returns the latest wrapper assignment to name that is visible at line.
+func (fr *fileResolver) wrapperAt(name string, line int) *goWrapper {
+	var best *goWrapper
+	for i := range fr.wrappers {
+		w := &fr.wrappers[i]
+		if w.name != name || w.line >= line {
+			continue
+		}
+		if start, end := fr.declRange(w.line); line < start || line > end {
+			continue
+		}
+		if best == nil || w.line > best.line {
+			best = w
+		}
+	}
+	return best
+}
+
+// wrapperState is the state of the router a wrapper is built from, plus the
+// wrapper itself: its constructor may check something on every route.
+func (fr *fileResolver) wrapperState(w *goWrapper, depth int) *routeState {
+	if w.base == "" {
+		return &routeState{unknown: true, reason: w.name}
+	}
+	base := fr.stateOfExpr(w.base, w.line, depth+1)
+	if base.unknown {
+		return &routeState{unknown: true, reason: w.name}
+	}
+	base.mws = append(base.mws, mwRef{file: fr.file, line: w.line, expr: w.callee, place: wrapsRouter})
+	return base
 }
 
 func (fr *fileResolver) paramAt(name string, line int) (*funcScope, int) {
@@ -390,12 +507,20 @@ func (fr *fileResolver) paramAt(name string, line int) (*funcScope, int) {
 	return best, idx
 }
 
-func (fr *fileResolver) addUnknown(name string) {
-	name = receiverName(name)
+func (fr *fileResolver) addUnknown(state *routeState) {
+	name := receiverName(state.reason)
 	if name == "" {
 		name = "router"
 	}
-	sentence := fmt.Sprintf("%s router %s is created or mounted in another file; protection unknown", fr.file, name)
+	var sentence string
+	switch state.why {
+	case goNoCaller:
+		sentence = fmt.Sprintf("%s router %s is a parameter of %s, and no call to %s was found; protection unknown", fr.file, name, state.fn, state.fn)
+	case goCallersDiffer:
+		sentence = fmt.Sprintf("%s router %s: the calls to %s pass routers with different prefixes or middleware; protection unknown", fr.file, name, state.fn)
+	default:
+		sentence = fmt.Sprintf("%s router %s is created where this scan cannot follow it; protection unknown", fr.file, name)
+	}
 	for _, s := range fr.unknown {
 		if s == sentence {
 			return
@@ -408,7 +533,7 @@ func cloneState(s *routeState) *routeState {
 	if s == nil {
 		return &routeState{}
 	}
-	out := &routeState{unknown: s.unknown, reason: s.reason}
+	out := &routeState{unknown: s.unknown, reason: s.reason, why: s.why, fn: s.fn}
 	out.prefixes = append(out.prefixes, s.prefixes...)
 	out.mws = append(out.mws, s.mws...)
 	return out
@@ -634,58 +759,103 @@ func unquote(s string) string {
 // Facts cannot express "this call passes a group to this parameter"; the Go
 // parser can, and it is the same file the facts came from. Function, closure
 // and block ranges let bindings stay inside their declaring scope.
-func parseGoScope(path string) ([]funcScope, []callSite, []lineScope) {
+func parseGoScope(path string) goSyntax {
+	syn := goSyntax{imports: map[string]string{}}
 	src, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil, nil
+		return syn
 	}
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, src, 0)
 	if err != nil {
-		return nil, nil, nil
+		return syn
 	}
-	var funcs []funcScope
-	var calls []callSite
-	var scopes []lineScope
+	syn.pkg = file.Name.Name
+	for _, spec := range file.Imports {
+		importPath, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
+			continue
+		}
+		name := ""
+		if spec.Name != nil {
+			name = spec.Name.Name
+		}
+		if name == "_" || name == "." {
+			continue
+		}
+		syn.imports[importPath] = name
+	}
 	for _, decl := range file.Decls {
 		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil {
-			funcs = append(funcs, scopeOf(src, fset, fn))
-			scopes = append(scopes, lineScope{
+			syn.funcs = append(syn.funcs, scopeOf(src, fset, fn))
+			syn.scopes = append(syn.scopes, lineScope{
 				start: fset.Position(fn.Body.Pos()).Line,
 				end:   fset.Position(fn.Body.End()).Line,
 			})
 		}
+	}
+	wrapper := func(name *ast.Ident, value ast.Expr) {
+		call, ok := value.(*ast.CallExpr)
+		if !ok || name.Name == "_" {
+			return
+		}
+		w := goWrapper{name: name.Name, line: fset.Position(name.Pos()).Line,
+			callee: exprText(src, fset, call.Fun), value: exprText(src, fset, call)}
+		if len(call.Args) > 0 {
+			w.base = exprText(src, fset, call.Args[0])
+		}
+		syn.wrappers = append(syn.wrappers, w)
 	}
 	ast.Inspect(file, func(n ast.Node) bool {
 		switch node := n.(type) {
 		case *ast.BlockStmt:
 			// Every block is a scope: a router declared inside { ... } must
 			// stop being visible (and protected) when the block ends (T31).
-			scopes = append(scopes, lineScope{
+			syn.scopes = append(syn.scopes, lineScope{
 				start: fset.Position(node.Pos()).Line,
 				end:   fset.Position(node.End()).Line,
 			})
+		case *ast.AssignStmt:
+			if len(node.Lhs) == 1 && len(node.Rhs) == 1 {
+				if ident, ok := node.Lhs[0].(*ast.Ident); ok {
+					wrapper(ident, node.Rhs[0])
+				}
+			}
+		case *ast.ValueSpec:
+			if len(node.Names) == 1 && len(node.Values) == 1 {
+				wrapper(node.Names[0], node.Values[0])
+			}
 		case *ast.CallExpr:
-			ident, ok := node.Fun.(*ast.Ident)
-			if !ok {
+			site := callSite{line: fset.Position(node.Pos()).Line}
+			switch fun := node.Fun.(type) {
+			case *ast.Ident:
+				site.fn = fun.Name
+			case *ast.SelectorExpr:
+				x, ok := fun.X.(*ast.Ident)
+				if !ok {
+					return true
+				}
+				site.fn, site.qual = fun.Sel.Name, x.Name
+			default:
 				return true
 			}
-			args := make([]string, len(node.Args))
+			site.args = make([]string, len(node.Args))
 			for i, arg := range node.Args {
-				args[i] = exprText(src, fset, arg)
+				site.args[i] = exprText(src, fset, arg)
 			}
-			calls = append(calls, callSite{fn: ident.Name, args: args, line: fset.Position(node.Pos()).Line})
+			syn.calls = append(syn.calls, site)
 		}
 		return true
 	})
-	return funcs, calls, scopes
+	return syn
 }
 
 func scopeOf(src []byte, fset *token.FileSet, fn *ast.FuncDecl) funcScope {
 	scope := funcScope{
-		name:  fn.Name.Name,
-		start: fset.Position(fn.Pos()).Line,
-		end:   fset.Position(fn.End()).Line,
+		name:   fn.Name.Name,
+		start:  fset.Position(fn.Pos()).Line,
+		end:    fset.Position(fn.End()).Line,
+		method: fn.Recv != nil,
 	}
 	for _, field := range fn.Type.Params.List {
 		typ := exprText(src, fset, field.Type)

@@ -76,6 +76,19 @@ from `Group(prefix, middleware...)`, `Use(middleware)` and the engine's own
 put middleware after it. A route is protected when any middleware on its chain
 matches the gate list. A middleware that names a role makes it `role`.
 
+A function that receives the router (`func Register(grp fiber.Router)`) is
+resolved from its calls: in the same file, from the other files of its package,
+and from packages that import it (`orders.Register(api)`; the import path is
+mapped to a directory through `go.mod`). A method (`h.Routes(r)`) is matched in its
+package, or anywhere when no other method with a router parameter has that name. A
+function called with routers under different prefixes registers its routes once
+per caller; callers that reach the same path with different middleware leave that
+path `unknown`, and so does a function no call reaches. A middleware held in a
+variable (`mw := auth.Jwt(key)` then `grp.Use(mw)`) is read as the call that built
+it. A value built from a group (`checked := NewRoleRouter(group, perms)`) inherits
+the group, and its constructor counts as a middleware on every route registered
+through it.
+
 **Spring MVC and WebFlux.** The class `@RequestMapping` is the prefix; the method
 annotation supplies the verb and path. `@PreAuthorize`, `@Secured` and
 `@RolesAllowed` decide first, and a method gate wins over a class gate. Without
@@ -202,11 +215,12 @@ changes to this file like any other security configuration.
 
 ## Limits
 
-- **Same file only, except Express mounts.** A Go group, Flask blueprint or
-  FastAPI router created or mounted in another file gives `unknown`, with a
-  sentence in `unresolved`. Express follows mounts across files (above), but not
-  an application passed into a function (`require('./routes')(app)`) or a router
-  built by a class method.
+- **Across files: Go and Express only.** A Flask blueprint or FastAPI router
+  created or mounted in another file gives `unknown`, with a sentence in
+  `unresolved`. Go follows a router parameter to its callers, and Express follows
+  mounts (above). Neither follows a router stored in a struct field or returned by
+  a function in Go, nor an Express application passed into a function
+  (`require('./routes')(app)`) or a router built by a class method.
 - **Names, not data flow.** A gate with a name the list does not know can be
   missed; add it under `endpoints.authGates`. A middleware whose name looks
   like a gate can be taken for one.
