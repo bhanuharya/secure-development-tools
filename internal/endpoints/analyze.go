@@ -45,6 +45,7 @@ func Analyze(inv *Inventory, cfg config.EndpointsCfg) ([]*finding.Finding, error
 	byService := map[string][]Route{}
 	var services []string
 	for _, rt := range inv.Routes {
+		rt = effective(rt) // a public route authenticated upstream is judged as authenticated
 		if _, ok := byService[rt.Service]; !ok {
 			services = append(services, rt.Service)
 		}

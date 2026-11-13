@@ -226,6 +226,7 @@ class EndpointRoute:
     line: int
     service: str = ""
     external: str = ""  # as served, when configuration adds a prefix (Spring context path)
+    upstream: str = ""  # who authenticates the route before it reaches the service, when declared
 
     @property
     def key(self) -> str:
@@ -236,6 +237,17 @@ class EndpointRoute:
     def shown(self) -> str:
         return self.external or self.path
 
+    @property
+    def effective(self) -> str:
+        """The protection the findings judge: public but authenticated upstream counts as authenticated."""
+        return "authenticated" if self.upstream and self.protection == "public" else self.protection
+
+    @property
+    def shown_protection(self) -> str:
+        if self.upstream and self.protection == "public":
+            return f"public (authenticated upstream: {self.upstream})"
+        return self.protection
+
 
 @dataclass
 class EndpointsInventory:
@@ -244,16 +256,20 @@ class EndpointsInventory:
 
     def public_state_changing(self) -> list[EndpointRoute]:
         return [r for r in self.routes
-                if r.protection == "public" and r.method in ENDPOINT_STATE_CHANGING
+                if r.effective == "public" and r.method in ENDPOINT_STATE_CHANGING
                 and not ENDPOINT_PUBLIC_PATH.search(r.path)]
+
+    def upstream_only(self) -> list[EndpointRoute]:
+        """Routes public at the service that a declared upstream component authenticates."""
+        return [r for r in self.routes if r.upstream and r.protection == "public"]
 
     def sensitive(self) -> list[EndpointRoute]:
         return [r for r in self.routes if ENDPOINT_SENSITIVE_PATH.search(r.path)]
 
     def sensitive_to_review(self) -> list[EndpointRoute]:
         """Sensitive routes a role does not already protect, public first."""
-        return sorted((r for r in self.sensitive() if r.protection in ENDPOINT_SENSITIVE_REVIEW),
-                      key=lambda r: ENDPOINT_SENSITIVE_REVIEW.index(r.protection))
+        return sorted((r for r in self.sensitive() if r.effective in ENDPOINT_SENSITIVE_REVIEW),
+                      key=lambda r: ENDPOINT_SENSITIVE_REVIEW.index(r.effective))
 
     def sensitive_with_role(self) -> list[EndpointRoute]:
         return [r for r in self.sensitive() if r.protection == "role"]
@@ -1251,7 +1267,8 @@ def load_endpoints(path: Path) -> EndpointsInventory:
         raise ValueError(f"not an sdt-endpoints/v1 inventory: {path}")
     routes = [EndpointRoute(str(r.get("method") or ""), str(r.get("path") or ""),
                             str(r.get("protection") or ""), str(r.get("file") or ""), int(r.get("line") or 0),
-                            str(r.get("service") or ""), str(r.get("externalPath") or ""))
+                            str(r.get("service") or ""), str(r.get("externalPath") or ""),
+                            str(r.get("upstreamAuth") or ""))
               for r in doc.get("routes") or []]
     summary = {str(k): int(v) for k, v in (doc.get("summary") or {}).items()}
     if not summary:
@@ -1266,7 +1283,7 @@ def protection_rows(inv: EndpointsInventory) -> list[list]:
 
 
 def endpoint_rows(routes: list[EndpointRoute]) -> list[list]:
-    return [[r.method, r.shown, r.protection, f"{r.file}:{r.line}"] for r in routes]
+    return [[r.method, r.shown, r.shown_protection, f"{r.file}:{r.line}"] for r in routes]
 
 
 def role_note(count: int) -> str:
@@ -1352,6 +1369,13 @@ def endpoints_section(inv: EndpointsInventory, changes: dict | None = None) -> l
     parts.append(para(run("POST, PUT, PATCH, DELETE and ANY routes that need no authentication."), before=0))
     parts.append(data_table([("Method", 1000), ("Path", 3380), ("Protection", 1400), ("File", 4300)],
                             endpoint_rows(public)) if public else para(run("None.")))
+    upstream = inv.upstream_only()
+    if upstream:
+        by = sorted({r.upstream for r in upstream})
+        parts.append(para(run(f"{plural(len(upstream), 'route')} {'is' if len(upstream) == 1 else 'are'} public in "
+                              f"the service but declared as authenticated upstream ({'; '.join(by)}), so "
+                              f"{'it is' if len(upstream) == 1 else 'they are'} not listed. Inside the network "
+                              "they are reachable without that check.")))
     parts.append(para(run("Sensitive routes", bold=True), before=160))
     parts.append(para(run("Routes whose path matches the default sensitive list (administration, internal, "
                           "roles, money movement, credentials) and that no role already protects, public "

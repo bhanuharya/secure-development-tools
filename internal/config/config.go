@@ -194,6 +194,17 @@ type EndpointsCfg struct {
 	SensitivePaths []string `yaml:"sensitivePaths,omitempty" json:"sensitivePaths,omitempty"`
 	MinRoutes      int      `yaml:"minRoutes,omitempty" json:"minRoutes,omitempty"`
 	Majority       float64  `yaml:"majority,omitempty" json:"majority,omitempty"`
+	// UpstreamAuth declares routes another component (an API gateway, a mesh) authenticates
+	// before they reach the service. A repository can also declare them in
+	// .secure-dev/endpoints.yaml; both lists apply.
+	UpstreamAuth []UpstreamAuth `yaml:"upstreamAuth,omitempty" json:"upstreamAuth,omitempty"`
+}
+
+// UpstreamAuth is one declaration: which routes, and who authenticates them.
+type UpstreamAuth struct {
+	Service string   `yaml:"service,omitempty" json:"service,omitempty"` // service directory; empty or "*" = all
+	Paths   []string `yaml:"paths,omitempty" json:"paths,omitempty"`     // Ant patterns on the in-app path; empty = all
+	By      string   `yaml:"by" json:"by"`                               // who authenticates, shown as evidence
 }
 
 // Compiled defaults for the endpoint convention rules (SPEC §7). They live
@@ -486,6 +497,16 @@ func Validate(cfg *ScanConfiguration) error {
 			return fmt.Errorf("endpoints: invalid path regex %q: %v", p, err)
 		}
 	}
+	for i, u := range cfg.Endpoints.UpstreamAuth {
+		if strings.TrimSpace(u.By) == "" {
+			return fmt.Errorf("endpoints.upstreamAuth[%d]: \"by\" must say who authenticates the routes", i)
+		}
+		for _, p := range u.Paths {
+			if !strings.HasPrefix(p, "/") {
+				return fmt.Errorf("endpoints.upstreamAuth[%d]: path pattern %q must start with /", i, p)
+			}
+		}
+	}
 	return nil
 }
 
@@ -594,6 +615,9 @@ func Merge(base, over *ScanConfiguration) *ScanConfiguration {
 	}
 	if over.Endpoints.Majority != 0 {
 		ep.Majority = over.Endpoints.Majority
+	}
+	if len(over.Endpoints.UpstreamAuth) > 0 {
+		ep.UpstreamAuth = over.Endpoints.UpstreamAuth
 	}
 	out.Endpoints = ep
 	return &out

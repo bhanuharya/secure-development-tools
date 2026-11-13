@@ -35,6 +35,9 @@ type Route struct {
 	// Evidence is "file:line what decided it", most important first.
 	Evidence   []string `json:"evidence"`
 	Confidence string   `json:"confidence"` // high | medium | low
+	// UpstreamAuth names who authenticates the route before it reaches the service, when a
+	// repository or scan configuration declares it. Protection stays what the service enforces.
+	UpstreamAuth string `json:"upstreamAuth,omitempty"`
 }
 
 // Inventory is the document `sdt endpoints` writes.

@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 const endpointsBase = `apiVersion: secure-dev/v1alpha1
 kind: ScanConfiguration
@@ -113,5 +116,21 @@ func TestEndpointsScannerInFullAndPRProfiles(t *testing.T) {
 	}
 	if err := Validate(cfg); err != nil {
 		t.Fatalf("defaults with endpoints do not validate: %v", err)
+	}
+}
+
+func TestUpstreamAuthValidation(t *testing.T) {
+	cfg := Defaults()
+	cfg.Endpoints.UpstreamAuth = []UpstreamAuth{{Paths: []string{"/api/**"}}}
+	if err := Validate(cfg); err == nil || !strings.Contains(err.Error(), `"by" must say`) {
+		t.Fatalf("missing by: %v", err)
+	}
+	cfg.Endpoints.UpstreamAuth = []UpstreamAuth{{Paths: []string{"api/**"}, By: "gateway"}}
+	if err := Validate(cfg); err == nil || !strings.Contains(err.Error(), "must start with /") {
+		t.Fatalf("relative pattern: %v", err)
+	}
+	cfg.Endpoints.UpstreamAuth = []UpstreamAuth{{Service: "orders", Paths: []string{"/api/**"}, By: "gateway"}}
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("valid declaration rejected: %v", err)
 	}
 }
