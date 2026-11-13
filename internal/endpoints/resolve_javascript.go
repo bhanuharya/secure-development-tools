@@ -47,6 +47,7 @@ func resolveJS(facts []Fact, root string, gates *gateMatcher) ([]Route, []string
 		project.resolvers[file] = js
 		kept = append(kept, file)
 	}
+	project.files = kept
 	project.link(kept)
 
 	var routes []Route
@@ -148,6 +149,7 @@ const (
 	jsUnmounted     = "unmounted"
 	jsMountedTwice  = "mounted twice"
 	jsParentUnknown = "parent unknown"
+	jsCallersDiffer = "callers differ"
 )
 
 type jsResolver struct {
@@ -266,7 +268,7 @@ func (js *jsResolver) resolve(global map[string]bool) ([]Route, []string) {
 func (js *jsResolver) resolveExpress() ([]Route, []string) {
 	var routes []Route
 	for _, f := range js.routes {
-		if !js.serverReceiver(f.Metavars["$R"]) {
+		if !js.serverReceiver(f.Metavars["$R"]) && !js.serverParam(f.Metavars["$R"], f.Line) {
 			continue
 		}
 		route, err := js.expressRoute(f)
@@ -375,7 +377,14 @@ func (js *jsResolver) stateOf(name string, line, depth int) *jsState {
 	b := js.bindingAt(name, line)
 	mounts := js.mountsFor(name, b)
 	var state *jsState
-	if len(mounts) == 0 && (b == nil || !b.engine) {
+	if len(mounts) == 0 && b == nil {
+		if ps, ok := js.paramState(name, line, depth); ok {
+			state = ps
+		}
+	}
+	if state != nil {
+		// a parameter, resolved from the calls that pass the application in
+	} else if len(mounts) == 0 && (b == nil || !b.engine) {
 		state = &jsState{unknown: true, reason: receiverName(name), why: jsUnmounted, exported: b != nil && b.router}
 	} else {
 		state = js.mountState(name, mounts, depth)
@@ -546,6 +555,8 @@ func (s *jsState) unknownEvidence() string {
 	switch s.why {
 	case jsMountedTwice:
 		return fmt.Sprintf("router %s is mounted more than once with different prefixes or middleware", s.reason)
+	case jsCallersDiffer:
+		return fmt.Sprintf("router %s is a parameter, and the calls pass applications or routers with different prefixes or middleware", s.reason)
 	case jsParentUnknown:
 		return fmt.Sprintf("router %s, which mounts this router, is not mounted where this resolver can follow it", s.reason)
 	}
@@ -559,6 +570,8 @@ func (js *jsResolver) addUnknown(state *jsState) {
 	}
 	var sentence string
 	switch {
+	case state.why == jsCallersDiffer:
+		sentence = fmt.Sprintf("%s router %s is passed in by calls with different prefixes or middleware; protection unknown", js.file, name)
 	case state.why == jsMountedTwice:
 		sentence = fmt.Sprintf("%s router %s is mounted more than once with different prefixes or middleware; protection unknown", js.file, name)
 	case state.why == jsParentUnknown:

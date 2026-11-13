@@ -106,7 +106,7 @@
       "line": 42,
       "protection": "unknown",
       "evidence": [
-        "main.py:42 router external_router is not created or mounted in this file"
+        "main.py:42 router external_router is not mounted in any file this scan follows"
       ],
       "confidence": "low"
     }
@@ -118,6 +118,6 @@
     "unknown": 1
   },
   "unresolved": [
-    "main.py router external_router is created or mounted in another file; protection unknown"
+    "main.py router external_router: no include_router or register_blueprint of it was found; protection unknown"
   ]
 }

@@ -43,7 +43,7 @@
       "line": 49,
       "protection": "unknown",
       "evidence": [
-        "app.py:49 router billing is not created or mounted in this file"
+        "app.py:49 router billing is not mounted in any file this scan follows"
       ],
       "confidence": "low"
     },
@@ -129,6 +129,6 @@
     "unknown": 1
   },
   "unresolved": [
-    "app.py router billing is created or mounted in another file; protection unknown"
+    "app.py router billing: no include_router or register_blueprint of it was found; protection unknown"
   ]
 }

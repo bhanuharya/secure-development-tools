@@ -56,6 +56,14 @@ type jsImport struct {
 type jsFunc struct {
 	start, end int
 	body       string
+	params     []string // parameter names in order; "" for a destructured one
+}
+
+// jsCall is a call with plain arguments: registerRoutes(app), require('./x')(app).
+type jsCall struct {
+	callee string
+	args   []string
+	line   int
 }
 
 type jsModule struct {
@@ -63,6 +71,7 @@ type jsModule struct {
 	exports   map[string]string   // exported name -> local name in this file
 	reexports map[string]jsImport // exported name -> another file's export
 	funcs     map[string]jsFunc   // function name (or jsDefaultFn) -> body
+	calls     []jsCall
 }
 
 // readJSModule parses the import, export and function shapes listed above.
@@ -154,7 +163,8 @@ func readJSModule(root, file string) *jsModule {
 		if !ok {
 			return false
 		}
-		m.funcs[name] = jsFunc{start: jsLineAt(lines, start), end: jsLineAt(lines, end-1), body: string(src[start:end])}
+		m.funcs[name] = jsFunc{start: jsLineAt(lines, start), end: jsLineAt(lines, end-1), body: string(src[start:end]),
+			params: jsParams(src, open)}
 		return true
 	}
 	for _, idx := range jsExportFnRe.FindAllSubmatchIndex(src, -1) {
@@ -179,10 +189,71 @@ func readJSModule(root, file string) *jsModule {
 		}
 		open := idx[1] - 1
 		if end := scanBraceEnd(src, open+1); end > 0 {
-			m.funcs[name] = jsFunc{start: jsLineAt(lines, open), end: jsLineAt(lines, end-1), body: string(src[open:end])}
+			param := jsArrowParamRe.FindSubmatch(src[idx[0]:idx[1]])
+			m.funcs[name] = jsFunc{start: jsLineAt(lines, open), end: jsLineAt(lines, end-1), body: string(src[open:end]),
+				params: []string{string(param[1])}}
 		}
 	}
+	for _, idx := range jsCallRe.FindAllSubmatchIndex(src, -1) {
+		before := strings.TrimRight(string(src[:idx[0]]), " \t*")
+		after := strings.TrimLeft(string(src[idx[1]:]), " \t\r\n")
+		if strings.HasSuffix(before, "function") || strings.HasPrefix(after, "{") || strings.HasPrefix(after, "=>") {
+			continue // a declaration (function f(a) {, method f(a) {, (a) =>), not a call
+		}
+		callee := strings.TrimSpace(string(src[idx[2]:idx[3]]))
+		var args []string
+		for _, a := range strings.Split(string(src[idx[4]:idx[5]]), ",") {
+			args = append(args, strings.TrimSpace(a))
+		}
+		m.calls = append(m.calls, jsCall{callee: callee, args: args, line: jsLineAt(lines, idx[0])})
+	}
 	return m
+}
+
+var (
+	// callee(args) where every argument is an identifier: the shape that hands
+	// an application or router to a function. The callee may be require('./x').
+	jsCallRe       = regexp.MustCompile(`(require\(\s*['"][^'"]+['"]\s*\)(?:\s*\.\s*` + jsIdent + `)?|` + jsIdent + `(?:\s*\.\s*` + jsIdent + `)*)\s*\(\s*(` + jsIdent + `(?:\s*,\s*` + jsIdent + `)*)\s*\)`)
+	jsArrowParamRe = regexp.MustCompile(`(` + jsIdent + `)\s*=>\s*\{$`)
+)
+
+// jsParams reads the parameter names of the list that opens at open.
+func jsParams(src []byte, open int) []string {
+	close := jsMatchParen(src, open)
+	if close < 0 {
+		return nil
+	}
+	var out []string
+	depth, start := 0, open+1
+	inner := src[open+1 : close]
+	flush := func(part string) {
+		part = strings.TrimSpace(part)
+		part = strings.TrimPrefix(part, "...")
+		if i := strings.IndexAny(part, "=:?"); i >= 0 {
+			part = strings.TrimSpace(part[:i])
+		}
+		if !jsIdentOnly.MatchString(part) {
+			part = ""
+		}
+		out = append(out, part)
+	}
+	for i, c := range inner {
+		switch c {
+		case '(', '[', '{', '<':
+			depth++
+		case ')', ']', '}', '>':
+			depth--
+		case ',':
+			if depth == 0 {
+				flush(string(src[start : open+1+i]))
+				start = open + 2 + i
+			}
+		}
+	}
+	if strings.TrimSpace(string(src[start:close])) != "" {
+		flush(string(src[start:close]))
+	}
+	return out
 }
 
 // jsBindingList reads `a, b: c` (sep ":") or `a, b as c` (sep " as ") into
@@ -382,6 +453,7 @@ type jsTarget struct {
 // router declaration, the mounts in any file that add it.
 type jsProject struct {
 	root      string
+	files     []string // the Express and NestJS files, sorted
 	resolvers map[string]*jsResolver
 	modules   map[string]*jsModule
 	mounts    map[*jsBinding][]jsMount
@@ -561,4 +633,153 @@ func (p *jsProject) factoryTarget(file, fn string) *jsTarget {
 		return nil
 	}
 	return &jsTarget{res: js, binding: match}
+}
+
+// paramState resolves a router that is a parameter of the function around
+// line (module.exports = (app) => { app.get(...) }) from the calls that pass
+// an application or router in: require('./users')(app), registerUsers(app)
+// after an import, routes.register(app), or a call in the same file.
+func (js *jsResolver) paramState(name string, line, depth int) (*jsState, bool) {
+	if js.project == nil || depth > 8 {
+		return nil, false
+	}
+	p := js.project
+	fnNames, idx := p.paramOf(js.file, name, line)
+	if len(fnNames) == 0 {
+		return nil, false
+	}
+	var states []*jsState
+	for _, file := range p.files {
+		caller := p.resolvers[file]
+		if caller == nil || caller.nest {
+			continue
+		}
+		for _, c := range p.module(file).calls {
+			if idx >= len(c.args) {
+				continue
+			}
+			targetFile, targetFn := p.calleeFunc(file, c.callee, 0)
+			if targetFile != js.file || !fnNames[targetFn] {
+				continue
+			}
+			states = append(states, caller.stateOf(c.args[idx], c.line, depth+1))
+		}
+	}
+	if len(states) == 0 {
+		return nil, false
+	}
+	for _, other := range states[1:] {
+		if !sameJSState(states[0], other) || states[0].unknown != other.unknown {
+			return &jsState{unknown: true, reason: receiverName(name), why: jsCallersDiffer}, true
+		}
+	}
+	first := states[0]
+	return &jsState{prefixes: append([]string{}, first.prefixes...), mws: append([]mwRef{}, first.mws...),
+		unknown: first.unknown, reason: first.reason, why: first.why}, true
+}
+
+// serverParam keeps a route whose receiver is a parameter that callers fill
+// with a known application or router, whatever the parameter is called.
+func (js *jsResolver) serverParam(name string, line int) bool {
+	state, ok := js.paramState(strings.TrimSpace(name), line, 0)
+	return ok && !state.unknown
+}
+
+// paramOf returns the names of the innermost function around line in file
+// that has a parameter called name, and that parameter's position. One
+// function can have two names (module.exports = function register(app) is both
+// the default export and register), so every name with that span is returned.
+func (p *jsProject) paramOf(file, name string, line int) (map[string]bool, int) {
+	type hit struct {
+		fn   string
+		idx  int
+		span int
+	}
+	var hits []hit
+	best := -1
+	for fnName, fn := range p.module(file).funcs {
+		if line < fn.start || line > fn.end {
+			continue
+		}
+		for i, param := range fn.params {
+			if param == name {
+				span := fn.end - fn.start
+				hits = append(hits, hit{fnName, i, span})
+				if best < 0 || span < best {
+					best = span
+				}
+			}
+		}
+	}
+	names, idx := map[string]bool{}, -1
+	for _, h := range hits {
+		if h.span != best {
+			continue
+		}
+		if idx >= 0 && h.idx != idx {
+			return nil, -1 // the same span with the parameter in two positions: ambiguous
+		}
+		names[h.fn], idx = true, h.idx
+	}
+	return names, idx
+}
+
+// calleeFunc maps a call's callee to the file and function it runs.
+func (p *jsProject) calleeFunc(file, callee string, depth int) (string, string) {
+	if depth > 8 {
+		return "", ""
+	}
+	mod := p.module(file)
+	if strings.HasPrefix(callee, "require(") {
+		closeIdx := strings.Index(callee, ")")
+		target := jsResolveModule(p.root, file, unquote(strings.TrimSpace(callee[len("require("):closeIdx])))
+		rest := strings.TrimSpace(callee[closeIdx+1:])
+		if target == "" {
+			return "", ""
+		}
+		if rest == "" {
+			return p.exportFunc(target, "default", depth+1)
+		}
+		return p.exportFunc(target, strings.TrimSpace(strings.TrimPrefix(rest, ".")), depth+1)
+	}
+	if jsIdentOnly.MatchString(callee) {
+		if _, ok := mod.funcs[callee]; ok {
+			return file, callee
+		}
+		if imp, ok := mod.imports[callee]; ok && imp.name != "*" {
+			return p.exportFunc(imp.file, imp.name, depth+1)
+		}
+		return "", ""
+	}
+	dot := strings.LastIndex(callee, ".")
+	if dot <= 0 {
+		return "", ""
+	}
+	head, member := strings.TrimSpace(callee[:dot]), strings.TrimSpace(callee[dot+1:])
+	if imp, ok := mod.imports[head]; ok && (imp.name == "*" || imp.name == "default") {
+		return p.exportFunc(imp.file, member, depth+1)
+	}
+	return "", ""
+}
+
+// exportFunc follows an export to the function declared for it.
+func (p *jsProject) exportFunc(file, name string, depth int) (string, string) {
+	if depth > 8 {
+		return "", ""
+	}
+	mod := p.module(file)
+	if re, ok := mod.reexports[name]; ok {
+		return p.exportFunc(re.file, re.name, depth+1)
+	}
+	local, ok := mod.exports[name]
+	if !ok {
+		return "", ""
+	}
+	if imp, ok := mod.imports[local]; ok && imp.name != "*" {
+		return p.exportFunc(imp.file, imp.name, depth+1)
+	}
+	if _, ok := mod.funcs[local]; ok {
+		return file, local
+	}
+	return "", ""
 }

@@ -83,6 +83,22 @@ type funcScope struct {
 	end    int
 	params []paramRef
 	method bool // declared with a receiver: called as x.name(...)
+	// recvName and recvType name a method's receiver (a, RestAPI for
+	// func (a *RestAPI) ...). delegates are the receiver's fields the body
+	// calls a method on: a.Router.Get(path, h) delegates to Router.
+	recvName  string
+	recvType  string
+	delegates []string
+}
+
+// goFieldSet stores a router in a struct field: a.Router = app inside a method
+// of the type (recvVar a), or T{Router: app} (typ T).
+type goFieldSet struct {
+	typ     string
+	recvVar string
+	field   string
+	expr    string
+	line    int
 }
 
 // callSite is a call to fn, qualified by qual for pkg.Fn(...) or x.Method(...).
@@ -112,6 +128,7 @@ type goSyntax struct {
 	calls    []callSite
 	scopes   []lineScope
 	wrappers []goWrapper
+	fields   []goFieldSet
 }
 
 // lineScope is the source range of a lexical block: a function body, a closure
@@ -140,6 +157,7 @@ type fileResolver struct {
 	pkg       string
 	imports   map[string]string
 	wrappers  []goWrapper
+	fields    []goFieldSet
 	project   *goProject
 }
 
@@ -170,6 +188,7 @@ func newFileResolver(file string, facts []Fact, root string, gates *gateMatcher)
 	syn := parseGoScope(filepath.Join(root, file))
 	fr.funcs, fr.calls, fr.scopes = syn.funcs, syn.calls, syn.scopes
 	fr.pkg, fr.imports, fr.wrappers = syn.pkg, syn.imports, syn.wrappers
+	fr.fields = typedFieldSets(syn.fields, syn.funcs)
 	fr.addEngineBindings()
 	fr.addGroupBindings()
 	fr.addChiBindings()
@@ -336,6 +355,8 @@ func (fr *fileResolver) stateOfVar(name string, line, depth int) *routeState {
 		state = fr.paramState(fn, idx, depth)
 	} else if w := fr.wrapperAt(name, line); w != nil {
 		state = fr.wrapperState(w, depth)
+	} else if fs, ok := fr.receiverFieldState(name, line, depth); ok {
+		state = fs
 	} else if name == "http" {
 		state = &routeState{}
 	} else {
@@ -358,29 +379,36 @@ func (fr *fileResolver) stateOfNode(node *groupNode, depth int) *routeState {
 // at line: same binding (scope), registered earlier. Fiber's path form
 // Use("/x", mw) only applies to routes under that prefix.
 func (fr *fileResolver) usesBefore(name string, line int, b *binding, scope *funcScope, state *routeState) []mwRef {
+	inScope := func(l int) bool {
+		if scope != nil {
+			return l >= scope.start && l <= scope.end
+		}
+		return fr.bindingAt(name, l) == b // otherwise a shadowing group or router
+	}
 	var out []mwRef
 	for _, u := range fr.uses {
-		if u.Metavars["$R"] != name || u.Line >= line {
+		if u.Metavars["$R"] != name || u.Line >= line || !inScope(u.Line) {
 			continue
 		}
-		if scope != nil {
-			if u.Line < scope.start || u.Line > scope.end {
-				continue
-			}
-		} else if fr.bindingAt(name, u.Line) != b {
-			continue // the call belongs to a shadowing group or router
+		out = append(out, fr.useMWs(u, state)...)
+	}
+	return append(out, fr.helperUses(name, line, inScope, state)...)
+}
+
+// useMWs turns one Use fact into middleware. Fiber's path form Use("/x", mw)
+// only applies to routes under that prefix.
+func (fr *fileResolver) useMWs(u Fact, state *routeState) []mwRef {
+	args := factArgs(u)
+	prefix := ""
+	if fr.framework == "fiber" && len(args) > 0 {
+		if p := unquote(args[0]); strings.HasPrefix(p, "/") {
+			prefix = joinPaths(state.prefixes, p)
+			args = args[1:]
 		}
-		args := factArgs(u)
-		prefix := ""
-		if fr.framework == "fiber" && len(args) > 0 {
-			if p := unquote(args[0]); strings.HasPrefix(p, "/") {
-				prefix = joinPaths(state.prefixes, p)
-				args = args[1:]
-			}
-		}
-		for _, expr := range args {
-			out = append(out, mwRef{file: fr.file, line: u.Line, expr: fr.mwExpr(expr, u.Line), place: groupPlace(state), prefix: prefix})
-		}
+	}
+	var out []mwRef
+	for _, expr := range args {
+		out = append(out, mwRef{file: fr.file, line: u.Line, expr: fr.mwExpr(expr, u.Line), place: groupPlace(state), prefix: prefix})
 	}
 	return out
 }
@@ -518,6 +546,8 @@ func (fr *fileResolver) addUnknown(state *routeState) {
 		sentence = fmt.Sprintf("%s router %s is a parameter of %s, and no call to %s was found; protection unknown", fr.file, name, state.fn, state.fn)
 	case goCallersDiffer:
 		sentence = fmt.Sprintf("%s router %s: the calls to %s pass routers with different prefixes or middleware; protection unknown", fr.file, name, state.fn)
+	case goNoField, goFieldsDiffer:
+		sentence = fmt.Sprintf("%s %s; protection unknown", fr.file, state.unknownEvidence())
 	default:
 		sentence = fmt.Sprintf("%s router %s is created where this scan cannot follow it; protection unknown", fr.file, name)
 	}
@@ -820,6 +850,25 @@ func parseGoScope(path string) goSyntax {
 				if ident, ok := node.Lhs[0].(*ast.Ident); ok {
 					wrapper(ident, node.Rhs[0])
 				}
+				if sel, ok := node.Lhs[0].(*ast.SelectorExpr); ok {
+					if x, ok := sel.X.(*ast.Ident); ok {
+						syn.fields = append(syn.fields, goFieldSet{recvVar: x.Name, field: sel.Sel.Name,
+							expr: exprText(src, fset, node.Rhs[0]), line: fset.Position(node.Pos()).Line})
+					}
+				}
+			}
+		case *ast.CompositeLit:
+			if typ := goTypeName(node.Type); typ != "" {
+				for _, elt := range node.Elts {
+					kv, ok := elt.(*ast.KeyValueExpr)
+					if !ok {
+						continue
+					}
+					if key, ok := kv.Key.(*ast.Ident); ok {
+						syn.fields = append(syn.fields, goFieldSet{typ: typ, field: key.Name,
+							expr: exprText(src, fset, kv.Value), line: fset.Position(kv.Pos()).Line})
+					}
+				}
 			}
 		case *ast.ValueSpec:
 			if len(node.Names) == 1 && len(node.Values) == 1 {
@@ -856,6 +905,35 @@ func scopeOf(src []byte, fset *token.FileSet, fn *ast.FuncDecl) funcScope {
 		start:  fset.Position(fn.Pos()).Line,
 		end:    fset.Position(fn.End()).Line,
 		method: fn.Recv != nil,
+	}
+	if fn.Recv != nil && len(fn.Recv.List) == 1 {
+		recv := fn.Recv.List[0]
+		scope.recvType = goTypeName(recv.Type)
+		if len(recv.Names) == 1 {
+			scope.recvName = recv.Names[0].Name
+		}
+	}
+	if scope.recvName != "" && fn.Body != nil {
+		seen := map[string]bool{}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			outer, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			inner, ok := outer.X.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			if x, ok := inner.X.(*ast.Ident); ok && x.Name == scope.recvName && !seen[inner.Sel.Name] {
+				seen[inner.Sel.Name] = true
+				scope.delegates = append(scope.delegates, inner.Sel.Name)
+			}
+			return true
+		})
 	}
 	for _, field := range fn.Type.Params.List {
 		typ := exprText(src, fset, field.Type)
