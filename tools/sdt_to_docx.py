@@ -224,6 +224,12 @@ class EndpointRoute:
     protection: str
     file: str
     line: int
+    service: str = ""
+
+    @property
+    def key(self) -> str:
+        """The same route in the next scan: service, method and path (a moved line is the same route)."""
+        return f"{self.service}|{self.method}|{self.path}"
 
 
 @dataclass
@@ -270,6 +276,7 @@ class Report:
     resolved: dict | None = None  # findings decided in SonarQube (Safe / False positive / Accepted / Fixed): kept for the audit appendix, out of the sections and counts
     context: sdt_priority.Context = field(default_factory=sdt_priority.Context)  # service exposure and criticality
     endpoints: EndpointsInventory | None = None  # route inventory from the endpoints adapter (endpoints.json)
+    endpoint_changes: dict | None = None  # route changes against the previous report (compare_endpoints)
 
 
 # ------------------------------------------------------------------ categorising
@@ -1220,7 +1227,8 @@ def load_endpoints(path: Path) -> EndpointsInventory:
     if doc.get("schema") != "sdt-endpoints/v1":
         raise ValueError(f"not an sdt-endpoints/v1 inventory: {path}")
     routes = [EndpointRoute(str(r.get("method") or ""), str(r.get("path") or ""),
-                            str(r.get("protection") or ""), str(r.get("file") or ""), int(r.get("line") or 0))
+                            str(r.get("protection") or ""), str(r.get("file") or ""), int(r.get("line") or 0),
+                            str(r.get("service") or ""))
               for r in doc.get("routes") or []]
     summary = {str(k): int(v) for k, v in (doc.get("summary") or {}).items()}
     if not summary:
@@ -1258,7 +1266,58 @@ def sensitive_block(inv: EndpointsInventory) -> list[str]:
     return [para(run("No sensitive route needs review."))]
 
 
-def endpoints_section(inv: EndpointsInventory) -> list[str]:
+# Weakest first: a route moving down this list lost protection since the previous scan.
+ENDPOINT_STRENGTH = {"public": 0, "unknown": 1, "authenticated": 2, "role": 3, "denied": 4}
+
+
+def endpoint_state(inv: EndpointsInventory | None) -> list[dict]:
+    """Routes for the next report's comparison: keys and protection only, no code."""
+    return sorted(({"key": r.key, "protection": r.protection, "file": r.file, "line": r.line}
+                   for r in (inv.routes if inv else [])), key=lambda e: e["key"])
+
+
+def compare_endpoints(now: list[dict], before: list[dict]) -> dict:
+    """New routes, routes whose protection got weaker, and routes gone, against the previous scan.
+    A route that became unknown is counted apart: the tool lost certainty (often a newer SDT
+    reading the configuration differently), which says nothing about the code."""
+    old = {e["key"]: e for e in before}
+    cur = {e["key"]: e for e in now}
+    added = [e for k, e in cur.items() if k not in old]
+    weaker = [dict(e, before=old[k]["protection"]) for k, e in cur.items() if k in old and e["protection"] != "unknown"
+              and ENDPOINT_STRENGTH.get(e["protection"], 1) < ENDPOINT_STRENGTH.get(old[k]["protection"], 1)]
+    uncertain = sum(1 for k, e in cur.items() if k in old and e["protection"] == "unknown"
+                    and old[k]["protection"] != "unknown")
+    removed = [k for k in old if k not in cur]
+    return {"added": sorted(added, key=lambda e: (ENDPOINT_STRENGTH.get(e["protection"], 1), e["key"])),
+            "weaker": sorted(weaker, key=lambda e: (ENDPOINT_STRENGTH.get(e["protection"], 1), e["key"])),
+            "removed": len(removed), "uncertain": uncertain}
+
+
+def endpoint_changes_block(changes: dict | None) -> list[str]:
+    """What changed since the previous scan: new public routes and weaker protection first."""
+    parts = [para(run("Changes since previous scan", bold=True), before=160)]
+    if changes is None:
+        return parts + [para(run("No earlier inventory to compare with; the next scan will list the changes."),
+                             before=0)]
+    added, weaker = changes["added"], changes["weaker"]
+    public_new = [e for e in added if e["protection"] == "public"]
+    uncertain = changes.get("uncertain", 0)
+    parts.append(para(run(f"{plural(len(added), 'new route')} ({len(public_new)} public), "
+                          f"{plural(len(weaker), 'route')} with weaker protection, "
+                          f"{plural(changes['removed'], 'route')} removed"
+                          + (f", {plural(uncertain, 'route')} now unknown (not listed)" if uncertain else "")
+                          + ". A change can also come from a newer SDT version reading the code differently."),
+                      before=0))
+    rows = [[*e["key"].split("|")[1:], "new", e["protection"], f"{e['file']}:{e['line']}"]
+            for e in added if e["protection"] in ("public", "unknown")]
+    rows += [[*e["key"].split("|")[1:], e["before"], e["protection"], f"{e['file']}:{e['line']}"] for e in weaker]
+    if rows:
+        parts.append(data_table([("Method", 1000), ("Path", 3080), ("Before", 1300), ("Now", 1300),
+                                 ("File", 3400)], rows))
+    return parts
+
+
+def endpoints_section(inv: EndpointsInventory, changes: dict | None = None) -> list[str]:
     """The Endpoints section: counts, then the routes that deserve a look despite their protection."""
     parts = [section_heading("4. Endpoints", 1, "sec_endpoints", page_break=True),
              para(run("The route inventory from the endpoints adapter, with the protection each route "
@@ -1275,6 +1334,7 @@ def endpoints_section(inv: EndpointsInventory) -> list[str]:
                           "roles, money movement, credentials) and that no role already protects, public "
                           "first."), before=0))
     parts += sensitive_block(inv)
+    parts += endpoint_changes_block(changes)
     return parts
 
 
@@ -1532,7 +1592,7 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
 
     # ------------------------------------------------ 4. endpoints
     if report.endpoints:
-        parts += endpoints_section(report.endpoints)
+        parts += endpoints_section(report.endpoints, report.endpoint_changes)
 
     if report.resolved and any(report.resolved.values()):
         rows = resolved_rows(report.resolved)
@@ -1751,7 +1811,8 @@ def report_state(report: Report, src_root: Path | None) -> dict:
     return {"version": 1, "source": report.source, "commit": report.commit,
             "generatedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
             "findings": _entries(report.code, report.secrets, report.dependencies, report.config,
-                                 _line_reader(src_root))}
+                                 _line_reader(src_root)),
+            **({"endpoints": endpoint_state(report.endpoints)} if report.endpoints else {})}
 
 
 def excepted_places(doc: dict, src_root: Path | None) -> set:
@@ -1966,6 +2027,8 @@ def main() -> int:
                                    excepted_places(doc, args.src_root) | resolved_places(resolved, args.src_root))
             report.previous = ", commit ".join(filter(None, (str(before.get("generatedAt") or "")[:10] or
                                                              "the previous run", before.get("commit"))))
+            if report.endpoints and "endpoints" in before:
+                report.endpoint_changes = compare_endpoints(state.get("endpoints", []), before["endpoints"])
         else:
             print("sdt_to_docx: the previous report read other sources or is unreadable; no comparison",
                   file=sys.stderr)

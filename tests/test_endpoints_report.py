@@ -123,3 +123,55 @@ def test_main_reads_endpoints_json_beside_findings(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["sdt_to_docx.py", "--findings", str(findings), "--out", str(out)])
     assert sdt_to_docx.main() == 0
     assert "Routes per protection" in _text(out)
+
+
+def _scan(tmp_path, monkeypatch, routes, previous=None):
+    """One report run over findings.json + endpoints.json; returns (text, state path)."""
+    run = tmp_path / f"run{len(list(tmp_path.glob('run*')))}"
+    run.mkdir()
+    (run / "findings.json").write_text(json.dumps({"findings": []}))
+    (run / "endpoints.json").write_text(json.dumps(dict(INVENTORY, routes=routes, summary={})))
+    out, state = run / "report.docx", run / "report-state.json"
+    argv = ["sdt_to_docx.py", "--findings", str(run / "findings.json"), "--out", str(out), "--state-out", str(state)]
+    if previous:
+        argv += ["--previous-state", str(previous)]
+    monkeypatch.setattr(sys, "argv", argv)
+    assert sdt_to_docx.main() == 0
+    return _text(out), state
+
+
+def test_compare_endpoints_reports_new_weaker_and_removed_routes():
+    before = [{"key": ".|POST|/api/orders", "protection": "role", "file": "a.go", "line": 1},
+              {"key": ".|GET|/api/old", "protection": "public", "file": "a.go", "line": 2},
+              {"key": ".|GET|/api/reports", "protection": "authenticated", "file": "a.go", "line": 3}]
+    now = [{"key": ".|POST|/api/orders", "protection": "authenticated", "file": "a.go", "line": 9},
+           {"key": ".|GET|/api/reports", "protection": "role", "file": "a.go", "line": 3},
+           {"key": ".|POST|/api/transfer", "protection": "public", "file": "b.go", "line": 4},
+           {"key": ".|GET|/api/ledger", "protection": "unknown", "file": "a.go", "line": 5}]
+    before.append({"key": ".|GET|/api/ledger", "protection": "authenticated", "file": "a.go", "line": 5})
+    changes = sdt_to_docx.compare_endpoints(now, before)
+    assert [e["key"] for e in changes["added"]] == [".|POST|/api/transfer"]
+    assert [(e["key"], e["before"], e["protection"]) for e in changes["weaker"]] == [
+        (".|POST|/api/orders", "role", "authenticated")]  # stronger protection is not listed
+    assert changes["removed"] == 1
+    assert changes["uncertain"] == 1  # authenticated -> unknown is counted, not listed as weaker
+
+
+def test_second_scan_lists_new_public_and_weaker_routes(tmp_path, monkeypatch):
+    first = [dict(r) for r in INVENTORY["routes"]]
+    text, state = _scan(tmp_path, monkeypatch, first)
+    assert "No earlier inventory to compare with" in text
+    saved = json.loads(state.read_text())["endpoints"]
+    assert {"key": ".|POST|/api/orders", "protection": "authenticated", "file": "main.go", "line": 10} in saved
+    assert all(set(e) == {"key", "protection", "file", "line"} for e in saved)  # no code, no evidence
+
+    second = [dict(r) for r in first if r["path"] != "/api/health"]
+    for r in second:
+        if r["path"] == "/api/admin/audit":
+            r["protection"] = "authenticated"  # a role check was lost
+    second.append({"service": ".", "framework": "gin", "method": "POST", "path": "/api/payouts", "handler": "payout",
+                   "file": "pay.go", "line": 5, "protection": "public", "confidence": "high", "evidence": []})
+    text, _ = _scan(tmp_path, monkeypatch, second, previous=state)
+    assert "1 new route (1 public), 1 route with weaker protection, 1 route removed." in text
+    assert "/api/payouts" in text and "pay.go:5" in text
+    assert "/api/admin/auditroleauthenticated" in text  # Before / Now cells of the weaker route

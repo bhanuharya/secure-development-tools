@@ -44,6 +44,16 @@ become `{name}`.
 | `denied` | A Spring Security rule denies every request. |
 | `unknown` | The decision may live in a file this resolver cannot see. Never reported as a finding. |
 
+## Changes between scans
+
+The Word report's Endpoints section ends with **Changes since previous scan** when the
+previous report's state (`report-state.json`, kept by the Jenkins integration) is available.
+The state records each route's service, method, path, protection and `file:line`; no code.
+The section counts new routes, routes with weaker protection (for example `role` to
+`authenticated`, or anything to `public`) and removed routes, and lists the new public or
+unknown routes and the weaker ones. A route that became `unknown` is only counted: the tool
+lost certainty, which often comes from a newer SDT version rather than from the code.
+
 ## How routes are resolved
 
 **Go: gin, echo, fiber, chi, net/http.** Routes come from the router calls and
