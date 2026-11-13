@@ -1,0 +1,8 @@
+[
+  {
+    "rule": "scp.endpoints.sensitive-route-public",
+    "file": "server.go",
+    "line": 39,
+    "endpoint": "POST /admin/purge"
+  }
+]

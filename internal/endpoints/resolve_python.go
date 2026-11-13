@@ -10,8 +10,8 @@ import (
 // This file resolves Flask and FastAPI facts into routes (SPEC §5, Python
 // bullet). Every route decorator is its own registration; only gate decorators
 // below it on the same def wrap the registered function. Router prefixes and
-// dependencies are joined inside one file only: an APIRouter or Blueprint
-// created or mounted elsewhere stays unknown.
+// dependencies are joined across files through imports
+// (resolve_python_project.go); a router no mount reaches stays unknown.
 
 var (
 	pyQuotedRe = regexp.MustCompile(`["']([^"']+)["']`)
@@ -68,6 +68,7 @@ type pyResolver struct {
 	routeDeps  map[int][]pyGate    // route decorator line -> dependencies=[...] on that decorator
 	gates      map[string][]pyGate // handler -> decorators and parameter gates
 	unresolved []string
+	project    *pyProject
 }
 
 // resolvePython sends each Python file to the Flask/FastAPI resolver.
@@ -85,10 +86,20 @@ func resolvePython(facts []Fact, root string, gates *gateMatcher) ([]Route, []st
 	}
 	sort.Strings(files)
 
+	// Every file is read before any route is resolved: a router may be
+	// mounted in a module that sorts after it.
+	project := newPyProject(root)
+	for _, file := range files {
+		py := newPyResolver(file, byFile[file], root, gates)
+		py.project = project
+		project.resolvers[file] = py
+	}
+	project.link(files)
+
 	var routes []Route
 	var unresolved []string
 	for _, file := range files {
-		py := newPyResolver(file, byFile[file], root, gates)
+		py := project.resolvers[file]
 		fileRoutes, fileUnresolved := py.resolve()
 		routes = append(routes, fileRoutes...)
 		unresolved = append(unresolved, fileUnresolved...)
@@ -417,19 +428,26 @@ func (py *pyResolver) stateOf(name string, depth int) *pyState {
 		return &pyState{deps: py.defGates(name, def)}
 	}
 	own := py.defGates(name, def)
-	mounts := py.mountsFor(name)
+	var mounts []pyExtMount
+	for _, m := range py.mountsFor(name) {
+		mounts = append(mounts, pyExtMount{res: py, mount: m})
+	}
+	if py.project != nil {
+		mounts = append(mounts, py.project.external[py.file+"|"+name]...)
+	}
 	if len(mounts) == 0 {
 		return &pyState{unknown: true, reason: name}
 	}
 	var merged *pyState
-	for _, m := range mounts {
-		owner := py.stateOf(m.owner, depth+1)
+	for _, em := range mounts {
+		m := em.mount
+		owner := em.res.stateOf(m.owner, depth+1)
 		if owner.unknown {
 			return &pyState{unknown: true, reason: name}
 		}
 		next := &pyState{}
 		next.prefixes = append(append([]string{}, owner.prefixes...), py.mountPrefixes(m, def)...)
-		next.deps = append(append([]pyGate{}, own...), py.mountGates(m)...)
+		next.deps = append(append([]pyGate{}, own...), em.res.mountGates(m)...)
 		next.deps = append(next.deps, owner.deps...)
 		if merged == nil {
 			merged = next
@@ -533,7 +551,7 @@ func (py *pyResolver) decide(line, defLine int, handler string, state *pyState) 
 		return ProtAuthenticated, nil, evidence
 	}
 	if state.unknown {
-		evidence = append(evidence, fmt.Sprintf("%s:%d router %s is not created or mounted in this file", py.file, line, state.reason))
+		evidence = append(evidence, fmt.Sprintf("%s:%d router %s is not mounted in any file this scan follows", py.file, line, state.reason))
 		return ProtUnknown, nil, evidence
 	}
 	evidence = append(evidence, fmt.Sprintf("%s:%d no gate decorator or dependency on the route", py.file, line))
@@ -550,7 +568,7 @@ func (py *pyResolver) addUnknown(state *pyState, receiver string) {
 	if name == "" {
 		name = receiver
 	}
-	sentence := fmt.Sprintf("%s router %s is created or mounted in another file; protection unknown", py.file, name)
+	sentence := fmt.Sprintf("%s router %s: no include_router or register_blueprint of it was found; protection unknown", py.file, name)
 	for _, s := range py.unresolved {
 		if s == sentence {
 			return

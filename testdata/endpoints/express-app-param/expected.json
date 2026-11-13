@@ -1,0 +1,84 @@
+{
+  "root": ".",
+  "routes": [
+    {
+      "confidence": "high",
+      "evidence": [
+        "routes/admin.js:4 middleware requireRole(...)"
+      ],
+      "file": "routes/admin.js",
+      "framework": "express",
+      "handler": "deleteUser",
+      "line": 4,
+      "method": "DELETE",
+      "path": "/admin/users/{id}",
+      "protection": "role",
+      "roles": [
+        "admin"
+      ],
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "app.js:8 middleware verifyToken on router"
+      ],
+      "file": "routes/orders.js",
+      "framework": "express",
+      "handler": "listOrders",
+      "line": 2,
+      "method": "GET",
+      "path": "/api/orders",
+      "protection": "authenticated",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "app.js:8 middleware verifyToken on router"
+      ],
+      "file": "routes/orders.js",
+      "framework": "express",
+      "handler": "cancelOrder",
+      "line": 3,
+      "method": "POST",
+      "path": "/api/orders/{id}/cancel",
+      "protection": "authenticated",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "routes/health.js:2 no gate middleware on the route"
+      ],
+      "file": "routes/health.js",
+      "framework": "express",
+      "handler": "(req, res) =\u003e res.send('ok')",
+      "line": 2,
+      "method": "GET",
+      "path": "/health",
+      "protection": "public",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "app.js:17 no gate middleware on the route"
+      ],
+      "file": "app.js",
+      "framework": "express",
+      "handler": "exportAll",
+      "line": 17,
+      "method": "POST",
+      "path": "/legacy/admin/export",
+      "protection": "public",
+      "service": "."
+    }
+  ],
+  "schema": "sdt-endpoints/v1",
+  "summary": {
+    "authenticated": 2,
+    "public": 2,
+    "role": 1
+  }
+}

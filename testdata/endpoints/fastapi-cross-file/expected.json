@@ -1,0 +1,89 @@
+{
+  "root": ".",
+  "routes": [
+    {
+      "confidence": "high",
+      "evidence": [
+        "app/routers/admin.py:5 APIRouter dependencies [Depends(...)] on router router",
+        "app/main.py:8 include_router dependencies [Depends(...)] on mount /api/v1"
+      ],
+      "file": "app/routers/admin.py",
+      "framework": "fastapi",
+      "handler": "delete_user",
+      "line": 8,
+      "method": "DELETE",
+      "path": "/api/v1/admin/users/{user_id}",
+      "protection": "role",
+      "roles": [
+        "admin"
+      ],
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "app/main.py:8 include_router dependencies [Depends(...)] on mount /api/v1"
+      ],
+      "file": "app/routers/users.py",
+      "framework": "fastapi",
+      "handler": "me",
+      "line": 6,
+      "method": "GET",
+      "path": "/api/v1/users/me",
+      "protection": "authenticated",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "app/main.py:8 include_router dependencies [Depends(...)] on mount /api/v1"
+      ],
+      "file": "app/routers/users.py",
+      "framework": "fastapi",
+      "handler": "reset_password",
+      "line": 11,
+      "method": "POST",
+      "path": "/api/v1/users/{user_id}/reset-password",
+      "protection": "authenticated",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "app/routers/health.py:6 no gate decorator or dependency on the route"
+      ],
+      "file": "app/routers/health.py",
+      "framework": "fastapi",
+      "handler": "health",
+      "line": 6,
+      "method": "GET",
+      "path": "/health",
+      "protection": "public",
+      "service": "."
+    },
+    {
+      "confidence": "low",
+      "evidence": [
+        "app/routers/payouts.py:7 router router is not mounted in any file this scan follows"
+      ],
+      "file": "app/routers/payouts.py",
+      "framework": "fastapi",
+      "handler": "payout",
+      "line": 7,
+      "method": "POST",
+      "path": "/payouts",
+      "protection": "unknown",
+      "service": "."
+    }
+  ],
+  "schema": "sdt-endpoints/v1",
+  "summary": {
+    "authenticated": 2,
+    "public": 1,
+    "role": 1,
+    "unknown": 1
+  },
+  "unresolved": [
+    "app/routers/payouts.py router router: no include_router or register_blueprint of it was found; protection unknown"
+  ]
+}

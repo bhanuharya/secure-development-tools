@@ -1,0 +1,8 @@
+[
+  {
+    "rule": "scp.endpoints.sensitive-route-public",
+    "file": "app.js",
+    "line": 17,
+    "endpoint": "POST /legacy/admin/export"
+  }
+]

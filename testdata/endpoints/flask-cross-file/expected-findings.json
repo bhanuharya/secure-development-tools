@@ -1,0 +1,8 @@
+[
+  {
+    "rule": "scp.endpoints.sensitive-route-public",
+    "file": "views/billing.py",
+    "line": 13,
+    "endpoint": "POST /billing/admin/refund"
+  }
+]

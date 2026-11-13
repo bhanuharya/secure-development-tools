@@ -34,6 +34,7 @@ type goProject struct {
 	loaded   bool
 	modules  map[string]goModule // directory -> enclosing module
 	callers  map[string][]goCallSite
+	callees  map[string][]goCallee
 	methods  map[string]int // method name -> declarations with a router parameter
 	pkgNames map[string]string
 	// While statesOf enumerates callers: the caller chosen for each parameter
@@ -48,7 +49,8 @@ type goModule struct {
 
 func newGoProject(root string, gates *gateMatcher) *goProject {
 	return &goProject{root: root, gates: gates, byFile: map[string]*fileResolver{},
-		modules: map[string]goModule{}, callers: map[string][]goCallSite{}, pkgNames: map[string]string{}}
+		modules: map[string]goModule{}, callers: map[string][]goCallSite{}, callees: map[string][]goCallee{},
+		pkgNames: map[string]string{}}
 }
 
 func (p *goProject) add(fr *fileResolver) {

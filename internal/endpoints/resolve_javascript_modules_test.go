@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -152,5 +153,39 @@ export function typed(deps: Deps): Router {
 	want := []lineScope{{start: 1, end: 6}, {start: 7, end: 10}}
 	if !reflect.DeepEqual(scopes, want) {
 		t.Errorf("scopes = %v, want %v", scopes, want)
+	}
+}
+
+// TestJSParamsAndCalls pins what the app-passed-into-a-function linking reads:
+// parameter names (typed, defaulted, destructured) and calls, never declarations.
+func TestJSParamsAndCalls(t *testing.T) {
+	root := writeTree(t, map[string]string{"r.ts": `export function register(app: Express, opts = {}, { store }: Deps) {
+  app.get('/x', h);
+}
+const wire = (router) => {
+  router.get('/y', h);
+};
+function local(server) {
+  server.get('/z', h);
+}
+require('./r')(app);
+register(app, options);
+routes.register(api);
+local(app);
+`})
+	m := readJSModule(root, "r.ts")
+	if got := m.funcs["register"].params; !reflect.DeepEqual(got, []string{"app", "opts", ""}) {
+		t.Errorf("register params = %q", got)
+	}
+	if got := m.funcs["wire"].params; !reflect.DeepEqual(got, []string{"router"}) {
+		t.Errorf("wire params = %q", got)
+	}
+	var calls []string
+	for _, c := range m.calls {
+		calls = append(calls, c.callee+"("+strings.Join(c.args, ",")+")")
+	}
+	want := []string{"require('./r')(app)", "register(app,options)", "routes.register(api)", "local(app)"}
+	if !reflect.DeepEqual(calls, want) {
+		t.Errorf("calls = %q, want %q", calls, want)
 	}
 }

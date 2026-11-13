@@ -89,6 +89,15 @@ it. A value built from a group (`checked := NewRoleRouter(group, perms)`) inheri
 the group, and its constructor counts as a middleware on every route registered
 through it.
 
+A router kept in a struct field (`s.Router = app` in a method, or
+`&Server{Router: app}`) is resolved from that field's assignments in its package,
+read at the assignment. Routes registered on the field (`s.Router.Get(...)`) use
+it, and so do routes registered through the type's own `Get`/`Post`/... methods
+when those forward to the field (`func (s *Server) Post(p string, h ...fiber.Handler)
+{ s.Router.Post(p, h...) }`). Middleware that a function registers on a router
+passed to it (`setupMiddlewares(app)`) counts for routes registered after that
+call.
+
 **Spring MVC and WebFlux.** The class `@RequestMapping` is the prefix; the method
 annotation supplies the verb and path. `@PreAuthorize`, `@Secured` and
 `@RolesAllowed` decide first, and a method gate wins over a class gate. Without
@@ -111,7 +120,12 @@ aliases (`@/routes`) are not. A router with a gate of its own
 (`router.use(requireLogin)`) keeps it when its mount cannot be followed: the route
 is `authenticated` with `medium` confidence and its path lacks the mount prefix,
 which `unresolved` says. A router no mount reaches, or one mounted twice with
-different prefixes or middleware, gives `unknown`. In NestJS,
+different prefixes or middleware, gives `unknown`. An application or router passed
+into a function (`module.exports = (app) => { app.get(...) }`) is resolved from the
+calls that pass it: `require('./users')(app)`, an imported function
+(`registerUsers(api)`), a member of an imported module (`routes.register(app)`) or a
+function in the same file. Callers that pass routers with different prefixes or
+middleware leave the routes `unknown`. In NestJS,
 `@Controller(prefix)` and `@Get`/`@Post`/... supply the route. `@UseGuards` on the
 class or method gives `authenticated`, `@Roles` gives `role`, and `@Public`
 gives `public`. No guard is `unknown` when the service registers a global guard
@@ -119,8 +133,11 @@ gives `public`. No guard is `unknown` when the service registers a global guard
 
 **Flask and FastAPI.** Routes come from `@app.route`, `@app.get/post/...` and
 `@router.get/...`, including `methods=[...]`. `APIRouter(prefix=,
-dependencies=...)`, `include_router` and `register_blueprint` are followed in the
-same file. Gate decorators (`login_required`, `jwt_required`,
+dependencies=...)`, `include_router` and `register_blueprint` are followed across
+modules through imports: `from app.routers.users import router as users_router`,
+`from .routers import admin` used as `admin.router`, and `import app.api as api`.
+Absolute imports are looked up from every folder between the importing file and
+the repository root. Gate decorators (`login_required`, `jwt_required`,
 `roles_required("admin")`) and FastAPI `Depends`/`Security` parameters and router
 dependencies are matched by name.
 
@@ -215,12 +232,12 @@ changes to this file like any other security configuration.
 
 ## Limits
 
-- **Across files: Go and Express only.** A Flask blueprint or FastAPI router
-  created or mounted in another file gives `unknown`, with a sentence in
-  `unresolved`. Go follows a router parameter to its callers, and Express follows
-  mounts (above). Neither follows a router stored in a struct field or returned by
-  a function in Go, nor an Express application passed into a function
-  (`require('./routes')(app)`) or a router built by a class method.
+- **Across files, with limits.** Go, Express, Flask and FastAPI follow routers
+  across files as described above. A router no call, mount or include reaches
+  gives `unknown`, with a sentence in `unresolved`. Not followed: a Go router
+  returned by a function (`r := NewRouter()`), an Express router built by a class
+  method, and Python imports through a path alias, `importlib`, or `import a.b`
+  without `as`.
 - **Names, not data flow.** A gate with a name the list does not know can be
   missed; add it under `endpoints.authGates`. A middleware whose name looks
   like a gate can be taken for one.

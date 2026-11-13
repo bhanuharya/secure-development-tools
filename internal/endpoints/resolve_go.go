@@ -314,6 +314,10 @@ func (s *routeState) unknownEvidence() string {
 		return fmt.Sprintf("router %s is a parameter of %s, and no call to %s was found", s.reason, s.fn, s.fn)
 	case goCallersDiffer:
 		return fmt.Sprintf("router %s: the calls to %s pass routers with different prefixes or middleware", s.reason, s.fn)
+	case goNoField:
+		return fmt.Sprintf("router field %s is never assigned in its package", s.reason)
+	case goFieldsDiffer:
+		return fmt.Sprintf("router field %s is assigned routers with different prefixes or middleware", s.reason)
 	}
 	return fmt.Sprintf("router %s is not created where this scan can follow it", s.reason)
 }
