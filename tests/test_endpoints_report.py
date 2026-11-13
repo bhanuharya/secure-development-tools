@@ -175,3 +175,16 @@ def test_second_scan_lists_new_public_and_weaker_routes(tmp_path, monkeypatch):
     assert "1 new route (1 public), 1 route with weaker protection, 1 route removed." in text
     assert "/api/payouts" in text and "pay.go:5" in text
     assert "/api/admin/auditroleauthenticated" in text  # Before / Now cells of the weaker route
+
+
+def test_served_path_is_shown_but_matching_uses_the_application_path(tmp_path):
+    routes = [{"service": ".", "framework": "spring-mvc", "method": "POST", "path": "/api/admin/refunds",
+               "externalPath": "/orders-service/api/admin/refunds", "handler": "refund", "file": "Orders.java",
+               "line": 11, "protection": "public", "confidence": "high", "evidence": []}]
+    path = tmp_path / "endpoints.json"
+    path.write_text(json.dumps(dict(INVENTORY, routes=routes, summary={"public": 1})))
+    inv = sdt_to_docx.load_endpoints(path)
+    assert [r.path for r in inv.sensitive()] == ["/api/admin/refunds"]  # the path lists see the application path
+    text = _report(tmp_path, inv)
+    assert "/orders-service/api/admin/refunds" in text
+
