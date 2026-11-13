@@ -86,9 +86,19 @@ that no matcher covers, is not guessed: the first is `unknown`, the second is
 `public` with low confidence.
 
 **Express and NestJS.** Express routes are `router.METHOD(path, ...middleware,
-handler)`. `router.use(middleware)` applies to routes registered after it in the
-same file. `app.use(prefix, ...middleware, router)` adds both when the router is
-created in that file; a router mounted elsewhere gives `unknown`. In NestJS,
+handler)`. `router.use(middleware)` applies to routes registered after it on that
+router. `app.use(prefix, ...middleware, router)` adds the prefix and middleware to
+the router it mounts, also when the router comes from another file: a router
+imported with `require` or `import` (`app.use('/api', routes)`), a member of an
+imported module (`routes.userRouter`), `require('./users')` written in the call, or
+a factory call (`router.use('/users', createUserRouter(deps))`) whose function
+declares the router and returns it. Relative imports are followed, with the
+extensions and `index` files Node and TypeScript try; package names and path
+aliases (`@/routes`) are not. A router with a gate of its own
+(`router.use(requireLogin)`) keeps it when its mount cannot be followed: the route
+is `authenticated` with `medium` confidence and its path lacks the mount prefix,
+which `unresolved` says. A router no mount reaches, or one mounted twice with
+different prefixes or middleware, gives `unknown`. In NestJS,
 `@Controller(prefix)` and `@Get`/`@Post`/... supply the route. `@UseGuards` on the
 class or method gives `authenticated`, `@Roles` gives `role`, and `@Public`
 gives `public`. No guard is `unknown` when the service registers a global guard
@@ -192,9 +202,11 @@ changes to this file like any other security configuration.
 
 ## Limits
 
-- **Same file only.** A router, group or blueprint created or mounted in another
-  file gives `unknown`, with a sentence in `unresolved`. A flow through several
-  files is not followed.
+- **Same file only, except Express mounts.** A Go group, Flask blueprint or
+  FastAPI router created or mounted in another file gives `unknown`, with a
+  sentence in `unresolved`. Express follows mounts across files (above), but not
+  an application passed into a function (`require('./routes')(app)`) or a router
+  built by a class method.
 - **Names, not data flow.** A gate with a name the list does not know can be
   missed; add it under `endpoints.authGates`. A middleware whose name looks
   like a gate can be taken for one.

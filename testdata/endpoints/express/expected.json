@@ -131,7 +131,7 @@
       "line": 33,
       "protection": "unknown",
       "evidence": [
-        "app.js:33 router webhooksRouter is not mounted in this file"
+        "app.js:33 router webhooksRouter is not mounted in any file this scan follows"
       ],
       "confidence": "low"
     },
@@ -158,6 +158,6 @@
     "unknown": 1
   },
   "unresolved": [
-    "app.js router webhooksRouter is exported and mounted in another file; protection unknown"
+    "app.js router webhooksRouter is exported, but no mount of it was found; protection unknown"
   ]
 }

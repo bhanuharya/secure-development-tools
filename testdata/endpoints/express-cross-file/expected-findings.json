@@ -1,0 +1,14 @@
+[
+  {
+    "rule": "scp.endpoints.sensitive-route-without-role",
+    "file": "routes/admin.route.js",
+    "line": 6,
+    "endpoint": "GET /api/v1/admin/users"
+  },
+  {
+    "rule": "scp.endpoints.sensitive-route-public",
+    "file": "routes/legacy.route.js",
+    "line": 4,
+    "endpoint": "POST /api/v1/legacy/admin/export"
+  }
+]
