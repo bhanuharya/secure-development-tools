@@ -229,7 +229,7 @@ func (c *serviceConvention) unprotectedFinding(rt Route) *finding.Finding {
 		gate = fmt.Sprintf("%q", c.gateEvidence)
 	}
 	msg := fmt.Sprintf("%s %s is public while %d of %d state-changing routes in this service require authentication (most often %s). Anyone can call it; add the same gate or move the route under the protected group.",
-		rt.Method, rt.Path, c.protected, c.known, gate)
+		rt.Method, rt.shownPath(), c.protected, c.known, gate)
 	return newConventionFinding(rt, RuleUnprotectedAmongProtected,
 		"State-changing route skips the service's authentication convention",
 		"Add the authentication middleware the rest of the service uses to this route, or register it under the protected router group.",
@@ -239,7 +239,7 @@ func (c *serviceConvention) unprotectedFinding(rt Route) *finding.Finding {
 func (c *serviceConvention) sensitivePublicFinding(rt Route) *finding.Finding {
 	pattern := c.rules.sensitiveMatch(rt.Path)
 	msg := fmt.Sprintf("%s %s is public, but its path matches the sensitive pattern %q. Anyone who can reach the service can use an administrative or money-moving endpoint; require authentication and a role that matches the operation.",
-		rt.Method, rt.Path, pattern)
+		rt.Method, rt.shownPath(), pattern)
 	return newConventionFinding(rt, RuleSensitiveRoutePublic,
 		"Sensitive route is reachable without authentication",
 		"Require authentication and a role that matches the sensitivity of this path, or remove the route from the public surface.",
@@ -252,7 +252,7 @@ func (c *serviceConvention) sensitiveWithoutRoleFinding(rt Route) *finding.Findi
 		roleGate = fmt.Sprintf("%q", c.roleEvidence)
 	}
 	msg := fmt.Sprintf("%s %s only requires a logged-in user, but this service also checks roles (e.g. %s). Any authenticated user can reach this sensitive endpoint; add the role gate the rest of the service uses.",
-		rt.Method, rt.Path, roleGate)
+		rt.Method, rt.shownPath(), roleGate)
 	return newConventionFinding(rt, RuleSensitiveRouteWithoutRole,
 		"Sensitive route accepts any authenticated user",
 		"Add the role or permission gate the rest of the service uses (for example RequireRole) to this route.",
@@ -277,6 +277,9 @@ func newConventionFinding(rt Route, ruleID, name, help string, cwe []string, sev
 			"protection": string(rt.Protection),
 			"evidence":   append([]string{}, rt.Evidence...),
 		},
+	}
+	if rt.ExternalPath != "" {
+		f.Metadata["externalPath"] = rt.ExternalPath
 	}
 	f.Fingerprint = finding.Fingerprint{
 		Algorithm: finding.FingerprintVersion,

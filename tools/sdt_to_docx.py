@@ -220,16 +220,21 @@ class ConfigRow:
 @dataclass
 class EndpointRoute:
     method: str
-    path: str
+    path: str  # inside the application: what matchers, path lists and comparisons use
     protection: str
     file: str
     line: int
     service: str = ""
+    external: str = ""  # as served, when configuration adds a prefix (Spring context path)
 
     @property
     def key(self) -> str:
         """The same route in the next scan: service, method and path (a moved line is the same route)."""
         return f"{self.service}|{self.method}|{self.path}"
+
+    @property
+    def shown(self) -> str:
+        return self.external or self.path
 
 
 @dataclass
@@ -1246,7 +1251,7 @@ def load_endpoints(path: Path) -> EndpointsInventory:
         raise ValueError(f"not an sdt-endpoints/v1 inventory: {path}")
     routes = [EndpointRoute(str(r.get("method") or ""), str(r.get("path") or ""),
                             str(r.get("protection") or ""), str(r.get("file") or ""), int(r.get("line") or 0),
-                            str(r.get("service") or ""))
+                            str(r.get("service") or ""), str(r.get("externalPath") or ""))
               for r in doc.get("routes") or []]
     summary = {str(k): int(v) for k, v in (doc.get("summary") or {}).items()}
     if not summary:
@@ -1261,7 +1266,7 @@ def protection_rows(inv: EndpointsInventory) -> list[list]:
 
 
 def endpoint_rows(routes: list[EndpointRoute]) -> list[list]:
-    return [[r.method, r.path, r.protection, f"{r.file}:{r.line}"] for r in routes]
+    return [[r.method, r.shown, r.protection, f"{r.file}:{r.line}"] for r in routes]
 
 
 def role_note(count: int) -> str:

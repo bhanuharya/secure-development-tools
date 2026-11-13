@@ -19,15 +19,19 @@ const (
 
 // Route is one registered endpoint and what protects it.
 type Route struct {
-	Service    string     `json:"service"`   // dir of the nearest module file, relative; "." for the root
-	Framework  string     `json:"framework"` // gin, echo, fiber, chi, nethttp, ...
-	Method     string     `json:"method"`    // GET POST PUT PATCH DELETE ANY
-	Path       string     `json:"path"`      // full path, params as {name}
-	Handler    string     `json:"handler"`   // as written: handler.CreateOrder
-	File       string     `json:"file"`
-	Line       int        `json:"line"`
-	Protection Protection `json:"protection"`
-	Roles      []string   `json:"roles,omitempty"` // for "role"
+	Service   string `json:"service"`   // dir of the nearest module file, relative; "." for the root
+	Framework string `json:"framework"` // gin, echo, fiber, chi, nethttp, ...
+	Method    string `json:"method"`    // GET POST PUT PATCH DELETE ANY
+	Path      string `json:"path"`      // full path inside the application, params as {name}
+	// ExternalPath is the path as served when configuration adds a prefix the code does not show
+	// (Spring server.servlet.context-path, spring.mvc.servlet.path, spring.webflux.base-path).
+	// Matching and finding fingerprints keep using Path.
+	ExternalPath string     `json:"externalPath,omitempty"`
+	Handler      string     `json:"handler"` // as written: handler.CreateOrder
+	File         string     `json:"file"`
+	Line         int        `json:"line"`
+	Protection   Protection `json:"protection"`
+	Roles        []string   `json:"roles,omitempty"` // for "role"
 	// Evidence is "file:line what decided it", most important first.
 	Evidence   []string `json:"evidence"`
 	Confidence string   `json:"confidence"` // high | medium | low

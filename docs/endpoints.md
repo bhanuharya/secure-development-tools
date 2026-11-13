@@ -39,6 +39,17 @@ directory, framework, method, full path, handler, `file:line`, protection,
 roles, evidence (`file:line what decided it`) and confidence. Path parameters
 become `{name}`.
 
+`path` is the path inside the application, which is what Spring Security matchers,
+the path lists and finding fingerprints use. When a Spring service's base
+configuration (`application.yml`, `.yaml` or `.properties`, outside test and build
+trees) adds a prefix the code does not show, the route also has `externalPath`, the
+path as served: `server.servlet.context-path` (or Boot 1's `server.context-path`)
+plus `spring.mvc.servlet.path` for Spring MVC, `spring.webflux.base-path` for
+WebFlux. `${NAME:default}` uses the default; `${NAME}` without one leaves
+`externalPath` out with a sentence in `unresolved`, as does a profile file
+(`application-prod.yml`) that sets a different prefix. Finding messages and the
+Word report show `externalPath` when there is one.
+
 | Protection | Meaning |
 |---|---|
 | `public` | No gate was found on the route, its groups or the engine. |
