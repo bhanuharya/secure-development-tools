@@ -51,6 +51,6 @@
     "unknown": 1
   },
   "unresolved": [
-    "Controller.java:13 Controller.archive: protection cannot be decided"
+    "Controller.java:13 Controller.archive - protection cannot be decided"
   ]
 }

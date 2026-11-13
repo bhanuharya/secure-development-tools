@@ -22,6 +22,9 @@ func (u springUncertainty) affects(path, method string) bool {
 // scopeExpression preserves the union before negating it. Flattening an Or
 // loses the method on an OPTIONS-only child and would exclude ordinary API calls.
 func (b *springBuild) scopeExpression(raw, file string) (springScope, bool) {
+	if method, ok := springMethodRefName(raw); ok {
+		return b.methodScope(method, file)
+	}
 	name, inner, call := springMatcherCall(raw)
 	if !call {
 		return b.scopePaths(raw, file)

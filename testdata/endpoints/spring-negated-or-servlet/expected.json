@@ -26,7 +26,8 @@
       "line": 22,
       "protection": "public",
       "evidence": [
-        "no chain scope matches; Spring leaves the request unsecured"
+        "no chain scope matches; Spring leaves the request unsecured",
+        "Security.java:4 security chain applies to every path except \"/app/**\", \"/i18n/**\", \"/**\""
       ],
       "confidence": "low"
     },
@@ -82,7 +83,8 @@
       "line": 19,
       "protection": "public",
       "evidence": [
-        "no chain scope matches; Spring leaves the request unsecured"
+        "no chain scope matches; Spring leaves the request unsecured",
+        "Security.java:4 security chain applies to every path except \"/app/**\", \"/i18n/**\", \"/**\""
       ],
       "confidence": "low"
     }
