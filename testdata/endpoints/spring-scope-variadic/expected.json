@@ -40,7 +40,8 @@
       "line": 5,
       "protection": "public",
       "evidence": [
-        "no chain scope matches; Spring leaves the request unsecured"
+        "no chain scope matches; Spring leaves the request unsecured",
+        "Security.java:9 security chain applies to only \"/api/**\", \"/admin/**\""
       ],
       "confidence": "low"
     }

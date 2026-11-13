@@ -1,0 +1,14 @@
+[
+  {
+    "rule": "scp.endpoints.sensitive-route-public",
+    "file": "Controller.java",
+    "line": 20,
+    "endpoint": "GET /api/admin/report/{id}"
+  },
+  {
+    "rule": "scp.endpoints.sensitive-route-public",
+    "file": "Controller.java",
+    "line": 23,
+    "endpoint": "POST /api/transfer"
+  }
+]

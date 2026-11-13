@@ -1,0 +1,101 @@
+{
+  "root": ".",
+  "routes": [
+    {
+      "confidence": "low",
+      "evidence": [
+        "security configuration ownership cannot be established"
+      ],
+      "file": "Controller.java",
+      "framework": "spring-mvc",
+      "handler": "Controller.account",
+      "line": 8,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "protection": "unknown",
+      "service": "."
+    },
+    {
+      "confidence": "low",
+      "evidence": [
+        "security configuration ownership cannot be established"
+      ],
+      "file": "Controller.java",
+      "framework": "spring-mvc",
+      "handler": "Controller.refunds",
+      "line": 14,
+      "method": "GET",
+      "path": "/api/admin/refunds",
+      "protection": "unknown",
+      "service": "."
+    },
+    {
+      "confidence": "low",
+      "evidence": [
+        "security configuration ownership cannot be established"
+      ],
+      "file": "Controller.java",
+      "framework": "spring-mvc",
+      "handler": "Controller.refund",
+      "line": 11,
+      "method": "POST",
+      "path": "/api/admin/refunds",
+      "protection": "unknown",
+      "service": "."
+    },
+    {
+      "confidence": "low",
+      "evidence": [
+        "security configuration ownership cannot be established"
+      ],
+      "file": "Controller.java",
+      "framework": "spring-mvc",
+      "handler": "Controller.report",
+      "line": 17,
+      "method": "GET",
+      "path": "/api/admin/report",
+      "protection": "unknown",
+      "service": "."
+    },
+    {
+      "confidence": "low",
+      "evidence": [
+        "security configuration ownership cannot be established"
+      ],
+      "file": "Controller.java",
+      "framework": "spring-mvc",
+      "handler": "Controller.reportDetail",
+      "line": 20,
+      "method": "GET",
+      "path": "/api/admin/report/{id}",
+      "protection": "unknown",
+      "service": "."
+    },
+    {
+      "confidence": "low",
+      "evidence": [
+        "security configuration ownership cannot be established"
+      ],
+      "file": "Controller.java",
+      "framework": "spring-mvc",
+      "handler": "Controller.transfer",
+      "line": 23,
+      "method": "POST",
+      "path": "/api/transfer",
+      "protection": "unknown",
+      "service": "."
+    }
+  ],
+  "schema": "sdt-endpoints/v1",
+  "summary": {
+    "unknown": 6
+  },
+  "unresolved": [
+    "Controller.java:8 Controller.account - Security.java:16 requestMatcher(this::isProtected) cannot be evaluated",
+    "Controller.java:11 Controller.refund - Security.java:16 requestMatcher(this::isProtected) cannot be evaluated",
+    "Controller.java:14 Controller.refunds - Security.java:16 requestMatcher(this::isProtected) cannot be evaluated",
+    "Controller.java:17 Controller.report - Security.java:16 requestMatcher(this::isProtected) cannot be evaluated",
+    "Controller.java:20 Controller.reportDetail - Security.java:16 requestMatcher(this::isProtected) cannot be evaluated",
+    "Controller.java:23 Controller.transfer - Security.java:16 requestMatcher(this::isProtected) cannot be evaluated"
+  ]
+}

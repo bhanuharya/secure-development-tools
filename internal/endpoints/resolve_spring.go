@@ -241,11 +241,11 @@ func springRoute(f Fact, prefix string, classGates, methodGates map[string][]spr
 	if protection == ProtUnknown {
 		switch {
 		case note != "":
-			sentence = fmt.Sprintf("%s:%d %s: %s", f.File, f.Line, handler, note)
+			sentence = fmt.Sprintf("%s:%d %s - %s", f.File, f.Line, handler, note)
 		case cfg == nil:
-			sentence = fmt.Sprintf("%s:%d %s: no security configuration in the service; protection unknown", f.File, f.Line, handler)
+			sentence = fmt.Sprintf("%s:%d %s - no security configuration in the service; protection unknown", f.File, f.Line, handler)
 		default:
-			sentence = fmt.Sprintf("%s:%d %s: protection cannot be decided", f.File, f.Line, handler)
+			sentence = fmt.Sprintf("%s:%d %s - protection cannot be decided", f.File, f.Line, handler)
 		}
 	}
 	return Route{
@@ -402,6 +402,7 @@ func springAnnotationText(g springGate, roles []string) string {
 // springBuild is the per-service accumulator while facts are grouped into
 // chains. Matchers and scopes are attached by source span in finish.
 type springBuild struct {
+	root      string // repository root, for reading a scope method's source
 	chains    []*springChain
 	orders    []springOrderFact
 	scopes    []springScopeCall
@@ -437,7 +438,7 @@ func springConfigs(facts []Fact, root string) map[string]*springConfig {
 		service := serviceOf(root, f.File)
 		b := builds[service]
 		if b == nil {
-			b = &springBuild{}
+			b = &springBuild{root: root}
 			builds[service] = b
 		}
 		b.add(f)
@@ -833,7 +834,13 @@ func (cfg *springConfig) decideChains(path, method string) (Protection, []string
 		}
 	}
 	if len(matching) == 0 {
-		return ProtPublic, nil, []string{"no chain scope matches; Spring leaves the request unsecured"}, "low", ""
+		evidence := []string{"no chain scope matches; Spring leaves the request unsecured"}
+		for _, c := range cfg.chains {
+			if len(c.scopes) > 0 {
+				evidence = append(evidence, fmt.Sprintf("%s:%d security chain applies to %s", c.file, c.line, c.scopes[0].summary()))
+			}
+		}
+		return ProtPublic, nil, evidence, "low", ""
 	}
 	sort.SliceStable(matching, func(i, j int) bool { return chainBefore(matching[i], matching[j]) })
 	if len(matching) > 1 && !chainOrderIsDecidable(matching[0], matching[1]) {
@@ -962,6 +969,26 @@ func (s springScope) describe() string {
 		return "not " + text
 	}
 	return text
+}
+
+// summary says which requests a scope covers, shortened for evidence: a scope
+// may list dozens of paths.
+func (s springScope) summary() string {
+	patterns := s.allPatterns()
+	list := ""
+	if len(patterns) <= 3 {
+		quoted := make([]string, len(patterns))
+		for i, p := range patterns {
+			quoted[i] = strconv.Quote(p)
+		}
+		list = strings.Join(quoted, ", ")
+	} else {
+		list = fmt.Sprintf("%q, %q and %d more paths", patterns[0], patterns[1], len(patterns)-2)
+	}
+	if s.negated {
+		return "every path except " + list
+	}
+	return "only " + list
 }
 
 func decideSpringMatchers(matchers []springMatcher, path, method string) (Protection, []string, []string, string, string) {

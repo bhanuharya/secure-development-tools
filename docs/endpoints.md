@@ -98,6 +98,15 @@ source order, an optional `HttpMethod` filter applies, and the first match wins.
 that no matcher covers, is not guessed: the first is `unknown`, the second is
 `public` with low confidence.
 
+A chain limited to a method of the configuration class
+(`requestMatcher(this::isProtected)` or `request -> isProtected(request)`) applies
+to the `AntPathRequestMatcher` patterns that method builds: literals, constants, or
+the strings of a helper method or array field it loops over. This holds only when
+the method's single `return` asks whether any of them matches. Any other shape (a
+negation, `noneMatch`, a second `return`, another matcher type) leaves the routes
+`unknown`. A route outside every chain's scope is `public` with low confidence,
+because Spring does not secure it, and its evidence names the chain that left it out.
+
 **Express and NestJS.** Express routes are `router.METHOD(path, ...middleware,
 handler)`. `router.use(middleware)` applies to routes registered after it on that
 router. `app.use(prefix, ...middleware, router)` adds the prefix and middleware to

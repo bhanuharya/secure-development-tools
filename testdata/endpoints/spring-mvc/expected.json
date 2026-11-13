@@ -180,7 +180,7 @@
     "unknown": 2
   },
   "unresolved": [
-    "OrdersController.java:13 OrdersController.list: no security configuration in the service; protection unknown",
-    "OrdersController.java:18 OrdersController.get: no security configuration in the service; protection unknown"
+    "OrdersController.java:13 OrdersController.list - no security configuration in the service; protection unknown",
+    "OrdersController.java:18 OrdersController.get - no security configuration in the service; protection unknown"
   ]
 }

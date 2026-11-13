@@ -1,0 +1,106 @@
+{
+  "root": ".",
+  "routes": [
+    {
+      "confidence": "high",
+      "evidence": [
+        "Security.java:21 .anyRequest().authenticated()"
+      ],
+      "file": "Controller.java",
+      "framework": "spring-mvc",
+      "handler": "Controller.account",
+      "line": 8,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "protection": "authenticated",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "Security.java:20 .antMatchers(\"/api/admin/**\").hasAuthority(\"ADMIN\")"
+      ],
+      "file": "Controller.java",
+      "framework": "spring-mvc",
+      "handler": "Controller.refunds",
+      "line": 14,
+      "method": "GET",
+      "path": "/api/admin/refunds",
+      "protection": "role",
+      "roles": [
+        "ADMIN"
+      ],
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "Security.java:20 .antMatchers(\"/api/admin/**\").hasAuthority(\"ADMIN\")"
+      ],
+      "file": "Controller.java",
+      "framework": "spring-mvc",
+      "handler": "Controller.refund",
+      "line": 11,
+      "method": "POST",
+      "path": "/api/admin/refunds",
+      "protection": "role",
+      "roles": [
+        "ADMIN"
+      ],
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "Security.java:20 .antMatchers(\"/api/admin/**\").hasAuthority(\"ADMIN\")"
+      ],
+      "file": "Controller.java",
+      "framework": "spring-mvc",
+      "handler": "Controller.report",
+      "line": 17,
+      "method": "GET",
+      "path": "/api/admin/report",
+      "protection": "role",
+      "roles": [
+        "ADMIN"
+      ],
+      "service": "."
+    },
+    {
+      "confidence": "low",
+      "evidence": [
+        "no chain scope matches; Spring leaves the request unsecured",
+        "Security.java:14 security chain applies to only \"/api/accounts/**\", \"/api/admin/refunds\" and 2 more paths"
+      ],
+      "file": "Controller.java",
+      "framework": "spring-mvc",
+      "handler": "Controller.reportDetail",
+      "line": 20,
+      "method": "GET",
+      "path": "/api/admin/report/{id}",
+      "protection": "public",
+      "service": "."
+    },
+    {
+      "confidence": "low",
+      "evidence": [
+        "no chain scope matches; Spring leaves the request unsecured",
+        "Security.java:14 security chain applies to only \"/api/accounts/**\", \"/api/admin/refunds\" and 2 more paths"
+      ],
+      "file": "Controller.java",
+      "framework": "spring-mvc",
+      "handler": "Controller.transfer",
+      "line": 23,
+      "method": "POST",
+      "path": "/api/transfer",
+      "protection": "public",
+      "service": "."
+    }
+  ],
+  "schema": "sdt-endpoints/v1",
+  "summary": {
+    "authenticated": 1,
+    "public": 2,
+    "role": 3
+  }
+}
