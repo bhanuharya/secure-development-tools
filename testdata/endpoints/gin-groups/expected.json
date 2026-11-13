@@ -77,7 +77,7 @@
       "line": 8,
       "protection": "unknown",
       "evidence": [
-        "admin.go:8 router r is not created or mounted in this file"
+        "admin.go:8 router r is a parameter of registerReports, and no call to registerReports was found"
       ],
       "confidence": "low"
     }
@@ -89,6 +89,6 @@
     "unknown": 1
   },
   "unresolved": [
-    "admin.go router r is created or mounted in another file; protection unknown"
+    "admin.go router r is a parameter of registerReports, and no call to registerReports was found; protection unknown"
   ]
 }

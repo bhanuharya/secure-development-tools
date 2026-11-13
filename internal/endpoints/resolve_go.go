@@ -48,10 +48,18 @@ func resolveGo(facts []Fact, root string, gates *gateMatcher) ([]Route, []string
 	}
 	sort.Strings(files)
 
-	var routes []Route
-	var unresolved []string
+	// Every fact file is indexed before any route is resolved: a router
+	// parameter's caller may be in a file that sorts after it.
+	project := newGoProject(root, gates)
+	resolvers := make([]*fileResolver, 0, len(files))
 	for _, file := range files {
 		fr := newFileResolver(file, byFile[file], root, gates)
+		project.add(fr)
+		resolvers = append(resolvers, fr)
+	}
+	var routes []Route
+	var unresolved []string
+	for _, fr := range resolvers {
 		routes = append(routes, fr.resolveRoutes()...)
 		unresolved = append(unresolved, fr.unknown...)
 	}
@@ -62,26 +70,28 @@ func resolveGo(facts []Fact, root string, gates *gateMatcher) ([]Route, []string
 func (fr *fileResolver) resolveRoutes() []Route {
 	var out []Route
 	for _, f := range fr.routes {
-		route, err := fr.routeFromFact(f)
+		routes, err := fr.routeFromFact(f)
 		if err != nil {
 			fr.unknown = append(fr.unknown, fmt.Sprintf("%s:%d %v", fr.file, f.Line, err))
 			continue
 		}
-		out = append(out, route)
+		out = append(out, routes...)
 	}
 	return out
 }
 
-func (fr *fileResolver) routeFromFact(f Fact) (Route, error) {
+// routeFromFact resolves one registration. A function called from several
+// places with different routers registers its routes once per caller, so one
+// fact can give several routes, one per distinct prefix.
+func (fr *fileResolver) routeFromFact(f Fact) ([]Route, error) {
 	rawPath := f.Metavars["$PATH"]
 	if !strings.HasPrefix(rawPath, "/") {
-		return Route{}, fmt.Errorf("route path %q could not be resolved", rawPath)
+		return nil, fmt.Errorf("route path %q could not be resolved", rawPath)
 	}
 	receiver := f.Metavars["$R"]
 	if receiver == "" {
-		return Route{}, fmt.Errorf("route receiver could not be resolved")
+		return nil, fmt.Errorf("route receiver could not be resolved")
 	}
-	state := fr.stateOfExpr(receiver, f.Line, 0)
 	lead := 1
 	if f.Metavars["$VERB"] != "" {
 		lead = 2 // Handle(verb, path, handler...)
@@ -94,36 +104,114 @@ func (fr *fileResolver) routeFromFact(f Fact) (Route, error) {
 	}
 	handler, middleware := splitHandlers(fr.framework, args)
 	if handler == "" {
-		return Route{}, fmt.Errorf("route handler could not be resolved")
+		return nil, fmt.Errorf("route handler could not be resolved")
 	}
-	path := joinPaths(state.prefixes, rawPath)
 	routeMW := make([]mwRef, 0, len(middleware)+1)
 	for _, expr := range middleware {
-		routeMW = append(routeMW, mwRef{file: fr.file, line: f.Line, expr: expr})
+		routeMW = append(routeMW, mwRef{file: fr.file, line: f.Line, expr: fr.mwExpr(expr, f.Line)})
 	}
 	// net/http handlers are often wrapped: mux.Handle("/x", authWrap(h)).
 	if wrapped := handlerWrapper(handler); wrapped != "" {
 		routeMW = append(routeMW, mwRef{file: fr.file, line: f.Line, expr: wrapped, place: "wraps the handler"})
 	}
-	protection, roles, evidence := decide(fr, f.Line, path, routeMW, state)
-	confidence := "high"
-	if protection == ProtUnknown {
-		confidence = "low"
-		fr.addUnknown(state.reason)
+	var routes []Route
+	for _, state := range fr.statesOf(receiver, f.Line, rawPath) {
+		path := joinPaths(state.prefixes, rawPath)
+		protection, roles, evidence := decide(fr, f.Line, path, routeMW, state)
+		confidence := "high"
+		if protection == ProtUnknown {
+			confidence = "low"
+			fr.addUnknown(state)
+		}
+		routes = append(routes, Route{
+			Service:    serviceOf(fr.root, fr.file),
+			Framework:  fr.framework,
+			Method:     methodOf(f),
+			Path:       path,
+			Handler:    handler,
+			File:       fr.file,
+			Line:       f.Line,
+			Protection: protection,
+			Roles:      roles,
+			Evidence:   evidence,
+			Confidence: confidence,
+		})
 	}
-	return Route{
-		Service:    serviceOf(fr.root, fr.file),
-		Framework:  fr.framework,
-		Method:     methodOf(f),
-		Path:       path,
-		Handler:    handler,
-		File:       fr.file,
-		Line:       f.Line,
-		Protection: protection,
-		Roles:      roles,
-		Evidence:   evidence,
-		Confidence: confidence,
-	}, nil
+	return routes, nil
+}
+
+// maxCallerStates bounds the routes one registration can give; past it the
+// route stays unknown rather than multiply.
+const maxCallerStates = 16
+
+// statesOf resolves a receiver once per combination of callers that pass
+// different routers into the functions on its way. Without such a function it
+// is stateOfExpr. Combinations that end on the same path with different
+// middleware give one unknown state for that path.
+func (fr *fileResolver) statesOf(receiver string, line int, rawPath string) []*routeState {
+	p := fr.project
+	if p == nil {
+		return []*routeState{fr.stateOfExpr(receiver, line, 0)}
+	}
+	var found []*routeState
+	var first *routeState
+	overflow := false
+	var walk func(forced map[string]int)
+	walk = func(forced map[string]int) {
+		if overflow {
+			return
+		}
+		p.forced, p.pending = forced, map[string]int{}
+		state := fr.stateOfExpr(receiver, line, 0)
+		pending := p.pending
+		if first == nil {
+			first = state
+		}
+		var keys []string
+		for key := range pending {
+			if _, done := forced[key]; !done {
+				keys = append(keys, key)
+			}
+		}
+		if len(keys) == 0 {
+			if len(found) >= maxCallerStates {
+				overflow = true
+				return
+			}
+			found = append(found, state)
+			return
+		}
+		sort.Strings(keys)
+		for i := 0; i < pending[keys[0]]; i++ {
+			next := map[string]int{keys[0]: i}
+			for k, v := range forced {
+				next[k] = v
+			}
+			walk(next)
+		}
+	}
+	walk(map[string]int{})
+	p.forced, p.pending = nil, nil
+	if overflow || len(found) == 0 {
+		return []*routeState{first}
+	}
+	// One state per path: the same path reached with different middleware
+	// cannot be decided.
+	var out []*routeState
+	byPath := map[string]int{}
+	for _, state := range found {
+		path := joinPaths(state.prefixes, rawPath)
+		i, seen := byPath[path]
+		if !seen {
+			byPath[path] = len(out)
+			out = append(out, state)
+			continue
+		}
+		if !out[i].unknown && !sameState(out[i], state) {
+			out[i] = &routeState{unknown: true, reason: first.reason, why: first.why, fn: first.fn, prefixes: state.prefixes}
+		}
+	}
+	return out
 }
 
 // splitHandlers reads the argument order of the framework. gin, fiber, chi and
@@ -204,7 +292,7 @@ func decide(fr *fileResolver, line int, routePath string, routeMW []mwRef, state
 		return ProtAuthenticated, nil, evidence
 	}
 	if state.unknown {
-		evidence = append(evidence, fmt.Sprintf("%s:%d router %s is not created or mounted in this file", fr.file, line, state.reason))
+		evidence = append(evidence, fmt.Sprintf("%s:%d %s", fr.file, line, state.unknownEvidence()))
 		return ProtUnknown, nil, evidence
 	}
 	evidence = append(evidence, fmt.Sprintf("%s:%d no gate middleware on the route", fr.file, line))
@@ -219,7 +307,21 @@ func decide(fr *fileResolver, line int, routePath string, routeMW []mwRef, state
 	return ProtPublic, nil, evidence
 }
 
+// unknownEvidence says why a router's protection is unknown.
+func (s *routeState) unknownEvidence() string {
+	switch s.why {
+	case goNoCaller:
+		return fmt.Sprintf("router %s is a parameter of %s, and no call to %s was found", s.reason, s.fn, s.fn)
+	case goCallersDiffer:
+		return fmt.Sprintf("router %s: the calls to %s pass routers with different prefixes or middleware", s.reason, s.fn)
+	}
+	return fmt.Sprintf("router %s is not created where this scan can follow it", s.reason)
+}
+
 func evidenceLine(mw mwRef) string {
+	if mw.place == wrapsRouter {
+		return fmt.Sprintf("%s:%d router built by %s wraps the group", mw.file, mw.line, omitCallArguments(mw.expr))
+	}
 	if mw.place == "wraps the handler" {
 		return fmt.Sprintf("%s:%d handler %s wraps the route handler", mw.file, mw.line, omitCallArguments(mw.expr))
 	}

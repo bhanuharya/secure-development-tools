@@ -1,0 +1,174 @@
+{
+  "root": ".",
+  "routes": [
+    {
+      "confidence": "high",
+      "evidence": [
+        "routes.go:13 router built by middleware.NewRoleRouter wraps the group"
+      ],
+      "file": "routes.go",
+      "framework": "fiber",
+      "handler": "refund",
+      "line": 14,
+      "method": "POST",
+      "path": "/admin/refunds",
+      "protection": "role",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "routes.go:17 no gate middleware on the route",
+        "routes.go:16 router built by middleware.NewAccessLogRouter wraps the group (does not match the gate list)",
+        "main.go:15 middleware requestLogger on router (does not match the gate list)"
+      ],
+      "file": "routes.go",
+      "framework": "fiber",
+      "handler": "updateSettings",
+      "line": 17,
+      "method": "POST",
+      "path": "/admin/settings",
+      "protection": "public",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "main.go:19 middleware auth.RequireToken(...) on group /api"
+      ],
+      "file": "internal/orders/orders.go",
+      "framework": "fiber",
+      "handler": "list",
+      "line": 7,
+      "method": "GET",
+      "path": "/api/orders",
+      "protection": "authenticated",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "main.go:19 middleware auth.RequireToken(...) on group /api"
+      ],
+      "file": "internal/orders/orders.go",
+      "framework": "fiber",
+      "handler": "cancel",
+      "line": 8,
+      "method": "POST",
+      "path": "/api/orders/{id}/cancel",
+      "protection": "authenticated",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "main.go:19 middleware auth.RequireToken(...) on group /api"
+      ],
+      "file": "internal/reporting/reporting.go",
+      "framework": "fiber",
+      "handler": "export",
+      "line": 8,
+      "method": "GET",
+      "path": "/api/reports/export",
+      "protection": "authenticated",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "main.go:19 middleware auth.RequireToken(...) on group /api"
+      ],
+      "file": "internal/handler/handler.go",
+      "framework": "fiber",
+      "handler": "h.deleteUser",
+      "line": 10,
+      "method": "DELETE",
+      "path": "/api/users/{id}",
+      "protection": "authenticated",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "routes.go:10 no gate middleware on the route",
+        "main.go:15 middleware requestLogger on router (does not match the gate list)"
+      ],
+      "file": "routes.go",
+      "framework": "fiber",
+      "handler": "health",
+      "line": 10,
+      "method": "GET",
+      "path": "/health",
+      "protection": "public",
+      "service": "."
+    },
+    {
+      "confidence": "low",
+      "evidence": [
+        "internal/orphan/orphan.go:7 router grp is a parameter of Register, and no call to Register was found"
+      ],
+      "file": "internal/orphan/orphan.go",
+      "framework": "fiber",
+      "handler": "payout",
+      "line": 7,
+      "method": "POST",
+      "path": "/payouts",
+      "protection": "unknown",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "internal/catalog/catalog.go:7 no gate middleware on the route",
+        "main.go:15 middleware requestLogger on router (does not match the gate list)"
+      ],
+      "file": "internal/catalog/catalog.go",
+      "framework": "fiber",
+      "handler": "importProducts",
+      "line": 7,
+      "method": "POST",
+      "path": "/public/admin/import",
+      "protection": "public",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "internal/catalog/catalog.go:6 no gate middleware on the route",
+        "main.go:15 middleware requestLogger on router (does not match the gate list)"
+      ],
+      "file": "internal/catalog/catalog.go",
+      "framework": "fiber",
+      "handler": "listProducts",
+      "line": 6,
+      "method": "GET",
+      "path": "/public/products",
+      "protection": "public",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "main.go:27 middleware auth.RequireStaffToken on group /staff"
+      ],
+      "file": "internal/reporting/reporting.go",
+      "framework": "fiber",
+      "handler": "export",
+      "line": 8,
+      "method": "GET",
+      "path": "/staff/reports/export",
+      "protection": "authenticated",
+      "service": "."
+    }
+  ],
+  "schema": "sdt-endpoints/v1",
+  "summary": {
+    "authenticated": 5,
+    "public": 4,
+    "role": 1,
+    "unknown": 1
+  },
+  "unresolved": [
+    "internal/orphan/orphan.go router grp is a parameter of Register, and no call to Register was found; protection unknown"
+  ]
+}
