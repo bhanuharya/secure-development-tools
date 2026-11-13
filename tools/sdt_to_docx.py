@@ -7,11 +7,14 @@ One report per repository scan (a branch or a pull request), by kind of finding,
                        occurrence (file, line, status) and the code around it;
   2. Secret Leaks    - every secret: type, file, line, commit, still in code or history only;
   3. Dependencies &  - one row per vulnerable package with its advisories, fixed version and
-     Configuration     reachability, plus Trivy configuration checks.
+     Configuration     reachability, plus Trivy configuration checks;
+  4. Endpoints       - the route inventory's protection counts and the routes worth a look.
 
 Every finding has a priority, P1 to P4 (tools/sdt_priority.py, ADR 0009): its severity, moved
 by what is known about it and about the service (--inventory / SDT_INVENTORY, --exposure).
 Each section lists the most urgent first; Fix First lists the open P1 and P2 findings.
+When the scan wrote an endpoints.json next to findings.json, section 4 adds the protection
+counts and the routes worth a look.
 
 Code findings and review states come from SonarQube (--sonar-url); secrets and dependencies
 from the SDT findings.json (--findings), which knows commits, versions and reachability.
@@ -54,6 +57,22 @@ HOTSPOT_STATUS = {("TO_REVIEW", ""): "To review", ("REVIEWED", "FIXED"): "Fixed"
 ISSUE_STATUS = {"OPEN": "Open", "CONFIRMED": "Confirmed", "REOPENED": "Open", "ACCEPTED": "Accepted",
                 "FALSE_POSITIVE": "False positive", "FIXED": "Fixed", "RESOLVED": "Resolved"}
 TEST_PATH = re.compile(r"(^|/)(test|tests|spec|__tests__|integration_test)(/|$)|[._-](test|spec)\.[a-z]+$", re.I)
+# The default public-by-design list of internal/endpoints/analyze.go (SPEC §7): these POST routes
+# are intentionally reachable without a session, so the report does not count them as unprotected.
+ENDPOINT_PUBLIC_PATH = re.compile(
+    r"(?i)(login|logout|signin|sign-in|signup|sign-up|register$|registration|authenticate|/auth(/|$)"
+    r"|/token|refresh|forgot|otp|callback|webhook|notify|health|ping|public|captcha|metrics|/swagger|/docs)")
+# The default sensitive path list of internal/endpoints/analyze.go (SPEC §7). endpoints.json does
+# not record configured extra paths, so the report applies the default list.
+ENDPOINT_SENSITIVE_PATH = re.compile(
+    r"(?i)/(admin|management|backoffice|back-office|internal|feign|actuator|registry|eureka|debug|test)(/|$)"
+    r"|register/bo|update-cif|/roles?(/|$)|authorit|disburs|transfer|withdraw|inject|approve|reject"
+    r"|reset-password|change-password|update-password|update-email|bank-account|/users/init")
+ENDPOINT_STATE_CHANGING = {"POST", "PUT", "PATCH", "DELETE", "ANY"}
+ENDPOINT_PROTECTIONS = ["public", "authenticated", "role", "denied", "unknown"]
+# Sensitive routes worth a look in the report: the protection is absent, only logged-in, or unresolved.
+# In this order, so a public route is never buried under one that merely lacks a role.
+ENDPOINT_SENSITIVE_REVIEW = ("public", "authenticated", "unknown")
 # Reference-list entries ("OWASP - Top 10 2021 Category A3", "CWE - CWE-79 ...") are citations, not steps.
 REFERENCE = re.compile(r"^(OWASP|CWE|MITRE|SANS|NIST|PCI|STIG|CERT|ASVS|MASVS)\b[\s:-]", re.I)
 # Link titles from a rule's resources ("Vue.js - Security - Injecting HTML") are not steps either.
@@ -199,6 +218,37 @@ class ConfigRow:
 
 
 @dataclass
+class EndpointRoute:
+    method: str
+    path: str
+    protection: str
+    file: str
+    line: int
+
+
+@dataclass
+class EndpointsInventory:
+    summary: dict[str, int]
+    routes: list[EndpointRoute]
+
+    def public_state_changing(self) -> list[EndpointRoute]:
+        return [r for r in self.routes
+                if r.protection == "public" and r.method in ENDPOINT_STATE_CHANGING
+                and not ENDPOINT_PUBLIC_PATH.search(r.path)]
+
+    def sensitive(self) -> list[EndpointRoute]:
+        return [r for r in self.routes if ENDPOINT_SENSITIVE_PATH.search(r.path)]
+
+    def sensitive_to_review(self) -> list[EndpointRoute]:
+        """Sensitive routes a role does not already protect, public first."""
+        return sorted((r for r in self.sensitive() if r.protection in ENDPOINT_SENSITIVE_REVIEW),
+                      key=lambda r: ENDPOINT_SENSITIVE_REVIEW.index(r.protection))
+
+    def sensitive_with_role(self) -> list[EndpointRoute]:
+        return [r for r in self.sensitive() if r.protection == "role"]
+
+
+@dataclass
 class Report:
     project: str
     repository: str
@@ -219,6 +269,7 @@ class Report:
     link_to: str = "bitbucket"  # "bitbucket" (default) or "sonar" for file links
     resolved: dict | None = None  # findings decided in SonarQube (Safe / False positive / Accepted / Fixed): kept for the audit appendix, out of the sections and counts
     context: sdt_priority.Context = field(default_factory=sdt_priority.Context)  # service exposure and criticality
+    endpoints: EndpointsInventory | None = None  # route inventory from the endpoints adapter (endpoints.json)
 
 
 # ------------------------------------------------------------------ categorising
@@ -227,7 +278,9 @@ DEPENDENCY_RULE = re.compile(r"^(external_sdt-trivy[^:]*:sdt-trivy[^-]*(-fs)?-(C
                              r"|sdt:vulnerable-dependency)")
 SECRET_RULE = re.compile(r"^(sdt:secret|secrets:|external_sdt-gitleaks)")
 CONFIG_RULE = re.compile(r"^external_sdt-trivy")
-EXTERNAL_ID = re.compile(r"^external_sdt-[a-z-]+?:sdt-(?:gitleaks|trivy-fs|trivy)-(?P<id>.+)-[0-9a-f]{16}$")
+EXTERNAL_ID = re.compile(r"^external_sdt-(?P<adapter>[A-Za-z0-9_.-]+):sdt-(?P=adapter)-(?P<id>[A-Za-z0-9_.-]+)-[0-9a-f]{16}$")
+# Preserve external_id's historical handling of older Gitleaks and Trivy keys.
+LEGACY_EXTERNAL_ID = re.compile(r"^external_sdt-[a-z-]+?:sdt-(?:gitleaks|trivy-fs|trivy)-(?P<id>.+)-[0-9a-f]{16}$")
 HISTORY_SECRET = re.compile(r"Secret \((?P<kind>[^)]+)\) in git history: (?P<path>[^\s:]+)(?::(?P<line>\d+))?"
                             r"(?: at commit (?P<commit>[0-9a-f]+))?")
 DEPENDENCY_MESSAGE = re.compile(r"^(?P<id>\S+) in (?P<package>\S+) (?P<installed>\S+?)(?:: upgrade to (?P<fixed>[^.]+))?\.")
@@ -245,8 +298,8 @@ def category(rule_key: str) -> str:
 
 
 def external_id(rule_key: str) -> str:
-    """'external_sdt-gitleaks:sdt-gitleaks-gcp-api-key-<hash>' -> 'gcp-api-key'."""
-    match = EXTERNAL_ID.match(rule_key)
+    """The readable tail of an SDT external rule, without its adapter or identity hash."""
+    match = EXTERNAL_ID.fullmatch(rule_key) or LEGACY_EXTERNAL_ID.match(rule_key)
     return match.group("id") if match else rule_key.split(":", 1)[-1]
 
 
@@ -274,7 +327,45 @@ def _worse(a: str, b: str) -> str:
 
 
 # ------------------------------------------------------------------- sonar source
-def from_sonar(sonar: Sonar, project_key: str, branch: str, pull_request: str) -> tuple[str, dict]:
+OPENGREP_EXTERNAL = "external_opengrep:"  # SonarQube's key for an imported rule-pack finding
+
+
+def rule_name_from_id(rule_id: str) -> str:
+    """The last id segment as words: 'scp.java.x.some-rule' -> 'Some rule'.
+
+    Mirrors ruleNameFromID in internal/scanner/helpers.go, the scanner's fallback
+    for a rule without a metadata title, so both reports name a rule the same way.
+    """
+    name = re.split(r"[./]", rule_id)[-1].strip().replace("-", " ").replace("_", " ").strip()
+    return name[:1].upper() + name[1:]
+
+
+def finding_titles(findings: dict | None) -> dict[str, str]:
+    """Rule id -> readable title from findings.json (the scanner writes rule.name since T18)."""
+    titles: dict[str, str] = {}
+    for finding in (findings or {}).get("findings") or []:
+        rule = finding.get("rule") or {}
+        rule_id, name = str(rule.get("id") or ""), str(rule.get("name") or "").strip()
+        if rule_id and name:
+            titles.setdefault(rule_id, name)
+    return titles
+
+
+def sonar_title(rule_key: str, sonar_name: str, titles: dict[str, str] | None = None) -> str:
+    """The title for a SonarQube rule key.
+
+    A finding the plugin imports is keyed 'external_opengrep:<rule id>' and named
+    'opengrep:<rule id>'. Its readable title lives in the findings file; without one,
+    derive it from the id, as the scanner does. Never show the 'opengrep:' prefix.
+    """
+    if not rule_key.startswith(OPENGREP_EXTERNAL):
+        return sonar_name
+    rule_id = rule_key.split(":", 1)[1]
+    return (titles or {}).get(rule_id) or rule_name_from_id(rule_id) or rule_id
+
+
+def from_sonar(sonar: Sonar, project_key: str, branch: str, pull_request: str,
+               titles: dict[str, str] | None = None) -> tuple[str, dict]:
     """Project name and the four categories as SonarQube reports them."""
     scope = {"branch": branch, "pullRequest": pull_request}
     component = sonar.get("/api/components/show", component=project_key, **scope)["component"]
@@ -293,8 +384,10 @@ def from_sonar(sonar: Sonar, project_key: str, branch: str, pull_request: str) -
 
     def code(rule_key: str, kind: str, severity: str, occurrence: Occurrence) -> None:
         if rule_key not in groups:
-            risk, fixes = rule_texts(rule(rule_key))
-            groups[rule_key] = Group(rule_key, rule(rule_key).get("name", rule_key), kind, severity, risk, fixes)
+            data = rule(rule_key)
+            risk, fixes = rule_texts(data)
+            groups[rule_key] = Group(rule_key, sonar_title(rule_key, data.get("name", rule_key), titles),
+                                     kind, severity, risk, fixes)
         group = groups[rule_key]
         group.severity = _worse(group.severity, severity)
         group.occurrences.append(occurrence)
@@ -471,7 +564,7 @@ def merge(sonar: dict, sdt: dict | None) -> dict:
 # ------------------------------------------------------------------------ helpers
 def _shown(lines: list[str], numbers: range, path: str, flagged: set, credential: bool) -> dict[int, str]:
     """The source lines of one excerpt as the report shows them: no credential value, whatever kind of file."""
-    shown = sdt_advisory.redact_lines({n: lines[n - 1].rstrip() for n in numbers}, path, flagged if credential else set())
+    shown = sdt_advisory.redact_lines(dict(enumerate(lines, 1)), path, flagged if credential else set())
     return {n: text[:160] for n, text in shown.items()}
 
 
@@ -648,15 +741,26 @@ def review_lines(note: dict) -> list[tuple[str, str]]:
     """(label, text) rows of one review recommendation, in a fixed order."""
     outcome, check_label, action_label = REVIEW_OUTCOME[note["verdict"]]
     rows = [("Assessment", f"{outcome} (certainty: {str(note.get('confidence', 'low')).title()})")]
+    real = note["verdict"] == "likely_true_positive"
+    if real and note.get("impact"):
+        rows.append(("Impact", note["impact"]))
     for label_text, key in (("Evidence", "reason"), (check_label, "check"), (action_label, "suggested_fix")):
         if note.get(key):
             rows.append((label_text, note[key]))
+    if note["verdict"] != "likely_false_positive" and note.get("fix_steps"):
+        rows.append(("Fix steps", "\n".join(f"{i}. {step}" for i, step in enumerate(note["fix_steps"], 1))))
+    if real:
+        for label_text, key in (("Example", "fix_example"), ("Verify the fix", "verify_fix")):
+            if note.get(key):
+                rows.append((label_text, note[key]))
     return rows
 
 
 def ai_line(note: dict) -> str:
-    """The same recommendation on one line (for occurrences listed without code)."""
-    return "; ".join(f"{name}: {text}" for name, text in review_lines(note))
+    """A compact assessment and action summary, without detailed guidance or code."""
+    rows = review_lines(note)
+    action_label = REVIEW_OUTCOME[note["verdict"]][2]
+    return "; ".join(f"{name}: {text}" for name, text in rows if name in ("Assessment", action_label))
 
 
 def consolidate(rows: list[DependencyRow]) -> list[DependencyRow]:
@@ -1053,6 +1157,13 @@ def advisory_block(note: dict) -> list[str]:
     rows = review_lines(note)
     out = [para(run("Advisory", bold=True, color=ADVISORY_COLOR), before=0, after=20)]
     for n, (name, text) in enumerate(rows, 1):
+        if name in ("Fix steps", "Example"):
+            out.append(para(run(name + ":", bold=True, color=ADVISORY_COLOR), before=0, after=20))
+            if name == "Example":
+                out.append(code_block(text.splitlines()))
+            else:
+                out += [para(run(step), before=0, after=20) for step in text.splitlines()]
+            continue
         out.append(f'<w:p><w:pPr><w:keepLines/><w:spacing w:before="0" w:after="{120 if n == len(rows) else 20}"/>'
                    f'<w:ind w:left="288"/></w:pPr>{run(name + ": ", bold=True, color=ADVISORY_COLOR)}'
                    f'{run(text)}</w:p>')
@@ -1100,6 +1211,71 @@ def fix_first(report: Report) -> list[list]:
             add(c.priority, 3, c.severity, f"{c.check}: {c.message[:120]}", f"{c.path}:{c.line}" if c.line else c.path or "-",
                 "Fix the configuration, or record why it is acceptable")
     return [row for _, row in sorted(items, key=lambda item: item[0])]
+
+
+# --------------------------------------------------------------------- endpoints
+def load_endpoints(path: Path) -> EndpointsInventory:
+    """Read endpoints.json; an unexpected document is an error, not a partial inventory."""
+    doc = json.loads(path.read_text())
+    if doc.get("schema") != "sdt-endpoints/v1":
+        raise ValueError(f"not an sdt-endpoints/v1 inventory: {path}")
+    routes = [EndpointRoute(str(r.get("method") or ""), str(r.get("path") or ""),
+                            str(r.get("protection") or ""), str(r.get("file") or ""), int(r.get("line") or 0))
+              for r in doc.get("routes") or []]
+    summary = {str(k): int(v) for k, v in (doc.get("summary") or {}).items()}
+    if not summary:
+        summary = dict(Counter(r.protection for r in routes))
+    return EndpointsInventory(summary, routes)
+
+
+def protection_rows(inv: EndpointsInventory) -> list[list]:
+    """Counts in a fixed order, so two reports can be compared line by line."""
+    rows = [[name.capitalize(), inv.summary.get(name, 0)] for name in ENDPOINT_PROTECTIONS]
+    return rows + [["TOTAL", sum(inv.summary.values())]]
+
+
+def endpoint_rows(routes: list[EndpointRoute]) -> list[list]:
+    return [[r.method, r.path, r.protection, f"{r.file}:{r.line}"] for r in routes]
+
+
+def role_note(count: int) -> str:
+    """What the sensitive table leaves out because a role already protects it."""
+    if not count:
+        return "No sensitive route requires a role."
+    return (f"{plural(count, 'sensitive route')} {'requires' if count == 1 else 'require'} a role and "
+            f"{'is' if count == 1 else 'are'} not listed.")
+
+
+def sensitive_block(inv: EndpointsInventory) -> list[str]:
+    """The rows to review, or one sentence when a role already protects every sensitive route."""
+    rows, role = inv.sensitive_to_review(), len(inv.sensitive_with_role())
+    if rows:
+        return [data_table([("Method", 1000), ("Path", 3380), ("Protection", 1400), ("File", 4300)],
+                           endpoint_rows(rows)), para(run(role_note(role)))]
+    if role:
+        note = role_note(role)
+        return [para(run(f"No sensitive route needs review; {note[0].lower()}{note[1:]}"))]
+    return [para(run("No sensitive route needs review."))]
+
+
+def endpoints_section(inv: EndpointsInventory) -> list[str]:
+    """The Endpoints section: counts, then the routes that deserve a look despite their protection."""
+    parts = [section_heading("4. Endpoints", 1, "sec_endpoints", page_break=True),
+             para(run("The route inventory from the endpoints adapter, with the protection each route "
+                      "effectively has. Unknown routes are counted but never reported as findings."))]
+    parts.append(para(run("Routes per protection", bold=True), before=140))
+    parts.append(data_table([("Protection", 6000), ("Routes", 4080)], protection_rows(inv)))
+    public = inv.public_state_changing()
+    parts.append(para(run("Public state-changing routes", bold=True), before=160))
+    parts.append(para(run("POST, PUT, PATCH, DELETE and ANY routes that need no authentication."), before=0))
+    parts.append(data_table([("Method", 1000), ("Path", 3380), ("Protection", 1400), ("File", 4300)],
+                            endpoint_rows(public)) if public else para(run("None.")))
+    parts.append(para(run("Sensitive routes", bold=True), before=160))
+    parts.append(para(run("Routes whose path matches the default sensitive list (administration, internal, "
+                          "roles, money movement, credentials) and that no role already protects, public "
+                          "first."), before=0))
+    parts += sensitive_block(inv)
+    return parts
 
 
 # --------------------------------------------------------------------- the body
@@ -1170,6 +1346,8 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
               for n, g in enumerate(report.code, 1)]
     parts.append(internal_link("2. Secret Leaks", "sec_secrets"))
     parts.append(internal_link("3. Dependencies & Configuration (Trivy)", "sec_dependencies"))
+    if report.endpoints:
+        parts.append(internal_link("4. Endpoints", "sec_endpoints"))
     if report.resolved and any(report.resolved.values()):
         parts.append(internal_link("Resolved in SonarQube", "sec_resolved"))
     parts.append(internal_link("How Priority Is Set", "sec_priority"))
@@ -1280,7 +1458,8 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
                 if note.get("source") == "rules" and note.get("verdict") == "needs_context":
                     text = f"{o.message or g.name} - manual check as described for this rule above."
                 elif note:
-                    text = "; ".join(f"{name}: {value}" for name, value in review_lines(note)[1:])
+                    text = "; ".join(f"{name}: {value}" for name, value in review_lines(note)[1:]
+                                     if name not in ("Impact", "Fix steps", "Example", "Verify the fix"))
                 else:
                     text = o.message or g.name
                 url = target([o]) if o.path else ""
@@ -1293,6 +1472,10 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
             for block in snippet_blocks(src_root, where, [o.line for o in occs], cited=cited,
                                         credential=bool(sdt_advisory.CREDENTIAL_RULE.search(g.rule))):
                 parts.append(code_block(block))
+            for o in occs:
+                if o.ai and any(o.ai.get(key) for key in ("impact", "fix_steps", "fix_example", "verify_fix")):
+                    parts.append(para(run(f"{where}:{o.line}", bold=True), before=120, after=20))
+                    parts += advisory_block(o.ai)
 
     # ------------------------------------------------ 2. secret leaks
     parts.append(section_heading("2. Secret Leaks", 1, "sec_secrets", page_break=True))
@@ -1346,6 +1529,10 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
                                 [[i, c.check, c.path or "-", c.line or "-", c.severity,
                                   c.priority.level if c.priority else "-", c.message[:200], c.status]
                                  for i, c in enumerate(report.config, 1)], severity_col=4, priority_col=5))
+
+    # ------------------------------------------------ 4. endpoints
+    if report.endpoints:
+        parts += endpoints_section(report.endpoints)
 
     if report.resolved and any(report.resolved.values()):
         rows = resolved_rows(report.resolved)
@@ -1428,8 +1615,27 @@ def retheme(theme: str) -> str:
     return re.sub(r'(<a:minorFont>\s*<a:latin typeface=")[^"]*', rf"\g<1>{BODY_FONT}", theme)
 
 
+def _redact_report(report: Report, src_root: Path | None) -> tuple[Report, set]:
+    withheld: set = set()
+    # Complete files retain credential context even when a rendered snippet starts inside a map.
+    if src_root:
+        root = src_root.resolve()
+        for path in {o.path for g in report.code for o in g.occurrences}:
+            target = (root / path).resolve()
+            if root in target.parents and target.is_file():
+                sdt_advisory.redact(target.read_text(encoding="utf-8", errors="replace"), path, withheld)
+    return sdt_advisory.redact_tree(report, withheld), withheld
+
+
+def _safe_xml(data: str, withheld: set) -> str:
+    # Run after XML escaping as well, including headers, footers and link attributes.
+    return sdt_advisory.scrub(data, {escaped for value in withheld
+                                   for escaped in (escape(value), escape(value, {chr(34): "&quot;"}))})
+
+
 def write_docx(report: Report, src_root: Path | None, out: Path, template: Path = TEMPLATE,
                logo: Path | None = LOGO) -> None:
+    report, withheld = _redact_report(report, src_root)
     logo_data = logo.read_bytes() if logo and logo.is_file() else b""
     size = png_size(logo_data) if logo_data else None
     markup, links = body(report, src_root, logo_run("rIdLogo", size, 2.2, 101) if size else "")
@@ -1472,8 +1678,8 @@ def write_docx(report: Report, src_root: Path | None, out: Path, template: Path 
                                                 '"application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/></Types>')
                 if size and 'Extension="png"' not in data:
                     data = data.replace("<Default ", '<Default Extension="png" ContentType="image/png"/><Default ', 1)
-            dst.writestr(item, data)
-        dst.writestr("word/header1.xml", header)
+            dst.writestr(item, _safe_xml(data, withheld))
+        dst.writestr("word/header1.xml", _safe_xml(header, withheld))
         if size:
             dst.writestr("word/media/logo.png", logo_data)
             dst.writestr("word/_rels/header1.xml.rels",
@@ -1485,6 +1691,9 @@ def write_docx(report: Report, src_root: Path | None, out: Path, template: Path 
 # ---------------------------------------------------------------- trend / coverage
 def rule_ref(rule: str) -> str:
     """A short name for a rule that is the same in every report, unlike its section number."""
+    match = EXTERNAL_ID.fullmatch(rule)
+    if match:
+        return match.group("id")
     return rule.rsplit(":", 1)[-1].rsplit(".", 1)[-1] or rule
 
 
@@ -1645,6 +1854,8 @@ def main() -> int:
     ap.add_argument("--pull-request", default="")
     ap.add_argument("--findings", type=Path,
                     help="SDT findings.json: secrets and dependencies come from it (with --sonar-url), or everything")
+    ap.add_argument("--endpoints", type=Path,
+                    help="endpoints.json from the same scan (default: next to --findings, when present)")
     ap.add_argument("--src-root", type=Path, help="checkout to quote code excerpts from")
     ap.add_argument("--repository", default="", help="e.g. workspace/repo")
     ap.add_argument("--scope-url", default="", help="link to the branch or pull request")
@@ -1680,10 +1891,12 @@ def main() -> int:
         return 2
 
     sdt, doc = None, {}
+    titles: dict[str, str] = {}
     if args.findings:
         try:
             doc = json.loads(args.findings.read_text())
             sdt = from_findings(doc, args.src_root)
+            titles = finding_titles(doc)
         except (OSError, ValueError) as exc:
             print(f"sdt_to_docx: invalid findings: {exc}", file=sys.stderr)
             return 2
@@ -1693,7 +1906,8 @@ def main() -> int:
             print("sdt_to_docx: --sonar-url needs --project-key and SONAR_TOKEN", file=sys.stderr)
             return 2
         try:
-            name, sonar = from_sonar(Sonar(args.sonar_url, token), args.project_key, args.branch, args.pull_request)
+            name, sonar = from_sonar(Sonar(args.sonar_url, token), args.project_key, args.branch,
+                                     args.pull_request, titles)
         except (OSError, ValueError, KeyError) as exc:
             print(f"sdt_to_docx: cannot read SonarQube: {exc}", file=sys.stderr)
             return 2
@@ -1729,10 +1943,18 @@ def main() -> int:
         except (OSError, ValueError) as exc:  # without it every priority is still sound, only none is lowered
             print(f"sdt_to_docx: inventory not used ({exc}); service exposure counts as not recorded", file=sys.stderr)
     ctx = sdt_priority.context(inventory, args.repository or name, args.exposure, args.criticality, args.visibility)
+    endpoints_path = args.endpoints or (args.findings.parent / "endpoints.json" if args.findings else None)
+    endpoints = None
+    if endpoints_path and endpoints_path.is_file():
+        try:
+            endpoints = load_endpoints(endpoints_path)
+        except (OSError, ValueError) as exc:  # a report without the section is better than no report
+            print(f"sdt_to_docx: endpoints not used ({exc}); report without the Endpoints section", file=sys.stderr)
     report = Report(project, args.repository or name, scope, args.scope_url, args.commit, source,
                     found["code"], found["secret"], found["dependency"], found["config"], date.today(), ai,
                     None, "", coverage_gaps(args.coverage, args.findings),
-                    args.source_url or bitbucket_base(args.repository, args.commit), args.link_to, resolved, ctx)
+                    args.source_url or bitbucket_base(args.repository, args.commit), args.link_to, resolved, ctx,
+                    endpoints)
     state = report_state(report, args.src_root)
     if args.previous_state and args.previous_state.is_file():
         try:

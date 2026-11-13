@@ -107,3 +107,66 @@ config/prod/production.env	database password in a production environment file	79
 config/default/app.env	token signing key left at a well-known placeholder	1392,798	rules
 config/registry.yaml	registry address with a literal password	798,522	rules
 config/lookalike/production.env	values injected by the platform, address without credentials	798,260,1392,522	none
+java/HardcodedSecretField.java	hard-coded secret constant in Java code	798,321	rules
+java/lookalike/SecretFieldNames.java	field, header and placeholder names (not hard-coded secrets)	798,321	none
+java/lookalike/SecretConfigKeys.java	configuration keys, message keys and URL paths (not hard-coded secrets)	798,321	none
+kotlin/HardcodedSecretField.kt	hard-coded secret constant in Kotlin code	798,321	rules
+kotlin/lookalike/SecretFieldNames.kt	field, header and placeholder names (not hard-coded secrets)	798,321	none
+kotlin/lookalike/SecretConfigKeys.kt	configuration keys, message keys and URL paths (not hard-coded secrets)	798,321	none
+node/secret-constant.js	hard-coded secret constant in JavaScript	798,321	rules
+node/lookalike/secret-constant-names.js	field, header and placeholder names (not hard-coded secrets)	798,321	none
+node/lookalike/secret-config-keys.js	configuration keys, message keys and URL paths (not hard-coded secrets)	798,321	none
+go/secret_constant.go	hard-coded secret constant in Go code	798,321	rules
+go/lookalike/secret_constant_names.go	field, header and placeholder names (not hard-coded secrets)	798,321	none
+go/lookalike/secret_config_keys.go	configuration keys, message keys and URL paths (not hard-coded secrets)	798,321	none
+python/secret_constant.py	hard-coded secret constant in Python code	798,321	rules
+python/lookalike/secret_constant_names.py	field, header and placeholder names (not hard-coded secrets)	798,321	none
+python/lookalike/secret_config_keys.py	configuration keys, message keys and URL paths (not hard-coded secrets)	798,321	none
+infra/k8s-service-public-lb.yaml	internal service registry published through a public load balancer	668	rules
+infra/k8s-ingress-actuator.yaml	ingress for the actuator management endpoints	668	rules
+infra/consul-acl-disabled.hcl	Consul agent with ACLs disabled and default allow	306	rules
+infra/consul-compose.yaml	Consul client on every interface with the UI and port published	668	rules
+infra/actuator-exposure.env	sensitive actuator endpoints exposed through an environment file	200	rules
+infra/firewall-open.tf	internet firewall open to infrastructure ports	284	rules
+infra/lookalike/internal-load-balancer.yaml	internal load balancer and restricted source ranges (not public)	668	none
+infra/lookalike/clusterip-acls.yaml	ClusterIP service and Consul ACLs enabled (not exposed)	306,668	none
+infra/dev/consul-agent-dev.yaml	Consul development agent under a dev path (not a deployment)	306	none
+gateway/kong-management.yaml	kong route to the management endpoints	284	rules
+gateway/kong-catch-all.yaml	kong catch-all route	284	rules
+gateway/zuul/application.yml	zuul routes every registered service	441	rules
+gateway/scg/application.yml	gateway route to the management endpoints	284	rules
+gateway/nginx/nginx.conf	nginx proxies the management endpoints without a restriction	284	rules
+gateway/lookalike/kong-health.yaml	kong route to health only (not a sensitive route)	284,441	none
+gateway/lookalike/application.yml	zuul ignores every service and the gateway routes health only (not exposure)	284,441	none
+endpoints/transfer/main.go	money transfer reachable without authentication	306,284	rules
+endpoints/lookalike/main.go	public login and health next to protected state-changing routes (not missing auth)	306,862,284,285	none
+infra/k8s-aws-false.yaml	internal service with k8s-aws-false	668	rules
+infra/k8s-azure-false.yaml	internal service with k8s-azure-false	668	rules
+infra/k8s-gke-external.yaml	internal service with k8s-gke-external	668	rules
+infra/k8s-aws-true-prefix.yaml	internal service with k8s-aws-true-prefix	668	rules
+infra/k8s-ipv4-open.yaml	internal service with k8s-ipv4-open	668	rules
+infra/k8s-ipv6-open.yaml	internal service with k8s-ipv6-open	668	rules
+infra/k8s-mixed-open.yaml	internal service with k8s-mixed-open	668	rules
+infra/k8s-empty-ranges.yaml	internal service with k8s-empty-ranges	668	rules
+infra/lookalike/k8s-aws-true.yaml	internal service with k8s-aws-true	668	none
+infra/lookalike/k8s-azure-true.yaml	internal service with k8s-azure-true	668	none
+infra/lookalike/k8s-aws-internal-scheme.yaml	internal service with k8s-aws-internal-scheme	668	none
+infra/lookalike/k8s-gke-internal.yaml	internal service with k8s-gke-internal	668	none
+infra/lookalike/k8s-restricted-flow.yaml	internal service with k8s-restricted-flow	668	none
+infra/lookalike/k8s-restricted-block.yaml	internal service with k8s-restricted-block	668	none
+infra/consul-client-first.hcl	Consul UI and client binding client-first.hcl	668	rules
+infra/consul-ui-first.hcl	Consul UI and client binding ui-first.hcl	668	rules
+infra/consul-ui-config-first.hcl	Consul UI and client binding ui-config-first.hcl	668	rules
+infra/consul-ui-first.json	Consul UI and client binding ui-first.json	668	rules
+infra/lookalike/consul-ui-disabled.hcl	Consul UI and client binding ui-disabled.hcl	668	none
+infra/lookalike/consul-loopback.hcl	Consul UI and client binding loopback.hcl	668	none
+gateway/nginx/nginx-allow-only.conf	NGINX sensitive proxy with allow-only	284	rules
+gateway/nginx/nginx-commented-deny.conf	NGINX sensitive proxy with commented-deny	284	rules
+gateway/lookalike/nginx-allow-deny.conf	NGINX sensitive proxy with allow-deny	284	none
+gateway/lookalike/nginx-internal.conf	NGINX sensitive proxy with internal	284	none
+infra/k8s-nodeport.yaml	internal services reachable on node ports despite load-balancer restrictions	668	rules
+gateway/nginx/nginx-allow-all-first.conf	NGINX sensitive proxy with allow-all-before-deny	284	rules
+gateway/lookalike/nginx-deny-all-first.conf	NGINX sensitive proxy with deny-all-before-allow	284	none
+gateway/nginx/nginx-cidr-all.conf	NGINX sensitive proxy with unrestricted IPv4 allow	284	rules
+gateway/nginx/nginx-cidr-all-v6.conf	NGINX sensitive proxy with unrestricted IPv6 allow	284	rules
+gateway/lookalike/nginx-cidr-private.conf	NGINX sensitive proxy with private CIDR allows (not unrestricted)	284	none

@@ -9,6 +9,8 @@ rule-specific manual check, so a developer always knows what to look at.
 """
 from __future__ import annotations
 
+import ast
+import dataclasses
 import os
 import re
 from pathlib import Path
@@ -32,9 +34,12 @@ SECRET_PATTERNS = [
     re.compile(r"\beyJ[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}\b"),
     re.compile(r"\bsqu_[0-9a-f]{20,}\b"),
 ]
-SECRET_WORD = r"password|passwd|pwd|passphrase|secret|token|salt|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credentials?"
+# The key names the rule pack treats as secret (T11/T17 and common/secrets.yaml). Keep this list
+# in step with rules/opengrep-rules/*/identity.yaml: a name the rules report must never be sent.
+SECRET_WORD = (r"password|passwd|pwd|passphrase|secret|token|salt|credentials?|apikey|"
+               r"(?:api|app|auth|access|aes|cookie|encryption|hmac|jwt|master|private|secret|session|signing)[._-]?key")
 SECRET_ASSIGNMENT = re.compile(
-    rf"""(?i)((?:{SECRET_WORD}|auth)["']?\s*[:=]\s*)(["'])([^"'\s]+)\2""")
+    rf"""(?i)((?:{SECRET_WORD}|auth)["']?\s*[:=]\s*)(["'`])((?:\\.|(?!\2)[^\\])*)\2""", re.S)
 # A literal default of a secret lookup is the value the application runs with when the variable is missing:
 # env('JWT_SECRET', 'x'), env.array('APP_KEYS', ['a', 'b']), os.getenv("DB_PASSWORD", default="x"),
 # process.env.JWT_SECRET || 'x', os.getenv("DB_PASSWORD") or "x", ${JWT_SECRET:x}.
@@ -64,6 +69,94 @@ ANY_CONFIG_VALUE = re.compile(
         (?P<quote>["']?)(?P<value>[^"'\s#][^#]*?)(?P=quote)(?P<tail>\s*(?:\#.*)?)$""")
 CREDENTIAL_RULE = re.compile(r"(?i)S6437|S2068|S6418|S6290|hardcoded|hard-coded|secrets?[.:-]|private-key")
 QUOTED = re.compile(r"""(["'])((?:(?!\1).)+)\1""")
+# Container context is needed even when map entries have ordinary account names.
+CREDENTIAL_CONTAINER = re.compile(
+    r"(?i)\b(?:(?:accounts|basicauth|credentials?)\s*[({]|basicauth\.(?:New|Config)\s*[({]|"
+    r"[\"']?(?:users|accounts|credentials?)[\"']?\s*[:=]\s*(?:map\[[^\]]+\][\w]+\s*|dict\s*)?[({])")
+CONTAINER_QUOTED = re.compile(r"""(["'`])((?:\\.|(?!\1)[^\\])*)\1""", re.S)
+
+
+def _remember(value: str, withheld: set | None, quote: str = '"') -> None:
+    if withheld is None or _kept(value):
+        return
+    withheld.add(value)
+    # An answer may echo the decoded value rather than its source spelling.
+    try:
+        decoded = ast.literal_eval(quote + value + quote)
+        if isinstance(decoded, str) and not _kept(decoded):
+            withheld.add(decoded)
+    except (ValueError, SyntaxError):
+        pass
+
+
+def _hidden(value: str) -> str:
+    return "[REDACTED]" + "\n" * value.count("\n")
+
+
+def _matching_bracket(text: str, open_index: int) -> int:
+    """The index of the bracket closing the one at open_index, ignoring quoted brackets."""
+    depth, quote, i = 0, "", open_index
+    while i < len(text):
+        char = text[i]
+        if quote:
+            if char == "\\":
+                i += 2
+                continue
+            if char == quote:
+                quote = ""
+        elif char in "\"'`":
+            quote = char
+        elif char in "({[":
+            depth += 1
+        elif char in ")}]":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+
+def _redact_containers(text: str, withheld: set | None) -> str:
+    """Replace the quoted arguments of a credential container; values join `withheld` when given."""
+    out, offset = text, 0
+    while True:
+        found = CREDENTIAL_CONTAINER.search(out, offset)
+        if not found:
+            return out
+        open_index = found.end() - 1
+        close_index = _matching_bracket(out, open_index)
+        if close_index < 0:
+            close_index = len(out)  # A cut-off excerpt still carries credential context.
+
+        def hide(match: re.Match) -> str:
+            value = match.group(2)
+            _remember(value, withheld, match.group(1))
+            return f"{match.group(1)}{_hidden(value)}{match.group(1)}"
+
+        inner = CONTAINER_QUOTED.sub(hide, out[open_index + 1:close_index])
+        out = out[:open_index + 1] + inner + out[close_index:]
+        offset = open_index + 1 + len(inner) + 1
+
+
+EVIDENCE_CALL = re.compile(r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\(")
+
+
+def redact_evidence(text: str, withheld: set | None = None) -> str:
+    """Imported gate evidence follows the same callable-only contract as the Go inventory."""
+    parts, offset = [], 0
+    while found := EVIDENCE_CALL.search(text, offset):
+        opened = found.end() - 1
+        closed = _matching_bracket(text, opened)
+        closed = len(text) if closed < 0 else closed
+        name = found.group(0).rstrip("( \t\n").split(".")[-1]
+        # Spring path selectors carry route patterns, which must remain readable in source context.
+        if name not in {"requestMatchers", "antMatchers", "mvcMatchers", "pathMatchers", "regexMatchers"}:
+            for quoted in CONTAINER_QUOTED.finditer(text[opened + 1:closed]):
+                _remember(quoted.group(2), withheld, quoted.group(1))
+        parts.append(text[offset:opened] + "(...)")
+        offset = closed + 1
+    return redact("".join(parts) + text[offset:], withheld=withheld)
+
 
 # Vue/JS HTML-injection hotspots (S6299). A binding is a false positive when the value is produced by a
 # sanitiser/validator, an i18n call, or a constant. Generic markers are matched below; a project adds its own
@@ -123,6 +216,13 @@ def _kept(value: str) -> bool:
     return bool(PLACEHOLDER.match(value.strip()))
 
 
+def scrub(text: str, withheld: set | None) -> str:
+    """Remove values an earlier excerpt withheld, wherever a model or an old memory echoed them."""
+    for value in sorted((v for v in withheld or () if len(v) >= 3), key=len, reverse=True):
+        text = text.replace(value, _hidden(value))
+    return text
+
+
 def redact(text: str, path: str = "", withheld: set | None = None) -> str:
     """The code with likely secret values replaced by [REDACTED]; placeholders are left as they are.
     Give the file's path when there is one: in settings files unquoted values are covered too.
@@ -130,12 +230,16 @@ def redact(text: str, path: str = "", withheld: set | None = None) -> str:
     def hide(value: str, shown: str, hidden: str) -> str:
         if _kept(value):
             return shown
-        if withheld is not None:
-            withheld.add(value.strip())
+        _remember(value, withheld)
         return hidden
 
+    # A middleware credential has no secret-shaped name, so the container is the only signal.
+    text = _redact_containers(text, withheld)
     for pattern in SECRET_PATTERNS:
-        text = pattern.sub("[REDACTED]", text)
+        def hide_pattern(match: re.Match) -> str:
+            _remember(match.group(0), withheld)
+            return _hidden(match.group(0))
+        text = pattern.sub(hide_pattern, text)
 
     def default(m: re.Match) -> str:
         value = m.group(3)
@@ -149,8 +253,12 @@ def redact(text: str, path: str = "", withheld: set | None = None) -> str:
     text = LOOKUP_DEFAULT.sub(default, text)
     text = LOOKUP_OR.sub(lambda m: hide(m.group(3), m.group(0), f"{m.group(1)}{m.group(2)}[REDACTED]{m.group(2)}"), text)
     text = PLACEHOLDER_DEFAULT.sub(lambda m: hide(m.group(2), m.group(0), f"{m.group(1)}[REDACTED]{m.group(3)}"), text)
-    text = SECRET_ASSIGNMENT.sub(
-        lambda m: hide(m.group(3), m.group(0), f"{m.group(1)}{m.group(2)}[REDACTED]{m.group(2)}"), text)
+    def assignment(match: re.Match) -> str:
+        value, quote = match.group(3), match.group(2)
+        _remember(value, withheld, quote)
+        return hide(value, match.group(0), f"{match.group(1)}{quote}{_hidden(value)}{quote}")
+
+    text = SECRET_ASSIGNMENT.sub(assignment, text)
     text = PROSE_VALUE.sub(lambda m: hide(m.group(2), m.group(0), f"{m.group(1)}`[REDACTED]`"), text)
     text = URL_PASSWORD.sub(lambda m: hide(m.group(2), m.group(0), f"{m.group(1)}[REDACTED]{m.group(3)}"), text)
     if path and CONFIG_FILE.search(path):
@@ -172,8 +280,7 @@ def redact_credential_line(line: str, path: str = "", withheld: set | None = Non
     def hide(value: str, shown: str, hidden: str) -> str:
         if _kept(value):
             return shown
-        if withheld is not None:
-            withheld.add(value.strip())
+        _remember(value, withheld)
         return hidden
 
     line = redact(line, path, withheld)
@@ -184,17 +291,44 @@ def redact_credential_line(line: str, path: str = "", withheld: set | None = Non
     return QUOTED.sub(lambda m: hide(m.group(2), m.group(0), f"{m.group(1)}[REDACTED]{m.group(1)}"), line)
 
 
-def redact_lines(lines: dict[int, str], path: str = "", flagged: frozenset | set = frozenset()) -> dict[int, str]:
+def redact_lines(lines: dict[int, str], path: str = "", flagged: frozenset | set = frozenset(),
+                 withheld: set | None = None) -> dict[int, str]:
     """An excerpt (line number -> text) as a report or a prompt may show it. A value withheld on one line is
     withheld on the others too: a user name equal to the password would otherwise give it away. On the lines
-    in `flagged` (those a credential rule reported) every value is withheld."""
-    withheld: set = set()
-    shown = {number: redact_credential_line(text, path, withheld) if number in flagged else redact(text, path, withheld)
-             for number, text in lines.items()}
-    for value in sorted((v for v in withheld if len(v) >= 3), key=len, reverse=True):
-        again = re.compile(r"(?<![\w-])" + re.escape(value) + r"(?![\w-])")
-        shown = {number: again.sub("[REDACTED]", text) for number, text in shown.items()}
-    return shown
+    in `flagged` (those a credential rule reported) every value is withheld. Values found here are added to
+    `withheld`, so a caller can keep them out of a model's answer and the rendered report too."""
+    withheld = set() if withheld is None else withheld
+    if not lines:
+        return {}
+    numbers = range(min(lines), max(lines) + 1)
+    block = "\n".join(lines.get(number, "") for number in numbers)
+    # Redact before selecting/numbering lines: a credential container can span the excerpt boundary.
+    clean = dict(zip(numbers, redact(block, path, withheld).split("\n")))
+    shown = {number: redact_credential_line(clean[number], path, withheld) if number in flagged else clean[number]
+             for number in lines}
+    return {number: scrub(text, withheld) for number, text in shown.items()}
+
+
+def redact_tree(value, withheld: set | None = None):
+    """Last pass for structured output, including unrecognised model fields and report dataclasses.
+    Discover values in all fields before removing their echoes in any other field."""
+    withheld = set() if withheld is None else withheld
+
+    def walk(item, clean):
+        if isinstance(item, str):
+            return clean(item)
+        if isinstance(item, dict):
+            return {clean(k) if isinstance(k, str) else k: walk(v, clean) for k, v in item.items()}
+        if isinstance(item, (list, tuple)):
+            return type(item)(walk(v, clean) for v in item)
+        if dataclasses.is_dataclass(item) and not isinstance(item, type):
+            return dataclasses.replace(item, **{f.name: walk(getattr(item, f.name), clean)
+                                               for f in dataclasses.fields(item) if f.init})
+        return item
+
+    safe = walk(value, lambda text: redact(text, withheld=withheld))
+    return walk(safe, lambda text: scrub(text, withheld))
+
 
 
 # rule key pattern -> (what to check to decide, fix if it is real, what to record if it is safe)

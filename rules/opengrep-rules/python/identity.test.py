@@ -71,3 +71,57 @@ def login(username, password, otp, session):
     logger.debug("token length %d", len(session.access_token))
     # ok: scp.python.logging.secret-in-log
     logger.info("next page %s", session.next_page_token)
+
+
+# ---- hardcoded-secret
+# ruleid: scp.python.secrets.hardcoded-secret
+SECRET_KEY = "Ex4mpleSecretValue91"
+# ruleid: scp.python.secrets.hardcoded-secret
+api_key = "abcDEF1234567890"
+# ruleid: scp.python.secrets.hardcoded-secret
+auth_token = "eyJhbGciOiJIUzI1NiJ9.abc123"
+
+
+class SecretConfig:
+    # ruleid: scp.python.secrets.hardcoded-secret
+    client_secret = "f3a91c0d7b2e4a6c9d81"
+    # ruleid: scp.python.secrets.hardcoded-secret
+    password: str = "S3cretPass!2024"
+
+
+# ok: scp.python.secrets.hardcoded-secret
+field_secret = "client_secret"
+# ok: scp.python.secrets.hardcoded-secret
+header_secret = "X-Api-Key"
+# ok: scp.python.secrets.hardcoded-secret
+jwt_secret = "/oauth/token"
+# ok: scp.python.secrets.hardcoded-secret
+app_secret = "jwt.secret"
+# ok: scp.python.secrets.hardcoded-secret
+db_password = "changeme"
+# ok: scp.python.secrets.hardcoded-secret
+admin_password = "password"
+# ok: scp.python.secrets.hardcoded-secret
+user_password = "At least eight characters"
+# ok: scp.python.secrets.hardcoded-secret
+encryption_key = ""
+# ok: scp.python.secrets.hardcoded-secret
+signing_secret = "${SIGNING_KEY}"
+# ok: scp.python.secrets.hardcoded-secret
+token = "abc123456789"
+# ok: scp.python.secrets.hardcoded-secret
+private_key = "-----BEGIN PRIVATE KEY-----"
+# ok: scp.python.secrets.hardcoded-secret
+api_secret = "https://example.com/oauth/token"
+
+# A JWT-shaped value is still material: the segments hold uppercase letters.
+# ruleid: scp.python.secrets.hardcoded-secret
+JWT_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJvcmRlcnMifQ.c2lnbmF0dXJl"
+# ok: scp.python.secrets.hardcoded-secret
+KEY_ORDERS_API_KEY = "orders.apikey"
+# ok: scp.python.secrets.hardcoded-secret
+KEY_JWT_PRIVATE_KEY = "auth.jwt.private_key_path"
+# ok: scp.python.secrets.hardcoded-secret
+MSG_SUCCESS_TOKEN = "success.token_issued"
+# ok: scp.python.secrets.hardcoded-secret
+VERIFY_PASSWORD = "/services/orders/api/authenticate"

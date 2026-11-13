@@ -1,0 +1,52 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "fiber",
+      "method": "GET",
+      "path": "/admin/users",
+      "handler": "listUsers",
+      "file": "main.go",
+      "line": 8,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:7 middleware AuthMiddleware on router"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "fiber",
+      "method": "POST",
+      "path": "/protected",
+      "handler": "createOrder",
+      "file": "main.go",
+      "line": 10,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:10 middleware AuthMiddleware"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "fiber",
+      "method": "POST",
+      "path": "/transfer",
+      "handler": "transferFunds",
+      "file": "main.go",
+      "line": 9,
+      "protection": "public",
+      "evidence": [
+        "main.go:9 no gate middleware on the route"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 2,
+    "public": 1
+  }
+}

@@ -98,8 +98,8 @@ Every code finding carries an **Advisory** (purple heading and labels) with fixe
 | Assessment | Then |
 |---|---|
 | False positive - can be marked Safe | Evidence; Before marking Safe, confirm; Record in SonarQube |
-| Real issue - fix required | Evidence; Confirm impact; Fix |
-| Manual check required | Evidence; Check; Then |
+| Real issue - fix required | Impact; Evidence; Confirm impact; Fix; Fix steps (numbered); Example (code); Verify the fix |
+| Manual check required | Evidence; Check; Then; Fix steps when present |
 
 It never changes a SonarQube status or an SDT verdict.
 
@@ -112,11 +112,32 @@ A generic rule-based check is printed once per rule in the grouped layout. For V
 **Optional model review** (`tools/sdt_triage_codex.py`): when the `codex` CLI is installed and logged in, the
 code findings are sent, rule by rule, to Codex (`SDT_CODEX_MODEL`, default `gpt-6-luna`) with the enclosing
 function as context, followed by the lines elsewhere in the same file that use the same names (where the flagged
-value is built or sanitised). The prompt's main job is ruling out false positives against a six-point checklist; the
-answer is an enforced JSON schema (verdict, confidence, evidence, check, fix). Guardrails:
+value is built or sanitised). When a matching finding's `metadata.evidence` cites `file:line` locations,
+the prompt also includes **Evidence the scanner used**: each cited line with three lines around it,
+redacted. This includes endpoint protection checks in a separate security configuration file, and works
+with `--findings` alongside SonarQube. The prompt's main job is ruling out false positives against a
+six-point checklist; the answer is an enforced JSON schema. Alongside verdict, confidence, `reason`
+(evidence), `check` and the one-line `suggested_fix` summary, every new answer includes:
+
+* `impact`: one sentence describing what an attacker or user can do, naming the route, value or call;
+* `fix_steps`: an array of 2-5 short ordered steps naming the file and line or identifier to change;
+* `fix_example`: a before/after snippet of at most 12 lines in the occurrence's language, using its
+  identifiers; empty when a snippet does not help. For secrets, the before part names the file, line
+  and key with `[REDACTED]` as the value, and the after part uses an environment or secret-store reference;
+* `verify_fix`: the test, refused request or setting that proves the fix works.
+
+A real issue requires impact, steps and verification; its example is optional. For a manual check, steps
+describe what to do if the check confirms the issue. False positives keep the new text fields empty and
+steps as `[]`. Older saved advice still renders with its original fields. Fix First and compact summaries
+use the one-line fix; full advice appears beside each occurrence, including in the grouped layout.
+All new text, each step and the example pass through redaction before triage and memory are written;
+redaction replaces secret values in place so the example's lines, keys and surrounding code remain useful.
+
+Guardrails:
 
 * only code findings are sent, never secret findings, and likely secret values are redacted first;
 * read-only sandbox, empty working directory, ephemeral session;
+* at most six occurrences per model call, including second opinions (default six per rule);
 * per-call timeout (`SDT_CODEX_TIMEOUT`, 120 s), whole-run budget (`SDT_CODEX_BUDGET`, 600 s), and a stop after
   two consecutive failed calls;
 * without Codex (or with `SDT_AI_TRIAGE=0`) the step is a no-op and the deterministic advisory is used.
@@ -124,7 +145,8 @@ answer is an enforced JSON schema (verdict, confidence, evidence, check, fix). G
 A verdict is remembered per question (model, rule, file and the code shown) in `SDT_TRIAGE_MEMORY` (default
 `~/.cache/sdt/triage/<project>.json`). A rescan of unchanged code repeats the earlier verdict instead of asking
 again, on any branch, so the advisory is stable between reports and costs nothing when nothing changed. Edited
-code is a new question. `--refresh` asks everything again.
+code, including scanner evidence code, is a new question. The prompt version is also part of the key,
+so verdicts remembered before detailed guidance are requested again. `--refresh` asks everything again.
 
 **Automatic Safe marking** (`tools/sdt_sonar_autoclose.py`, off unless `SDT_AI_AUTOCLOSE=1`): a security hotspot
 is marked Safe in SonarQube without a person only when the model review says false positive with high confidence

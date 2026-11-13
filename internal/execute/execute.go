@@ -27,6 +27,9 @@ type Task struct {
 	TimeoutSeconds int
 	Dir            string
 	ReportPath     string
+	// Stdout, when non-nil, is an already-produced native report: the
+	// adapter did its work in-process, so no process is spawned.
+	Stdout []byte
 }
 
 // Result captures a completed task.
@@ -81,8 +84,15 @@ func RunAll(ctx context.Context, tasks []Task, parallelism int, redact func(stri
 	return results
 }
 
-// RunOne invokes executable+argv directly (never a shell).
+// RunOne invokes executable+argv directly (never a shell). A task that already
+// carries its native report (in-process adapter) is returned as-is.
 func RunOne(ctx context.Context, t Task, redact func(string) string) Result {
+	if t.Stdout != nil {
+		if err := ctx.Err(); err != nil {
+			return Result{Adapter: t.Adapter, Err: fmt.Errorf("%s cancelled: %w", t.Adapter, err)}
+		}
+		return Result{Adapter: t.Adapter, Stdout: t.Stdout}
+	}
 	timeout := time.Duration(t.TimeoutSeconds) * time.Second
 	if timeout <= 0 {
 		timeout = 10 * time.Minute
@@ -93,7 +103,7 @@ func RunOne(ctx context.Context, t Task, redact func(string) string) Result {
 	if t.Dir != "" {
 		cmd.Dir = t.Dir
 	}
-	ownProcessGroup(cmd)
+	OwnProcessGroup(cmd)
 	// A process that outlives the scanner and still holds its output must not
 	// keep the run waiting: give the pipes a moment, then close them.
 	cmd.WaitDelay = outputGrace

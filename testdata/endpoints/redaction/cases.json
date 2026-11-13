@@ -1,0 +1,91 @@
+[
+  {
+    "name": "fiber",
+    "text": "main.go:4 middleware basicauth.New(basicauth.Config{Users: map[string]string{\"operator\": \"synthetic_Fiber7Demo!\"}}) on app",
+    "evidence": true,
+    "secrets": [
+      "synthetic_Fiber7Demo!"
+    ]
+  },
+  {
+    "name": "javascript",
+    "text": "app.js:4 middleware authenticate({value: \"synthetic_JS7Demo!\"}) on app",
+    "evidence": true,
+    "secrets": [
+      "synthetic_JS7Demo!"
+    ]
+  },
+  {
+    "name": "python",
+    "text": "main.py:4 decorator @require_auth(\"synthetic_Python7Demo!\") on transfer",
+    "evidence": true,
+    "secrets": [
+      "synthetic_Python7Demo!"
+    ]
+  },
+  {
+    "name": "spring",
+    "text": "Security.java:4 .requestMatchers(\"/transfer\").access(check(\"synthetic_Spring7Demo!\"))",
+    "evidence": true,
+    "secrets": [
+      "synthetic_Spring7Demo!"
+    ]
+  },
+  {
+    "name": "gin-multiline",
+    "text": "gin.Accounts{\n \"operator\": \"synthetic_Only7Demo!\",\n \"reader\": \"synthetic_Other8Demo!\",\n}",
+    "evidence": false,
+    "secrets": [
+      "synthetic_Only7Demo!",
+      "synthetic_Other8Demo!"
+    ]
+  },
+  {
+    "name": "gin-truncated",
+    "text": "gin.Accounts{\n \"operator\": \"synthetic_Cut7Demo!\",",
+    "evidence": false,
+    "secrets": [
+      "synthetic_Cut7Demo!"
+    ]
+  },
+  {
+    "name": "fiber-multiline",
+    "text": "basicauth.Config{\n Users: map[string]string{\n \"operator\": \"synthetic_Config7Demo!\",\n },\n}",
+    "evidence": false,
+    "secrets": [
+      "synthetic_Config7Demo!"
+    ]
+  },
+  {
+    "name": "credential-map",
+    "text": "credentials = {\n \"operator\": \"synthetic_Dict7Demo!\",\n}",
+    "evidence": false,
+    "secrets": [
+      "synthetic_Dict7Demo!"
+    ]
+  },
+  {
+    "name": "users-map",
+    "text": "Users: map[string]string{\n \"operator\": \"synthetic_Users7Demo!\",",
+    "evidence": false,
+    "secrets": [
+      "synthetic_Users7Demo!"
+    ]
+  },
+  {
+    "name": "signing-spaces",
+    "text": "static final String SIGNING_KEY = \"synthetic signing secret 7!\";",
+    "evidence": false,
+    "secrets": [
+      "synthetic signing secret 7!"
+    ]
+  },
+  {
+    "name": "signing-escapes",
+    "text": "SIGNING_KEY = \"synthetic \\\"quoted\\\" secret 7!\"",
+    "evidence": false,
+    "secrets": [
+      "synthetic \\\"quoted\\\" secret 7!"
+    ]
+  }
+]

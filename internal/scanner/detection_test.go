@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/bhanuharya/secure-development-tools/internal/config"
+	"github.com/bhanuharya/secure-development-tools/internal/finding"
 )
 
 // detectionCase is one planted weakness in testdata/detection: a small file with
@@ -97,21 +98,24 @@ func TestRulePackFindsThePlantedWeaknesses(t *testing.T) {
 		t.Fatalf("opengrep output unusable (%v) or with errors: %v", err, probe.Errors)
 	}
 	parsed := adapter.Parse("test", root, out, "", 0)
-	number := regexp.MustCompile(`\d+`)
 	reported := map[string]map[int]bool{}
-	for _, f := range parsed.Findings {
-		if f.Location == nil {
-			continue
-		}
-		if reported[f.Location.Path] == nil {
-			reported[f.Location.Path] = map[int]bool{}
-		}
-		for _, cwe := range f.Rule.CWE {
-			if n, err := strconv.Atoi(number.FindString(cwe)); err == nil {
-				reported[f.Location.Path][n] = true
-			}
-		}
+	recordCWEs(reported, parsed.Findings)
+
+	// The inventory is a second detection gate: its convention findings must
+	// catch the planted route and stay silent on the safe look-alike (§8).
+	t.Setenv("SDT_HOME", repoRoot(t))
+	inventory := &EndpointsAdapter{}
+	inventoryTask, err := inventory.Plan(ctx, config.Defaults(), root)
+	if err != nil {
+		t.Fatalf("endpoints plan: %v", err)
 	}
+	inventoryParsed := inventory.Parse("test", root, inventoryTask.Stdout, "", 0)
+	if inventoryParsed.Health != HealthCompleted {
+		t.Fatalf("endpoints parse: %v", inventoryParsed.Diagnostics)
+	}
+	inventoryReported := map[string]map[int]bool{}
+	recordCWEs(inventoryReported, inventoryParsed.Findings)
+
 	required, found, lookalikes, clean := 0, 0, 0, 0
 	for _, c := range cases {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(c.path))); err != nil {
@@ -149,6 +153,54 @@ func TestRulePackFindsThePlantedWeaknesses(t *testing.T) {
 			t.Errorf("%s (%s) is not reported by a rule of its weakness class", c.path, c.weakness)
 		}
 	}
-	t.Logf("%d of %d planted weaknesses the rule pack is responsible for are found; %d more are left to SonarQube; %d of %d safe look-alikes are not reported",
-		found, required, len(cases)-required-lookalikes, clean, lookalikes)
+
+	// Endpoint samples are judged on what the inventory reported by itself:
+	// the rule pack result above must not mask a missed convention finding.
+	inventoryRequired, inventoryFound, inventoryLookalikes, inventoryClean := 0, 0, 0, 0
+	for _, c := range cases {
+		if !strings.HasPrefix(c.path, "endpoints/") || c.by == "sonarqube" {
+			continue
+		}
+		if c.by == "none" {
+			inventoryLookalikes++
+			if len(inventoryReported[c.path]) == 0 {
+				inventoryClean++
+			} else {
+				t.Errorf("%s (%s) is reported by the endpoints adapter, but it is a safe look-alike", c.path, c.weakness)
+			}
+			continue
+		}
+		inventoryRequired++
+		hit := false
+		for cwe := range c.cwes {
+			hit = hit || inventoryReported[c.path][cwe]
+		}
+		if hit {
+			inventoryFound++
+		} else {
+			t.Errorf("%s (%s) is not reported by the endpoints adapter", c.path, c.weakness)
+		}
+	}
+	t.Logf("%d of %d planted weaknesses the rule pack is responsible for are found; %d more are left to SonarQube; %d of %d safe look-alikes are not reported; endpoints adapter: %d of %d inventory samples reported, %d of %d inventory look-alikes not reported",
+		found, required, len(cases)-required-lookalikes, clean, lookalikes,
+		inventoryFound, inventoryRequired, inventoryClean, inventoryLookalikes)
+}
+
+// recordCWEs indexes findings by file and CWE number so a table row can ask
+// whether a weakness class was reported for its path.
+func recordCWEs(reported map[string]map[int]bool, findings []*finding.Finding) {
+	number := regexp.MustCompile(`\d+`)
+	for _, f := range findings {
+		if f.Location == nil {
+			continue
+		}
+		if reported[f.Location.Path] == nil {
+			reported[f.Location.Path] = map[int]bool{}
+		}
+		for _, cwe := range f.Rule.CWE {
+			if n, err := strconv.Atoi(number.FindString(cwe)); err == nil {
+				reported[f.Location.Path][n] = true
+			}
+		}
+	}
 }

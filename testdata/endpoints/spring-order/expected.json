@@ -1,0 +1,80 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/admin/audit",
+      "handler": "Controller.audit",
+      "file": "Controller.java",
+      "line": 10,
+      "protection": "public",
+      "evidence": [
+        "Security.java:9 .antMatchers(\"/admin/audit/**\").access(\"hasRole('ADMIN') or isAnonymous()\")"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/admin/reset",
+      "handler": "Controller.reset",
+      "file": "Controller.java",
+      "line": 7,
+      "protection": "public",
+      "evidence": [
+        "Security.java:10 .antMatchers(\"/admin/**\").access(\"hasRole('ADMIN') or permitAll()\")"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "ANY",
+      "path": "/internal/change",
+      "handler": "Controller.change",
+      "file": "Controller.java",
+      "line": 13,
+      "protection": "public",
+      "evidence": [
+        "Security.java:14 .anyRequest().permitAll() (weakest method POST)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/internal/report",
+      "handler": "Controller.report",
+      "file": "Controller.java",
+      "line": 19,
+      "protection": "authenticated",
+      "evidence": [
+        "Security.java:13 .antMatchers(\"/internal/report/**\").authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/internal/transfer",
+      "handler": "Controller.transfer",
+      "file": "Controller.java",
+      "line": 16,
+      "protection": "public",
+      "evidence": [
+        "Security.java:14 .anyRequest().permitAll()"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 1,
+    "public": 4
+  }
+}

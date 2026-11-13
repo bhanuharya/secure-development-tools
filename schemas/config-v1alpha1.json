@@ -33,8 +33,8 @@
         "type": "object",
         "properties": {
           "mode": {"enum": ["changed", "repository"]},
-          "scanners": {"type": "array", "items": {"enum": ["opengrep", "gitleaks", "trivy-fs", "trivy-image"]}},
-          "requiredScanners": {"type": "array", "items": {"enum": ["opengrep", "gitleaks", "trivy-fs", "trivy-image"]}},
+          "scanners": {"type": "array", "items": {"enum": ["opengrep", "gitleaks", "trivy-fs", "trivy-image", "endpoints"]}},
+          "requiredScanners": {"type": "array", "items": {"enum": ["opengrep", "gitleaks", "trivy-fs", "trivy-image", "endpoints"]}},
           "timeout": {"type": "string"},
           "parallelism": {"type": "integer", "minimum": 1},
           "missingHistory": {"enum": ["fail", "warn", "fallback"]},
@@ -63,6 +63,7 @@
                   "severities": {"type": "array", "items": {"type": "string"}},
                   "baselineStates": {"type": "array", "items": {"type": "string"}},
                   "fixAvailable": {"type": "boolean"},
+                  "confidence": {"type": "array", "items": {"enum": ["high", "medium", "low"]}},
                   "reachable": {"type": "array", "items": {"enum": ["reachable", "unreachable", "unknown"]}}
                 }
               },
@@ -77,6 +78,16 @@
     "outputs": {"type": "object"},
     "runtime": {"type": "object"},
     "publish": {"type": "object"},
-    "ai": {"type": "object"}
+    "ai": {"type": "object"},
+    "endpoints": {
+      "type": "object",
+      "properties": {
+        "authGates": {"type": "array", "items": {"type": "string"}},
+        "publicPaths": {"type": "array", "items": {"type": "string"}},
+        "sensitivePaths": {"type": "array", "items": {"type": "string"}},
+        "minRoutes": {"type": "integer", "minimum": 0},
+        "majority": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    }
   }
 }

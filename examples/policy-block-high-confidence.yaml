@@ -1,0 +1,44 @@
+apiVersion: secure-dev/v1alpha1
+kind: ScanConfiguration
+metadata:
+  name: block-high-confidence
+project:
+  root: .
+profiles:
+  full:
+    mode: repository
+    scanners: [opengrep, gitleaks, trivy-fs]
+    requiredScanners: [opengrep, gitleaks, trivy-fs]
+    timeout: 45m
+    parallelism: 3
+    missingHistory: fail
+policy:
+  behaviorOnRequiredScannerError: fail
+  defaultAction: report
+  rules:
+    # New high/critical SAST findings fail the build only when the rule says
+    # it is certain. Medium and low confidence findings stay report-only.
+    - id: block-new-high-confidence-sast
+      match:
+        categories: [sast]
+        severities: [high, critical]
+        baselineStates: [new, unknown]
+        confidence: [high]
+      action: fail
+    - id: block-secrets
+      match:
+        categories: [secret]
+        baselineStates: [new, existing, unknown]
+      action: fail
+    - id: block-new-critical-dependencies
+      match:
+        categories: [dependency-vulnerability, image-vulnerability]
+        severities: [critical]
+        baselineStates: [new, unknown]
+      action: fail
+    - id: block-new-high-iac
+      match:
+        categories: [misconfiguration]
+        severities: [high, critical]
+        baselineStates: [new, unknown]
+      action: fail

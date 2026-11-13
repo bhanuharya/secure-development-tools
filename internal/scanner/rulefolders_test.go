@@ -34,6 +34,28 @@ func TestRuleFilesIncludesFlutterPackForDart(t *testing.T) {
 	}
 }
 
+// The vendored-title overlay is data for the rules harness, never --config.
+func TestRuleFilesSkipVendorTitleOverlay(t *testing.T) {
+	pack := t.TempDir()
+	for _, f := range []string{"vendor/titles.yaml", "vendor/semgrep/python/lang/security/rule.yaml"} {
+		p := filepath.Join(pack, f)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("rules: []\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("SDT_RULES_PACK_DIR", pack)
+	got := strings.Join(ruleFiles("", []string{"python"}), "\n")
+	if strings.Contains(got, "titles.yaml") {
+		t.Fatalf("the title overlay was passed as a rule file:\n%s", got)
+	}
+	if !strings.Contains(got, "vendor/semgrep/python/lang/security/rule.yaml") {
+		t.Fatalf("vendored rule missing:\n%s", got)
+	}
+}
+
 // A repository with only TypeScript still gets the JavaScript folder, whose
 // rules for both languages would otherwise never run on it.
 func TestRuleFilesIncludeTheJavaScriptPackForTypeScript(t *testing.T) {

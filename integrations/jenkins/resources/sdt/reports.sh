@@ -29,6 +29,10 @@ timing() { printf '%s\t%s\n' "$1" "$((SECONDS - STEP_START))" >> "$TIMINGS"; STE
 
 # The SAST report reads SonarQube, so it shows each hotspot's review state and assignee.
 TRIAGE=()
+# 'SAST Report - <repo>[ - PR <id>] - <ddmmyy-hhmm>.docx': branch and pull request reports and their scan
+# times are told apart in downloads. One report per build: an older one in OUT would be picked up instead.
+rm -f "$OUT"/SAST\ Report\ -\ *.docx
+REPORT_DOCX="$OUT/SAST Report - $REPO_SLUG${PR_ID:+ - PR $PR_ID} - $(date +%d%m%y-%H%M).docx"
 if [ -f "$OUT/sonar-project-key" ] && [ -n "${SONAR_TOKEN:-}" ]; then
   # Same scope scan.sh analysed: no branch parameter for the main branch.
   SCOPE=()
@@ -36,9 +40,12 @@ if [ -f "$OUT/sonar-project-key" ] && [ -n "${SONAR_TOKEN:-}" ]; then
   [ -n "${PR_ID:-}" ] && SCOPE=(--pull-request "$PR_ID")
   # Optional AI-assisted review (advisory): only when Codex is installed and SDT_AI_TRIAGE!=0.
   # Bounded by per-call timeouts, SDT_CODEX_BUDGET and this outer timeout; never fails the build.
+  # The scan's findings carry each finding's evidence (e.g. the security rule that makes a route public).
+  FINDINGS_ARG=()
+  [ -s "$OUT/sdt/findings.json" ] && FINDINGS_ARG=(--findings "$OUT/sdt/findings.json")
   timeout "$(( ${SDT_CODEX_BUDGET:-600} + 120 ))" python3 "$SDT_HOME/tools/sdt_triage_codex.py" \
     --sonar-url "$SONAR_HOST_URL" --project-key "$(cat "$OUT/sonar-project-key")" "${SCOPE[@]}" \
-    --src-root "$SRC" --out "$OUT/triage.json" --budget "${SDT_CODEX_BUDGET:-600}" \
+    --src-root "$SRC" --out "$OUT/triage.json" --budget "${SDT_CODEX_BUDGET:-600}" "${FINDINGS_ARG[@]}" \
     || log "AI review skipped (error or timeout); normal report"
   timing ai-review
   [ -s "$OUT/triage.json" ] && TRIAGE=(--triage "$OUT/triage.json")
@@ -69,12 +76,12 @@ if [ -f "$OUT/sonar-project-key" ] && [ -n "${SONAR_TOKEN:-}" ]; then
   python3 "$SDT_HOME/tools/sdt_to_docx.py" --sonar-url "$SONAR_HOST_URL" --project-key "$(cat "$OUT/sonar-project-key")" \
     "${SCOPE[@]}" --findings "$REPORT_FINDINGS" --src-root "$SRC" \
     --repository "$WORKSPACE_NAME/$REPO_SLUG" --scope-url "${SCOPE_URL:-}" \
-    --commit "$COMMIT" "${TRIAGE[@]}" --out "$OUT/SAST Report - $REPO_SLUG.docx" || { log "DOCX report failed"; status=1; }
+    --commit "$COMMIT" "${TRIAGE[@]}" --out "$REPORT_DOCX" || { log "DOCX report failed"; status=1; }
 else
   # SonarQube was not reached (stage failed): report straight from the SDT findings.
   python3 "$SDT_HOME/tools/sdt_to_docx.py" --findings "$OUT/sdt/findings.json" --src-root "$SRC" \
     --repository "$WORKSPACE_NAME/$REPO_SLUG" --project-name "$REPO_SLUG" --scope-url "${SCOPE_URL:-}" \
-    --commit "$COMMIT" --out "$OUT/SAST Report - $REPO_SLUG.docx" || { log "DOCX report failed"; status=1; }
+    --commit "$COMMIT" --out "$REPORT_DOCX" || { log "DOCX report failed"; status=1; }
 fi
 timing report
 

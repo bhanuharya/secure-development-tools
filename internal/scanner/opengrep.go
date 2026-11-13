@@ -131,6 +131,7 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 				Fix      string `json:"fix"`
 				Lines    string `json:"lines"`
 				Metadata struct {
+					Title      string `json:"title"`
 					CWE        any    `json:"cwe"`
 					OWASP      any    `json:"owasp"`
 					References any    `json:"references"`
@@ -143,6 +144,7 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 	if err := json.Unmarshal(stdout, &data); err != nil {
 		return ParseResult{Health: HealthMalformed, Diagnostics: []string{"opengrep returned invalid JSON"}}
 	}
+	titles := ruleTitles(rulePackDir(root))
 	var out []*finding.Finding
 	for i, r := range data.Results {
 		sev := finding.MapSeverity(r.Extra.Severity)
@@ -150,6 +152,13 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 			sev.Canonical = finding.SevMedium
 		}
 		ruleID := cleanRuleID(r.CheckID)
+		ruleName := strings.TrimSpace(r.Extra.Metadata.Title)
+		if ruleName == "" {
+			ruleName = strings.TrimSpace(overlayTitle(titles, ruleID))
+		}
+		if ruleName == "" {
+			ruleName = ruleNameFromID(ruleID)
+		}
 		msg := report.Redact(truncate(r.Extra.Message, 1000))
 		sl, el := r.Start.Line, r.End.Line
 		rel := relToRoot(root, r.Path)
@@ -176,7 +185,7 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 			ID:            fmt.Sprintf("opengrep:%05d", i+1),
 			Scanner:       finding.ScannerID{Adapter: "opengrep", Tool: "opengrep", Version: toolVersion},
 			Category:      finding.CatSAST,
-			Rule:          finding.Rule{ID: ruleID, CWE: toStringList(r.Extra.Metadata.CWE, true)},
+			Rule:          finding.Rule{ID: ruleID, Name: ruleName, CWE: toStringList(r.Extra.Metadata.CWE, true)},
 			Severity:      sev,
 			Confidence:    confidence,
 			Message:       msg,
@@ -235,7 +244,9 @@ func rulePackOfExecutable() string {
 	return ""
 }
 
-func ruleFiles(root string, languages []string) []string {
+// rulePackDir is the rule pack a scan rooted at root uses. It is also where
+// the vendored-title overlay is read from.
+func rulePackDir(root string) string {
 	pack := envOr("SDT_RULES_PACK_DIR", filepath.Join(root, "rules", "opengrep-rules"))
 	// Fall back to repo-bundled rules when scanning fixtures elsewhere.
 	if _, err := os.Stat(pack); err != nil {
@@ -247,8 +258,17 @@ func ruleFiles(root string, languages []string) []string {
 			}
 		}
 	}
+	return pack
+}
+
+func ruleFiles(root string, languages []string) []string {
+	pack := rulePackDir(root)
 	var files []string
-	subs := append([]string{"common"}, languages...)
+	// The yaml pack is generic: its rules match Consul HCL, .env files,
+	// application.yaml and nginx.conf through their own paths: filters, so a
+	// repository holding only those files never gets a language that selects
+	// it. Keep it always loaded; duplicates are removed below.
+	subs := append([]string{"common", "yaml"}, languages...)
 	for _, l := range languages {
 		subs = append(subs, ruleFolderAliases[l]...)
 	}

@@ -29,7 +29,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
-from sdt_common import cell, gate, kind, log, place_of, rank, reported, required, scanned_commit, severity
+from sdt_common import report_docx, cell, gate, kind, log, place_of, rank, reported, required, scanned_commit, severity
 
 MARKER = "### SDT security scan"
 MAX_ROWS = 15
@@ -379,7 +379,7 @@ def body(result, conditions, rows, gone, links, commit, base):
 
 def report_links(client, quoted, out, repo, workspace, pr_id, build_url, upload):
     """Where the report can be read, as (label, address) pairs."""
-    report = os.path.join(out, f"SAST Report - {repo}.docx")
+    report = report_docx(out, repo)
     try:
         # publish_report.py committed the report to the reports repository.
         published = open(os.path.join(out, "report-url.txt")).read().strip()
@@ -393,7 +393,7 @@ def report_links(client, quoted, out, repo, workspace, pr_id, build_url, upload)
     if not os.path.isfile(report):
         return []
     if upload:
-        name = f"SAST Report - {repo} - PR {pr_id}.docx"
+        name = os.path.basename(report)
         try:
             # Downloads are readable by everyone who can read the repository.
             if client.json("GET", quoted).get("is_private") is True:

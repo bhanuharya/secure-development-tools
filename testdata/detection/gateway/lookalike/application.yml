@@ -1,0 +1,16 @@
+# A Zuul gateway that ignores every registered service, and a Spring Cloud
+# Gateway route that forwards only the health endpoint.
+zuul:
+  ignored-services: "*"
+  routes:
+    accounts:
+      path: /accounts/**
+
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: health
+          uri: http://accounts:8080
+          predicates:
+            - Path=/health

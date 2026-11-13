@@ -1,0 +1,59 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/admin/accounts",
+      "handler": "Controller.accounts",
+      "file": "Controller.java",
+      "line": 8,
+      "protection": "role",
+      "roles": [
+        "AuthoritiesConstants.ADMIN",
+        "AuthoritiesConstants.CS"
+      ],
+      "evidence": [
+        "Controller.java:9 @PreAuthorize(\"hasAnyAuthority(\\\"\"+AuthoritiesConstants.ADMIN+\"\\\", \\\"\"+AuthoritiesConstants.CS+\"\\\")\") on accounts"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/admin/audit",
+      "handler": "Controller.audit",
+      "file": "Controller.java",
+      "line": 12,
+      "protection": "role",
+      "roles": [
+        "AuthoritiesConstants.ADMIN"
+      ],
+      "evidence": [
+        "Controller.java:13 @PreAuthorize(\"hasAuthority(\\\"\"+AuthoritiesConstants.ADMIN+\"\\\")\") on audit"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/admin/transfer",
+      "handler": "Controller.transfer",
+      "file": "Controller.java",
+      "line": 16,
+      "protection": "authenticated",
+      "evidence": [
+        "Controller.java:17 @PreAuthorize(\"isAuthenticated()\") on transfer"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 1,
+    "role": 2
+  }
+}

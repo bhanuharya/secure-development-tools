@@ -1,0 +1,211 @@
+# Fact rules for Flask and FastAPI (Python).
+#
+# Fact rules are ordinary Opengrep rules whose id starts with "fact." and whose
+# metadata.fact names the kind. They are NOT part of the scan rule pack: they
+# live here so they never become scan findings and rules/manifest.yaml stays
+# untouched. `sdt endpoints` runs only this directory.
+#
+# A route decorator and the decorators stacked under it are separate facts.
+# Only decorators below a route decorator (closer to def) wrap the function it
+# registers, so the resolver keeps the registration line to order them. Route
+# receivers are resolved in the same file only: a blueprint or router created
+# elsewhere stays unknown even when the app mounts it here.
+rules:
+  # The application objects carry no prefix. The FastAPI dependency fact below
+  # adds an application's dependencies to its route chain.
+  - id: fact.py.flask_app
+    languages: [python]
+    severity: INFO
+    message: Flask application constructor
+    metadata:
+      fact: flask_app
+    pattern: $R = Flask($...ARGS)
+
+  - id: fact.py.fastapi_app
+    languages: [python]
+    severity: INFO
+    message: FastAPI application constructor
+    metadata:
+      fact: fastapi_app
+    pattern: $R = FastAPI($...ARGS)
+
+  # Application dependencies protect every route the app serves, including
+  # routes of routers included into it in the same file (T24).
+  - id: fact.py.fastapi_app_deps
+    languages: [python]
+    severity: INFO
+    message: FastAPI application dependencies
+    metadata:
+      fact: fastapi_app_deps
+    pattern: $R = FastAPI($...A, dependencies=$DEPS, $...B)
+
+  # A blueprint carries its own url_prefix; register_blueprint with a
+  # url_prefix replaces it (Flask semantics), unlike FastAPI's additive prefix.
+  - id: fact.py.blueprint
+    languages: [python]
+    severity: INFO
+    message: Flask blueprint constructor and its url prefix
+    metadata:
+      fact: blueprint
+    pattern-either:
+      - pattern: $R = Blueprint($NAME, __name__, url_prefix="$PREFIX")
+      - pattern: $R = Blueprint($NAME, __name__)
+
+  # APIRouter forms are mutually exclusive so one constructor yields one fact.
+  - id: fact.py.apirouter
+    languages: [python]
+    severity: INFO
+    message: FastAPI router constructor, prefix and dependencies
+    metadata:
+      fact: router
+    pattern-either:
+      - pattern: $R = APIRouter(prefix="$PREFIX", dependencies=$DEPS)
+      - pattern: $R = APIRouter(dependencies=$DEPS, prefix="$PREFIX")
+      - pattern: $R = APIRouter(prefix="$PREFIX")
+      - pattern: $R = APIRouter(dependencies=$DEPS)
+      - pattern: $R = APIRouter()
+
+  # include_router adds a prefix and dependencies to the mounted router. The
+  # three rules are split: opengrep keeps one match per rule, so one rule with
+  # prefix and dependencies alternatives would lose the second fact. The
+  # resolver merges facts that share a line.
+  - id: fact.py.include_prefix
+    languages: [python]
+    severity: INFO
+    message: FastAPI router inclusion with a prefix
+    metadata:
+      fact: include_router
+    pattern: $A.include_router($R, ..., prefix="$PREFIX", ...)
+
+  - id: fact.py.include_deps
+    languages: [python]
+    severity: INFO
+    message: FastAPI router inclusion with dependencies
+    metadata:
+      fact: include_router
+    pattern: $A.include_router($R, ..., dependencies=$DEPS, ...)
+
+  - id: fact.py.include_bare
+    languages: [python]
+    severity: INFO
+    message: FastAPI router inclusion without options
+    metadata:
+      fact: include_router
+    pattern: $A.include_router($R)
+
+  - id: fact.py.register_blueprint
+    languages: [python]
+    severity: INFO
+    message: Flask blueprint registration and its url prefix
+    metadata:
+      fact: register_blueprint
+    pattern-either:
+      - pattern: $A.register_blueprint($R, ..., url_prefix="$PREFIX", ...)
+      - pattern: $A.register_blueprint($R)
+
+  # Flask @app.route: methods=[...] or the GET default of the decorator.
+  - id: fact.py.route
+    languages: [python]
+    severity: INFO
+    message: Flask route decorator
+    metadata:
+      fact: route
+    pattern-either:
+      - pattern: |
+          @$X.route("$PATH", methods=$METHODS, ...)
+          def $H(...):
+            ...
+      - pattern: |
+          @$X.route("$PATH")
+          def $H(...):
+            ...
+
+  # @app.get/post/put/patch/delete: Flask 2 shorthand and FastAPI both use it.
+  # The dependency keyword is captured here so a route-level Depends/Security
+  # list protects the route even when no parameter gate exists.
+  - id: fact.py.verb_route
+    languages: [python]
+    severity: INFO
+    message: HTTP verb route decorator
+    metadata:
+      fact: route
+    patterns:
+      - pattern-either:
+          - pattern: |
+              @$X.$VERB("$PATH", ..., dependencies=$DEPS, ...)
+              def $H(...):
+                ...
+          - patterns:
+              - pattern: |
+                  @$X.$VERB("$PATH", ...)
+                  def $H(...):
+                    ...
+              - pattern-not: |
+                  @$X.$VERB("$PATH", ..., dependencies=$DEPS, ...)
+                  def $H(...):
+                    ...
+      - metavariable-regex:
+          metavariable: $VERB
+          regex: ^(get|post|put|patch|delete)$
+
+  # One result per route decorator line, including decorators stacked above
+  # another decorator: a structural pattern binds only one decorator of a
+  # stack. The lookahead keeps the match on the decorator line so the next
+  # decorator can match too; the handler comes from the following def, which
+  # may be async, and the argument list may continue on later lines (T31).
+  - id: fact.py.route_decorator
+    languages: [python]
+    severity: INFO
+    message: Route decorator line and its handler
+    metadata:
+      fact: route_decorator
+    pattern-regex: |-
+      (?ms)^[ \t]*@(?P<X>[A-Za-z_]\w*)\.(?P<VERB>route|get|post|put|patch|delete)[ \t]*\((?P<ARGS>.*?)\)[ \t]*\n(?=(?:[ \t]*@[^\n]*\n|[ \t]*\n)*[ \t]*(?:async[ \t]+)?def[ \t]+(?P<H>[A-Za-z_]\w*))
+
+  # Gate decorators stacked above a handler. Only plain function names are
+  # captured: @app.route/@router.get are attribute calls, so their
+  # abstract_content ("app route") fails the identifier regex and the resolver
+  # is left with the gates that actually decide the route.
+  - id: fact.py.decorator
+    languages: [python]
+    severity: INFO
+    message: Decorator above a route handler
+    metadata:
+      fact: decorator
+    patterns:
+      - pattern-either:
+          - pattern: |
+              @$DEC
+              def $H(...):
+                ...
+          - pattern: |
+              @$DEC($A1)
+              def $H(...):
+                ...
+          - pattern: |
+              @$DEC($A1, $A2)
+              def $H(...):
+                ...
+      - metavariable-regex:
+          metavariable: $DEC
+          regex: ^[A-Za-z_][A-Za-z0-9_]*$
+      - focus-metavariable: $DEC
+
+  # FastAPI parameter gates: user = Depends(f) and user: User = Security(f).
+  - id: fact.py.param_gate
+    languages: [python]
+    severity: INFO
+    message: FastAPI dependency or security parameter
+    metadata:
+      fact: param_gate
+    patterns:
+      - pattern-either:
+          - pattern: |
+              def $H(..., $P=$K($F), ...):
+                ...
+          - pattern: |
+              def $H(..., $P: $T = $K($F), ...):
+                ...
+      - metavariable-regex:
+          metavariable: $K
+          regex: ^(Depends|Security)$

@@ -1,0 +1,134 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "flask",
+      "method": "POST",
+      "path": "/admin/users",
+      "handler": "create_user",
+      "file": "app.py",
+      "line": 31,
+      "protection": "role",
+      "roles": [
+        "admin"
+      ],
+      "evidence": [
+        "app.py:32 decorator @roles_required(...) on create_user"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "flask",
+      "method": "GET",
+      "path": "/health",
+      "handler": "health",
+      "file": "app.py",
+      "line": 14,
+      "protection": "public",
+      "evidence": [
+        "app.py:14 no gate decorator or dependency on the route"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "flask",
+      "method": "POST",
+      "path": "/invoices",
+      "handler": "create_invoice",
+      "file": "app.py",
+      "line": 49,
+      "protection": "unknown",
+      "evidence": [
+        "app.py:49 router billing is not created or mounted in this file"
+      ],
+      "confidence": "low"
+    },
+    {
+      "service": ".",
+      "framework": "flask",
+      "method": "GET",
+      "path": "/orders",
+      "handler": "list_orders",
+      "file": "app.py",
+      "line": 19,
+      "protection": "authenticated",
+      "evidence": [
+        "app.py:20 decorator @login_required on list_orders"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "flask",
+      "method": "DELETE",
+      "path": "/orders/{order_id}",
+      "handler": "order_detail",
+      "file": "app.py",
+      "line": 25,
+      "protection": "authenticated",
+      "evidence": [
+        "app.py:26 decorator @login_required on order_detail"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "flask",
+      "method": "GET",
+      "path": "/orders/{order_id}",
+      "handler": "order_detail",
+      "file": "app.py",
+      "line": 25,
+      "protection": "authenticated",
+      "evidence": [
+        "app.py:26 decorator @login_required on order_detail"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "flask",
+      "method": "GET",
+      "path": "/public/catalog",
+      "handler": "catalog",
+      "file": "app.py",
+      "line": 37,
+      "protection": "authenticated",
+      "evidence": [
+        "app.py:38 decorator @jwt_required on catalog"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "flask",
+      "method": "PUT",
+      "path": "/v2/roles",
+      "handler": "update_roles",
+      "file": "app.py",
+      "line": 43,
+      "protection": "role",
+      "roles": [
+        "admin",
+        "operator"
+      ],
+      "evidence": [
+        "app.py:44 decorator @roles_required(...) on update_roles"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 4,
+    "public": 1,
+    "role": 2,
+    "unknown": 1
+  },
+  "unresolved": [
+    "app.py router billing is created or mounted in another file; protection unknown"
+  ]
+}

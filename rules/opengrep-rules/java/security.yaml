@@ -4,6 +4,7 @@ rules:
     message: Runtime.exec with untrusted input enables command injection.
     severity: ERROR
     metadata:
+      title: Shell command built from untrusted input
       category: security
       cwe: ["CWE-78"]
       owasp: ["A03:2021 - Injection"]
@@ -14,6 +15,7 @@ rules:
     message: MD5 is broken for security purposes. Use SHA-256 or better.
     severity: WARNING
     metadata:
+      title: MD5 used for security purposes
       category: security
       cwe: ["CWE-328"]
     pattern: MessageDigest.getInstance("MD5")
@@ -26,6 +28,7 @@ rules:
       against an allow-list before connecting.
     severity: WARNING
     metadata:
+      title: Request target comes from the HTTP request
       category: security
       cwe: ["CWE-918"]
       owasp: ["A10:2021 - Server-Side Request Forgery (SSRF)"]

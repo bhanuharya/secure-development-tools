@@ -1,0 +1,9 @@
+# A Kong route that forwards only the health endpoint.
+_format_version: "3.0"
+services:
+  - name: accounts
+    url: http://accounts:8080
+    routes:
+      - name: health
+        paths:
+          - /health

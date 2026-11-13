@@ -15,6 +15,7 @@ func TestIsRuleFile(t *testing.T) {
 		"hostnetwork-pod.test.yaml",
 		"allow-privilege-escalation.fixed.test.yaml",
 		"security.test.py",
+		"titles.yaml",
 		"foo.json",
 	} {
 		if isRuleFile(f) {

@@ -36,6 +36,65 @@ func TestCountRules(t *testing.T) {
 	}
 }
 
+func TestTitleProblems(t *testing.T) {
+	pack := t.TempDir()
+	t.Setenv("SDT_RULES_PACK_DIR", pack)
+	first := filepath.Join(pack, "python", "security.yaml")
+	vendored := filepath.Join(pack, "vendor", "semgrep", "python", "lang", "security", "rule.yaml")
+	vendoredID := "vendor.semgrep.python.lang.security.rule"
+	rule := func(id, title string) string {
+		out := "rules:\n- id: " + id + "\n  message: m\n"
+		if title != "" {
+			out += "  metadata:\n    title: " + title + "\n"
+		}
+		return out
+	}
+	long := strings.Repeat("x", MaxRuleTitleLength+1)
+	cases := []struct {
+		name, first, vendored string
+		titles                map[string]string
+		want                  string
+	}{
+		{"titled", rule("a", "A readable title"), rule("rule", ""), map[string]string{vendoredID: "Overlay title"}, ""},
+		{"first party missing", rule("a", ""), rule("rule", ""), map[string]string{vendoredID: "Overlay title"}, `rule "a" has no metadata.title`},
+		{"first party too long", rule("a", long), rule("rule", ""), map[string]string{vendoredID: "Overlay title"}, "title is 61 characters"},
+		{"vendored missing", rule("a", "A readable title"), rule("rule", ""), map[string]string{}, "has no overlay title"},
+		{"vendored too long", rule("a", "A readable title"), rule("rule", ""), map[string]string{vendoredID: long}, "overlay title is 61 characters"},
+		{"stale overlay", rule("a", "A readable title"), rule("rule", ""), map[string]string{vendoredID: "Overlay title", "vendor.semgrep.gone": "Gone"}, `overlay entry "vendor.semgrep.gone" has no rule`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			writeFile(t, first, c.first)
+			writeFile(t, vendored, c.vendored)
+			problems := TitleProblems([]string{first, vendored}, c.titles)
+			if c.want == "" {
+				if len(problems) != 0 {
+					t.Fatalf("clean rules reported: %v", problems)
+				}
+				return
+			}
+			if len(problems) != 1 || !strings.Contains(problems[0], c.want) {
+				t.Fatalf("want one problem containing %q, got %v", c.want, problems)
+			}
+		})
+	}
+}
+
+func TestLoadTitles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "titles.yaml")
+	writeFile(t, path, "vendor.semgrep.a:  A title  \nvendor.semgrep.b: \"Another: title\"\n")
+	titles, err := LoadTitles(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(titles) != 2 || titles["vendor.semgrep.a"] != "A title" || titles["vendor.semgrep.b"] != "Another: title" {
+		t.Fatalf("titles=%v", titles)
+	}
+	if _, err := LoadTitles(filepath.Join(t.TempDir(), "missing.yaml")); err == nil {
+		t.Fatal("a missing overlay must be an error")
+	}
+}
+
 func TestBundleHashMatchesShell(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "a.yaml"), twoRules)
@@ -132,6 +191,19 @@ func TestDiscoverSkipsTestFixtures(t *testing.T) {
 	}
 	if len(files) != 1 {
 		t.Fatalf("test fixtures must not be discovered as rules: %v", files)
+	}
+}
+
+func TestDiscoverSkipsVendorTitleOverlay(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "vendor", "titles.yaml"), "vendor.demo: A title\n")
+	writeFile(t, filepath.Join(dir, "vendor", "demo", "r.yaml"), twoRules)
+	files, err := DiscoverRuleFiles([]string{dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || filepath.Base(files[0]) != "r.yaml" {
+		t.Fatalf("the title overlay must not be a rule file: %v", files)
 	}
 }
 

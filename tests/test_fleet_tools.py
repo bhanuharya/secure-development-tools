@@ -53,6 +53,22 @@ def test_sonar_rule_identity_and_path_safety():
     assert report["rules"][0]["id"] != report["rules"][1]["id"]
 
 
+def test_sonar_rule_name_prefers_the_readable_title():
+    def finding(rule):
+        return {"scanner": {"adapter": "opengrep"}, "category": "sast", "rule": rule,
+                "severity": {"canonical": "high"}, "location": {"path": "src/a.py", "startLine": 1},
+                "message": "review"}
+
+    titled = finding({"id": "scp.java.authz.permitall-wildcard-prefix",
+                      "name": "permitAll() opens a whole path prefix"})
+    report, _ = sdt_to_sonar.convert({"findings": [titled]})
+    assert report["rules"][0]["name"] == "permitAll() opens a whole path prefix"
+    # Older reports have no name: keep the historical last-segment fallback.
+    untitled = finding({"id": "scp.java.authz.permitall-wildcard-prefix"})
+    report, _ = sdt_to_sonar.convert({"findings": [untitled]})
+    assert report["rules"][0]["name"] == "permitall-wildcard-prefix"
+
+
 def test_sonar_only_imports_files_in_checkout(tmp_path):
     (tmp_path / "main.go").write_text("package main\n")
     base = {"scanner": {"adapter": "opengrep"}, "category": "sast",
@@ -989,6 +1005,19 @@ def test_docx_report_leads_with_code_security_then_secrets_then_dependencies(tmp
     assert "in test code" in text
 
 
+def test_docx_code_heading_uses_the_rule_title(tmp_path):
+    findings = {"findings": [{
+        "scanner": {"adapter": "opengrep"}, "category": "sast",
+        "rule": {"id": "vendor.semgrep.java.lang.correctness.no-string-eqeq",
+                 "name": "Strings compared with == instead of equals()"},
+        "severity": {"canonical": "high"}, "message": "reference comparison",
+        "location": {"path": "src/S.java", "startLine": 3}}]}
+    found = sdt_to_docx.merge(sdt_to_docx.from_findings(findings), None)
+    text, _, _, _ = _write_report(tmp_path, found)
+    assert "Strings compared with == instead of equals() [no-string-eqeq]" in text
+    assert "vendor.semgrep.java.lang.correctness.no-string-eqeq" in text
+
+
 def test_docx_many_findings_are_grouped_by_file_without_losing_any(tmp_path):
     root = _checkout(tmp_path)
     for i in range(25):
@@ -1209,6 +1238,89 @@ def test_triage_never_sends_secret_values(tmp_path):
     redacted = sdt_triage_codex.redact(code)
     assert stripe not in redacted and "AIzaB" not in redacted and "hunter22x" not in redacted
     assert redacted.count("[REDACTED]") == 3
+
+
+def test_the_shared_redactor_covers_every_secret_name_the_rules_report():
+    value = "S3cret" + "Value42"  # built at runtime: no key-shaped literal in the source
+    names = ("SIGNING_KEY", "signing.key", "CLIENT_SECRET", "SECRET_KEY", "ENCRYPTION_KEY", "AES_KEY",
+             "HMAC_KEY", "PRIVATE_KEY", "JWT_SECRET", "API_KEY", "ACCESS_KEY", "MASTER_KEY", "DB_PASSWORD")
+    for name in names:
+        line = f'  static final String {name} = "{value}";'
+        assert value not in sdt_advisory.redact(line), name
+    # A role and a middleware name are not credentials: evidence keeps them readable.
+    assert sdt_advisory.redact('RequireRole("admin")') == 'RequireRole("admin")'
+
+
+def test_the_shared_redactor_removes_middleware_credentials():
+    value = "S3cret" + "Value42"  # built at runtime: no key-shaped literal in the source
+    lines = (
+        f'gin.Accounts{{"operator": "{value}"}}',
+        f'gin.BasicAuth(gin.Accounts{{"operator": "{value}"}})',
+        f'BasicAuth("operator", "{value}")',
+        f'Credentials("operator", "{value}")',
+    )
+    for line in lines:
+        out = sdt_advisory.redact(line)
+        assert value not in out, line
+        assert "[REDACTED]" in out, line
+    assert sdt_advisory.redact('RequireRole("admin")') == 'RequireRole("admin")'
+
+
+def test_the_prompt_redacts_middleware_credentials_in_scanner_messages():
+    value = "S3cret" + "Value42"  # built at runtime: no key-shaped literal in the source
+    container = f'gin.Accounts{{"operator": "{value}"}}'
+    group = sdt_to_docx.Group("scp.endpoints.unprotected-among-protected", "Route is public",
+                              "Finding", "Medium", risk=[f"the peers use gin.BasicAuth({container})"])
+    occurrence = sdt_to_docx.Occurrence("main.go", 1, f"peers use {container}", "Open", "")
+    prompt = sdt_triage_codex.build_prompt(
+        group, [("o1", occurrence, f'api := r.Group("/api", gin.BasicAuth({container}))')])
+    assert value not in prompt
+    assert "[REDACTED]" in prompt
+
+
+def test_a_signing_key_literal_never_reaches_prompt_answer_memory_or_report(tmp_path):
+    secret = "review_" + "signing_7Jx9!"  # built at runtime: no key-shaped literal in the source
+    (tmp_path / "Security.java").write_text(
+        f'class Security {{\n  static final String SIGNING_KEY = "{secret}";\n'
+        f'  void configure() {{ }}\n}}\n')
+    (tmp_path / "Controller.java").write_text("class Controller { void transfer() {} }\n")
+    group = sdt_to_docx.Group("endpoints:scp.endpoints.sensitive-route-public", "Sensitive route is public",
+                              "Finding", "High", risk=[f'Security.java sets SIGNING_KEY = "{secret}"'],
+                              fixes=["require authentication"])
+    occurrence = sdt_to_docx.Occurrence("Controller.java", 1, f'public endpoint with SIGNING_KEY = "{secret}"',
+                                        "Open", "")
+    group.occurrences = [occurrence]
+    prompts = []
+
+    def call(codex, model, prompt, timeout):
+        prompts.append(prompt)
+        return {"results": [{
+            "id": "o1", "verdict": "likely_true_positive", "confidence": "high",
+            "reason": "Controller.transfer is public", "check": "confirm the chain at line 3",
+            "suggested_fix": "require authentication", "impact": "Anyone can reach /transfer",
+            "fix_steps": ["rotate the SIGNING_KEY in Security.java"],
+            "fix_example": f'// Before\nString k = "{secret}";\n// After\nString k = System.getenv("SIGNING_KEY");',
+            "verify_fix": f"assert the old value {secret} is rejected"}]}
+
+    findings = {"findings": [{
+        "scanner": {"adapter": "endpoints"}, "category": "sast",
+        "rule": {"id": "scp.endpoints.sensitive-route-public"},
+        "location": {"path": "Controller.java", "startLine": 1},
+        "message": f'public endpoint with SIGNING_KEY = "{secret}"',
+        "metadata": {"evidence": ["Security.java:2 .permitAll()"]}}]}
+    memory = {}
+    report = sdt_triage_codex.triage([group], tmp_path, "fake", "test", per_call_timeout=20, budget=100,
+                                     max_rules=2, max_per_rule=6, max_failures=2, call=call,
+                                     findings=findings, memory=memory)
+    assert secret not in prompts[0]
+    assert secret not in json.dumps(report)
+    store = tmp_path / "memory.json"
+    sdt_triage_codex.save_memory(store, memory)
+    assert secret not in store.read_text()
+    assert sdt_to_docx.apply_triage([group], report) == 1
+    text, document, *_ = _write_report(tmp_path, {"code": [group], "secret": [], "dependency": [], "config": []},
+                                       src_root=tmp_path)
+    assert secret not in document and "[REDACTED]" in text
 
 
 def test_without_codex_the_triage_step_is_a_no_op(tmp_path, monkeypatch):
@@ -1693,11 +1805,14 @@ class _Sonar:
     """SonarQube as from_sonar reads it: one project, these hotspots and issues."""
     url = "http://sonar.example.com"
 
-    def __init__(self, hotspots, issues):
+    def __init__(self, hotspots, issues, names=None):
         self.hotspots, self.issues, self.asked = hotspots, issues, []
+        self.names = names or {}  # rule key -> the name SonarQube shows for it
 
     def get(self, path, **params):
-        return {"component": {"name": "app"}} if path == "/api/components/show" else {"rule": {"name": params["key"]}}
+        if path == "/api/components/show":
+            return {"component": {"name": "app"}}
+        return {"rule": {"name": self.names.get(params["key"], params["key"])}}
 
     def paged(self, path, key, **params):
         self.asked.append(params)
@@ -1753,6 +1868,86 @@ def test_docx_shows_the_decisions_made_in_sonarqube_on_packages_secrets_and_issu
     assert "Upgrade to 3.2.3" not in text  # an accepted package is not in Fix First
     assert "Secrets only in git history" not in text
     assert "package-lock.jsonOpen" in text and "go.modAccepted" in text  # the Status column
+
+
+def _sonar_issue(key, rule):
+    return {"key": key, "rule": rule, "component": "proj:src/A.java", "line": 1,
+            "severity": "MAJOR", "issueStatus": "OPEN", "message": "flagged"}
+
+
+def test_sonarqube_endpoint_rule_has_a_short_reference_throughout_the_report(tmp_path):
+    title = "Sensitive route is reachable without authentication"
+    external, skipped = sdt_to_sonar.convert({"findings": [{
+        "scanner": {"adapter": "endpoints"}, "category": "sast",
+        "rule": {"id": "sensitive-route-public", "name": title},
+        "severity": {"canonical": "high"}, "message": "Review the public admin route.",
+        "location": {"path": "src/A.java", "startLine": 1}}]})
+    assert skipped == 0
+    rule = external["rules"][0]
+    key = f"external_{rule['engineId']}:{rule['id']}"
+    sonar = _Sonar([], [_sonar_issue("i1", key)], names={key: title})
+    _, found = sdt_to_docx.from_sonar(sonar, "proj", "main", "")
+
+    text, *_ = _write_report(tmp_path, found)
+    assert f"1.1 {title} [sensitive-route-public] (1)" in text
+    assert f"1.1 {title} [sensitive-route-public] - 1 Finding" in text
+    assert f"[{rule['id']}]" not in text
+
+
+def test_sonarqube_mode_takes_opengrep_titles_from_the_findings_file(tmp_path):
+    sonar = _Sonar([], [_sonar_issue("i1", "external_opengrep:scp.java.x.some-rule"),
+                        _sonar_issue("i2", "external_opengrep:scp.java.x.other-rule"),
+                        _sonar_issue("i3", "java:S2068")],
+                   names={"external_opengrep:scp.java.x.some-rule": "opengrep:scp.java.x.some-rule",
+                          "java:S2068": "Hard-coded credentials should not be used"})
+    titles = sdt_to_docx.finding_titles({"findings": [
+        {"rule": {"id": "scp.java.x.some-rule", "name": "Some rule from the findings"}},
+        {"rule": {"id": "scp.java.x.other-rule"}}]})  # this finding's rule has no title
+    _, found = sdt_to_docx.from_sonar(sonar, "proj", "main", "", titles)
+    names = {g.rule: g.name for g in found["code"]}
+    assert names["external_opengrep:scp.java.x.some-rule"] == "Some rule from the findings"
+    assert names["external_opengrep:scp.java.x.other-rule"] == "Other rule"  # from the last id segment
+    assert names["java:S2068"] == "Hard-coded credentials should not be used"  # SonarQube's own name
+
+    report = sdt_to_docx.Report("app", "ws/app", "branch main", "", "abc", "SonarQube", found["code"], [],
+                                [], [], sdt_to_docx.date(2026, 11, 12))
+    out = tmp_path / "titles.docx"
+    sdt_to_docx.write_docx(report, None, out)
+    text, *_ = _docx(out)
+    assert "Some rule from the findings [some-rule] - 1 Finding" in text
+    assert "Other rule [other-rule] - 1 Finding" in text
+    assert "Hard-coded credentials should not be used [S2068] - 1 Finding" in text
+
+
+def test_sonarqube_mode_derives_opengrep_titles_without_findings():
+    sonar = _Sonar([], [_sonar_issue("i1", "external_opengrep:scp.java.x.some-rule"),
+                        _sonar_issue("i2", "java:S2068")],
+                   names={"external_opengrep:scp.java.x.some-rule": "opengrep:scp.java.x.some-rule",
+                          "java:S2068": "Hard-coded credentials should not be used"})
+    _, found = sdt_to_docx.from_sonar(sonar, "proj", "main", "", None)
+    names = {g.rule: g.name for g in found["code"]}
+    assert names["external_opengrep:scp.java.x.some-rule"] == "Some rule"
+    assert names["java:S2068"] == "Hard-coded credentials should not be used"
+    assert sdt_to_docx.rule_name_from_id("scp.java.x.some_rule-name") == "Some rule name"
+
+
+def test_docx_main_uses_the_findings_title_in_sonarqube_mode(tmp_path, monkeypatch):
+    findings = tmp_path / "findings.json"
+    findings.write_text(json.dumps({"findings": [
+        {"scanner": {"adapter": "opengrep"}, "category": "sast",
+         "rule": {"id": "scp.java.x.some-rule", "name": "Some rule from the findings"},
+         "severity": {"canonical": "high"}, "message": "flagged",
+         "location": {"path": "src/A.java", "startLine": 1}}]}))
+    sonar = _Sonar([], [_sonar_issue("i1", "external_opengrep:scp.java.x.some-rule")],
+                   names={"external_opengrep:scp.java.x.some-rule": "opengrep:scp.java.x.some-rule"})
+    monkeypatch.setattr(sdt_to_docx, "Sonar", lambda url, token: sonar)
+    monkeypatch.setenv("SONAR_TOKEN", "test")
+    out = tmp_path / "report.docx"
+    monkeypatch.setattr(sys, "argv", ["sdt_to_docx.py", "--sonar-url", "http://sonar.example.com",
+                                      "--project-key", "proj", "--findings", str(findings), "--out", str(out)])
+    assert sdt_to_docx.main() == 0
+    text, *_ = _docx(out)
+    assert "Some rule from the findings [some-rule]" in text
 
 
 def _hotspot(key, path, line, **extra):
@@ -1975,6 +2170,26 @@ def test_docx_rule_sections_carry_a_reference_that_does_not_change_between_repor
     assert sdt_to_docx.rule_ref("plain") == "plain"
 
 
+@pytest.mark.parametrize("case", json.loads((Path(__file__).resolve().parents[1] /
+                                          "testdata/endpoints/report-rule-refs.json").read_text()))
+def test_docx_external_rule_references_match_golden(case):
+    assert sdt_to_docx.rule_ref(case["key"]) == case["reference"]
+    assert sdt_to_docx.external_id(case["key"]) == case["external_id"]
+
+
+@pytest.mark.parametrize("adapter, rule_id, expected", [
+    ("endpoints", "sensitive-route-public", "sensitive-route-public"),
+    ("opengrep", "scp.javascript.secrets.prod-literal-password", "prod-literal-password"),
+    ("gitleaks", "gcp-api-key", "gcp-api-key"),
+    ("trivy-fs", "CVE-2026-0001", "CVE-2026-0001"),
+    ("custom_v2.1", "checks.some-rule", "some-rule"),
+])
+def test_docx_shortens_keys_from_the_sonar_exporter(adapter, rule_id, expected):
+    key = f"external_sdt-{adapter}:{sdt_to_sonar._rule_key(adapter, rule_id)}"
+    assert sdt_to_docx.rule_ref(key) == expected
+    assert sdt_to_docx.external_id(key) == expected
+
+
 def test_triage_memory_lives_in_the_state_directory_when_there_is_one(tmp_path):
     where = sdt_triage_codex.default_memory_path
     assert where("proj:key/1", {"SDT_STATE_DIR": str(tmp_path)}) == tmp_path / "triage" / "proj_key_1.json"
@@ -2008,6 +2223,203 @@ def test_run_codex_passes_reasoning_effort_only_when_set(tmp_path, monkeypatch):
     monkeypatch.setenv("SDT_CODEX_REASONING", "inherit")  # fall back to the agent's codex config
     sdt_triage_codex.run_codex("codex", "gpt-6.1-sol", "prompt", 30)
     assert "-c" not in captured["cmd"]
+
+
+GUIDANCE_FIXTURE = Path(__file__).resolve().parents[1] / "testdata/endpoints/advisory"
+
+
+def _guidance_fixture():
+    findings = json.loads((GUIDANCE_FIXTURE / "findings.json").read_text())
+    answer = json.loads((GUIDANCE_FIXTURE / "answer.json").read_text())
+    return findings, answer
+
+
+@pytest.mark.parametrize("second", [False, True])
+def test_detailed_guidance_schema_and_both_prompts(second):
+    findings, _ = _guidance_fixture()
+    group = sdt_to_docx.from_findings(findings)["code"][0]
+    prompt = sdt_triage_codex.build_prompt(group, [("o1", group.occurrences[0], "orders.save(order);")], second)
+    schema = sdt_triage_codex.RESPONSE_SCHEMA["properties"]["results"]["items"]
+    for key in ("impact", "fix_steps", "fix_example", "verify_fix"):
+        assert key in schema["required"] and f"- {key}:" in prompt
+    assert schema["properties"]["fix_steps"]["items"] == {"type": "string"}
+    assert "2-5" in prompt and "12 lines" in prompt and "before part names its file" in prompt
+    assert "environment or secret-store reference" in prompt
+
+
+def test_guidance_fake_codex_cli_redacts_remembers_and_renders_in_order(tmp_path, monkeypatch):
+    findings, answer = _guidance_fixture()
+    secret = "sk_" + "live_" + "0123456789abcdefghij"
+    note = answer["results"][0]
+    for key in ("impact", "verify_fix"):
+        note[key] += f' apiKey = "{secret}"'
+    note["fix_steps"][0] += f' apiKey = "{secret}"'
+    note["fix_example"] = (f'// Before: src/OrdersController.java:3\nString apiKey = "{secret}";\n'
+                           '// After\nString apiKey = System.getenv("ORDERS_API_KEY");')
+    calls = []
+
+    def fake_codex(command, **kwargs):
+        calls.append(kwargs["input"])
+        schema = json.loads(Path(command[command.index("--output-schema") + 1]).read_text())
+        assert "verify_fix" in schema["properties"]["results"]["items"]["required"]
+        Path(command[command.index("--output-last-message") + 1]).write_text(json.dumps(answer))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(sdt_triage_codex.subprocess, "run", fake_codex)
+    monkeypatch.setattr(sdt_triage_codex, "find_codex", lambda explicit: "fake-codex")
+    monkeypatch.setenv("SDT_AI_TRIAGE", "1")
+    out, store = tmp_path / "triage.json", tmp_path / "memory.json"
+    monkeypatch.setattr(sys, "argv", ["triage", "--findings", str(GUIDANCE_FIXTURE / "findings.json"),
+                                      "--src-root", str(GUIDANCE_FIXTURE), "--out", str(out), "--memory", str(store)])
+    assert sdt_triage_codex.main() == 0
+    first = json.loads(out.read_text())
+    assert "Evidence the scanner used" in calls[0] and '.antMatchers("/api/v1/feign/**").permitAll()' in calls[0]
+    assert sdt_triage_codex.main() == 0
+    again = json.loads(out.read_text())
+    assert len(calls) == 1 and again["remembered"] == 1
+    assert secret not in out.read_text() + store.read_text()
+    reviewed = first["results"][0]
+    assert 'String apiKey = "[REDACTED]";' in reviewed["fix_example"]
+    assert "src/OrdersController.java:3" in reviewed["fix_example"] and "\n// After\n" in reviewed["fix_example"]
+    found = sdt_to_docx.from_findings(findings)
+    assert sdt_to_docx.apply_triage(found["code"], again) == 1
+    text, document, *_ = _write_report(tmp_path, found)
+    assert secret not in document
+    block = text[text.index("Assessment: Real issue"):]
+    labels = ["Assessment:", "Impact:", "Evidence:", "Confirm impact:", "Fix:", "Fix steps:", "Example:",
+              "Verify the fix:"]
+    assert [block.index(label) for label in labels] == sorted(block.index(label) for label in labels)
+    assert "1. In config/" in block and "2. Add an authorization" in block
+    assert sdt_to_docx.code_block(reviewed["fix_example"].splitlines()) in document
+    compact = sdt_to_docx.ai_line(reviewed)
+    assert reviewed["suggested_fix"] in compact and all(label not in compact for label in labels[5:])
+
+
+@pytest.mark.parametrize("grouped", [False, True])
+def test_guidance_matches_golden_and_renders_in_both_layouts(tmp_path, monkeypatch, grouped):
+    findings, answer = _guidance_fixture()
+    note = sdt_triage_codex.validate(answer, {"o1"})[0]
+    golden = json.loads((GUIDANCE_FIXTURE / "review-golden.json").read_text())
+    assert [list(row) for row in sdt_to_docx.review_lines(note)] == golden
+    found = sdt_to_docx.from_findings(findings)
+    found["code"][0].occurrences[0].ai = note
+    monkeypatch.setattr(sdt_to_docx, "GROUP_THRESHOLD", 0 if grouped else 10)
+    text, document, *_ = _write_report(tmp_path, found, src_root=GUIDANCE_FIXTURE)
+    full = text[text.index("Assessment: Real issue"):]
+    if grouped:
+        full = text[text.index("AdvisoryAssessment: Real issue"):]
+    positions = [full.index(name + ":") for name, _ in golden]
+    assert positions == sorted(positions)
+    assert sdt_to_docx.code_block(note["fix_example"].splitlines()) in document
+    assert sdt_to_docx._code_action(note) == note["suggested_fix"]
+
+
+def test_guidance_manual_check_false_positive_and_legacy_memory(tmp_path):
+    _, answer = _guidance_fixture()
+    note = answer["results"][0]
+    note["verdict"] = "needs_context"
+    rows = sdt_to_docx.review_lines(note)
+    assert [name for name, _ in rows] == ["Assessment", "Evidence", "Check", "Then", "Fix steps"]
+    note["verdict"] = "likely_false_positive"
+    clean = sdt_triage_codex.validate(answer, {"o1"})[0]
+    assert clean["fix_steps"] == [] and clean["impact"] == clean["fix_example"] == clean["verify_fix"] == ""
+    root, groups = _triage_groups(tmp_path)
+    occurrence = groups[0].occurrences[0]
+    code = sdt_triage_codex.context(root, occurrence)
+    key = sdt_triage_codex.memory_key("gpt-6-luna", groups[0].rule, occurrence.path, code)
+    legacy = {"verdict": "likely_true_positive", "confidence": "high", "reason": "r", "check": "c",
+              "suggested_fix": "f"}
+    report = _run_triage(root, groups, lambda *args: pytest.fail("old memory must still load"),
+                         memory={key: legacy}, max_per_rule=1)
+    assert report["remembered"] == 1
+    assert sdt_to_docx.review_lines(report["results"][0]) == [
+        ("Assessment", "Real issue - fix required (certainty: High)"),
+        ("Evidence", "r"), ("Confirm impact", "c"), ("Fix", "f")]
+
+
+@pytest.mark.parametrize("adapter", ["endpoints", "opengrep"])
+@pytest.mark.parametrize("sonar", [False, True])
+def test_triage_finds_evidence_by_rule_path_and_line(adapter, sonar):
+    findings, answer = _guidance_fixture()
+    findings["findings"][0]["scanner"]["adapter"] = adapter
+    groups = sdt_to_docx.from_findings(findings)["code"]
+    if sonar:
+        # The keys SonarQube really uses: the plugin keeps the full id, sdt_to_sonar only its last segment.
+        groups[0].rule = ("external_opengrep:scp.endpoints.sensitive-route-public" if adapter == "opengrep" else
+                          "external_sdt-endpoints:sdt-endpoints-sensitive-route-public-0123456789abcdef")
+    other = json.loads(json.dumps(findings["findings"][0]))
+    other["location"]["startLine"] = 4
+    other["metadata"]["evidence"] = ["src/OrdersController.java:1"]
+    findings["findings"].insert(0, other)
+
+    def fake_codex(codex, model, prompt, timeout):
+        evidence = prompt.split("Evidence the scanner used:", 1)[1]
+        assert "config/SecurityConfiguration.java:5" in evidence
+        assert '>    5  ' in evidence and '.antMatchers("/api/v1/feign/**").permitAll()' in evidence
+        assert "void configure(HttpSecurity http)" in evidence and "    8  }" in evidence
+        assert "// src/OrdersController.java:1" not in evidence
+        return answer
+
+    report = _run_triage(GUIDANCE_FIXTURE, groups, fake_codex, findings=findings)
+    assert report["calls"] == 1 and report["failed_calls"] == 0
+
+
+def test_evidence_is_confined_redacted_and_part_of_memory_identity(tmp_path):
+    root = tmp_path / "source"
+    root.mkdir()
+    (root / "Controller.java").write_text("void save() { orders.save(order); }\n")
+    secret = "private-" + "value123"
+    (root / "security.yml").write_text(f"password: {secret}\naccess: public\n")
+    (tmp_path / "outside.java").write_text("OUTSIDE_SOURCE\n")
+    (root / "link.java").symlink_to(tmp_path / "outside.java")
+    finding = {"rule": {"id": "route"}, "scanner": {"adapter": "endpoints"},
+               "location": {"path": "Controller.java", "startLine": 1},
+               "metadata": {"evidence": ["security.yml:2", "../outside.java:1", "link.java:1", "missing.java:1"]}}
+    groups = sdt_to_docx.from_findings({"findings": [finding]})["code"]
+    memory, prompts = {}, []
+
+    def fake_codex(*args):
+        prompts.append(args[2])
+        return _fp_answer(*args)
+
+    for _ in range(2):
+        _run_triage(root, groups, fake_codex, findings={"findings": [finding]}, memory=memory)
+    assert len(prompts) == 1 and "password: [REDACTED]" in prompts[0]
+    assert secret not in prompts[0] and "OUTSIDE_SOURCE" not in prompts[0]
+    (root / "security.yml").write_text("access: authenticated\n")
+    finding["metadata"]["evidence"] = ["security.yml:1"]
+    _run_triage(root, groups, fake_codex, findings={"findings": [finding]}, memory=memory)
+    assert len(prompts) == 2 and "access: authenticated" in prompts[1]
+
+
+def test_both_opinions_batch_at_six_even_when_more_per_rule_are_requested(tmp_path):
+    (tmp_path / "api.java").write_text("\n".join(f"call{i}();" for i in range(14)))
+    group = sdt_to_docx.Group("r", "Rule", "Finding", "High", occurrences=[
+        sdt_to_docx.Occurrence("api.java", line, "m", "Open", "") for line in range(1, 15)])
+    batches = []
+
+    def fake_codex(codex, model, prompt, timeout):
+        ids = re.findall(r"^### (o\d+):", prompt, re.M)
+        batches.append((prompt.startswith(sdt_triage_codex.SECOND_OPINION), len(ids)))
+        return {"results": [{**_fp_answer(codex, model, prompt, timeout)["results"][0], "id": item_id}
+                            for item_id in ids]}
+
+    report = _run_triage(tmp_path, [group], fake_codex, max_per_rule=14, confirm=True)
+    assert batches == [(False, 6), (False, 6), (False, 2), (True, 6), (True, 6), (True, 2)]
+    assert len(report["results"]) == 14
+    assert all(note["second_opinion"] == "likely_false_positive" for note in report["results"])
+
+
+def test_prompt_version_invalidates_remembered_advice_without_guidance(tmp_path, monkeypatch):
+    root, groups = _triage_groups(tmp_path)
+    occurrence = groups[0].occurrences[0]
+    code = sdt_triage_codex.context(root, occurrence)
+    with monkeypatch.context() as old:
+        old.setattr(sdt_triage_codex, "PROMPT_VERSION", "4")
+        key = sdt_triage_codex.memory_key("gpt-6-luna", groups[0].rule, occurrence.path, code)
+    memory = {key: _fp_answer(None, None, None, None)["results"][0]}
+    report = _run_triage(root, groups, _fp_answer, memory=memory, max_per_rule=1)
+    assert report["calls"] == 1 and report["remembered"] == 0
 
 
 def test_resolved_findings_move_to_an_appendix_and_leave_the_counts(tmp_path):

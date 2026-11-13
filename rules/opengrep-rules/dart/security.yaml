@@ -4,6 +4,7 @@ rules:
     message: A badCertificateCallback that always returns true disables TLS certificate validation for every host, allowing trivial man-in-the-middle interception.
     severity: ERROR
     metadata:
+      title: TLS certificate validation disabled
       category: security
       cwe: ["CWE-295"]
       owasp: ["A02:2021 - Cryptographic Failures"]
@@ -23,6 +24,7 @@ rules:
     message: This process runs through a shell. Review arguments for attacker-controlled values and shell metacharacters.
     severity: WARNING
     metadata:
+      title: Shell command built from untrusted input
       category: security
       cwe: ["CWE-78"]
       owasp: ["A03:2021 - Injection"]
@@ -50,6 +52,7 @@ rules:
     message: MD5 is cryptographically broken and unsuitable for signatures, password hashing, or integrity checks.
     severity: WARNING
     metadata:
+      title: MD5 used for security purposes
       category: security
       cwe: ["CWE-327"]
       owasp: ["A02:2021 - Cryptographic Failures"]
@@ -75,6 +78,7 @@ rules:
     message: SHA-1 is cryptographically broken for collision resistance and must not be used for signatures, certificates, or integrity checks.
     severity: WARNING
     metadata:
+      title: SHA-1 used for security purposes
       category: security
       cwe: ["CWE-327"]
       owasp: ["A02:2021 - Cryptographic Failures"]
@@ -100,6 +104,7 @@ rules:
     message: AES in ECB mode exposes patterns in plaintext; use an authenticated mode instead.
     severity: WARNING
     metadata:
+      title: AES in ECB mode exposes plaintext patterns
       category: security
       cwe: ["CWE-327"]
       confidence: HIGH
@@ -130,6 +135,7 @@ rules:
     message: An all-zero AES key is predictable and cannot protect encrypted data.
     severity: WARNING
     metadata:
+      title: All-zero AES key cannot protect data
       category: security
       cwe: ["CWE-321"]
       confidence: HIGH
@@ -161,6 +167,7 @@ rules:
     message: HTTP query input reaches a sqlite3 SQL string; bind data as a query parameter.
     severity: WARNING
     metadata:
+      title: Untrusted input concatenated into SQL query
       category: security
       cwe: ["CWE-89"]
       confidence: MEDIUM
@@ -208,6 +215,7 @@ rules:
     message: Untrusted input reaches a WebView JavaScript program; encode values as data instead of building script text.
     severity: WARNING
     metadata:
+      title: Untrusted input injected into WebView script
       category: security
       cwe: ["CWE-79"]
       confidence: MEDIUM
@@ -245,6 +253,7 @@ rules:
     message: The default Random constructor is a deterministic PRNG, not a cryptographically secure source. Values derived from it are predictable.
     severity: WARNING
     metadata:
+      title: Predictable random generator used for security
       category: security
       cwe: ["CWE-338"]
       owasp: ["A02:2021 - Cryptographic Failures"]
@@ -260,6 +269,7 @@ rules:
     message: Enabling unrestricted JavaScript in a WebView exposes the host application to script injection if any loaded content is attacker-controlled.
     severity: WARNING
     metadata:
+      title: Unrestricted JavaScript enabled in WebView
       category: security
       cwe: ["CWE-749"]
       owasp: ["A03:2021 - Injection"]

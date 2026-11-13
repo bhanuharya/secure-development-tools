@@ -22,6 +22,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -91,7 +92,7 @@ func DiscoverRuleFiles(roots []string) ([]string, error) {
 				return nil
 			}
 			base := filepath.Base(p)
-			if strings.Contains(base, ".test.") {
+			if strings.Contains(base, ".test.") || isTitleOverlay(p) {
 				return nil
 			}
 			if strings.HasSuffix(p, ".yaml") || strings.HasSuffix(p, ".yml") {
@@ -105,6 +106,12 @@ func DiscoverRuleFiles(roots []string) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// isTitleOverlay reports whether p is the vendored-title overlay, which is
+// data for `sdt rules verify`, not a rule file for the engine.
+func isTitleOverlay(p string) bool {
+	return filepath.Base(p) == "titles.yaml" && filepath.Base(filepath.Dir(p)) == "vendor"
 }
 
 // CountRules parses yamls and counts `rules:` entries. Files that fail to
@@ -126,6 +133,120 @@ func CountRules(files []string) (total int, invalid []string) {
 		total += len(doc.Rules)
 	}
 	return total, invalid
+}
+
+// MaxRuleTitleLength keeps titles readable in a table cell and in SonarQube's
+// rule name column.
+const MaxRuleTitleLength = 60
+
+// TitleOverlayPath is the readable-name overlay for vendored rules. The
+// vendored rule files are kept byte-for-byte as upstream ships them, so their
+// names live here instead of in their metadata.
+func TitleOverlayPath() string {
+	return filepath.Join(RulePackDir(), "vendor", "titles.yaml")
+}
+
+// LoadTitles reads the overlay. Keys are the ids the engine reports for
+// vendored rules: the rule's folder under the pack with dots for slashes,
+// then the rule's own id.
+func LoadTitles(path string) (map[string]string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read titles: %w", err)
+	}
+	var titles map[string]string
+	if err := yaml.Unmarshal(raw, &titles); err != nil {
+		return nil, fmt.Errorf("parse titles: %w", err)
+	}
+	for id, title := range titles {
+		titles[id] = strings.TrimSpace(title)
+	}
+	return titles, nil
+}
+
+// TitleProblems checks the readable name every rule must carry. First-party
+// rules carry metadata.title; vendored rules must have an overlay entry so
+// their files stay verbatim. Overlay entries for rules that no longer exist
+// are stale and reported too.
+func TitleProblems(files []string, titles map[string]string) []string {
+	var problems []string
+	present := map[string]bool{}
+	packRoot, _ := filepath.Abs(RulePackDir())
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			problems = append(problems, f+": unreadable: "+err.Error())
+			continue
+		}
+		var doc struct {
+			Rules []struct {
+				ID       string `yaml:"id"`
+				Metadata struct {
+					Title string `yaml:"title"`
+				} `yaml:"metadata"`
+			} `yaml:"rules"`
+		}
+		if err := yaml.Unmarshal(raw, &doc); err != nil {
+			continue // CountRules already reports files that do not parse
+		}
+		for _, r := range doc.Rules {
+			key, vendored := reportedRuleID(packRoot, f, r.ID)
+			if vendored {
+				present[key] = true
+				title := strings.TrimSpace(titles[key])
+				switch {
+				case title == "":
+					problems = append(problems, fmt.Sprintf("%s: rule %q has no overlay title in vendor/titles.yaml", f, r.ID))
+				case utf8.RuneCountInString(title) > MaxRuleTitleLength:
+					problems = append(problems, fmt.Sprintf("%s: rule %q overlay title is %d characters (max %d)",
+						f, r.ID, utf8.RuneCountInString(title), MaxRuleTitleLength))
+				}
+				continue
+			}
+			title := strings.TrimSpace(r.Metadata.Title)
+			switch {
+			case title == "":
+				problems = append(problems, fmt.Sprintf("%s: rule %q has no metadata.title", f, r.ID))
+			case utf8.RuneCountInString(title) > MaxRuleTitleLength:
+				problems = append(problems, fmt.Sprintf("%s: rule %q title is %d characters (max %d)",
+					f, r.ID, utf8.RuneCountInString(title), MaxRuleTitleLength))
+			}
+		}
+	}
+	var stale []string
+	for key := range titles {
+		if !present[key] {
+			stale = append(stale, key)
+		}
+	}
+	sort.Strings(stale)
+	for _, key := range stale {
+		problems = append(problems, fmt.Sprintf("vendor/titles.yaml: overlay entry %q has no rule", key))
+	}
+	return problems
+}
+
+// reportedRuleID is the id the engine reports for a rule file: the file's
+// directory relative to the pack with dots for slashes, then the rule id.
+// Only files under vendor/ use the overlay; first-party rules are reported
+// by their own id.
+func reportedRuleID(packRoot, ruleFile, id string) (string, bool) {
+	if id == "" {
+		return "", false
+	}
+	absFile, err := filepath.Abs(ruleFile)
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(packRoot, filepath.Dir(absFile))
+	if err != nil {
+		return "", false
+	}
+	rel = filepath.ToSlash(rel)
+	if rel != "vendor" && !strings.HasPrefix(rel, "vendor/") {
+		return "", false
+	}
+	return strings.ReplaceAll(rel, "/", ".") + "." + id, true
 }
 
 // CountRulesIn counts rules in files under prefix (slash-separated, as in
@@ -418,9 +539,11 @@ func bundleRoot(packRoot string, prefixes []string) string {
 	return filepath.Join(append([]string{packRoot}, common...)...)
 }
 
-// Validate runs `opengrep validate` over dirs.
-func Validate(binary string, dirs []string, timeoutSecs int) error {
-	args := append([]string{"validate"}, dirs...)
+// Validate runs `opengrep validate` over rule files. Files are named one by
+// one so the title overlay, which sits beside the vendored rules but is not a
+// rule file, is never offered to the engine.
+func Validate(binary string, files []string, timeoutSecs int) error {
+	args := append([]string{"validate"}, files...)
 	return runEngine(binary, args, timeoutSecs)
 }
 

@@ -1,0 +1,23 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/transfer",
+      "handler": "Controller.transfer",
+      "file": "Controller.java",
+      "line": 3,
+      "protection": "public",
+      "evidence": [
+        "no chain scope matches; Spring leaves the request unsecured"
+      ],
+      "confidence": "low"
+    }
+  ],
+  "summary": {
+    "public": 1
+  }
+}

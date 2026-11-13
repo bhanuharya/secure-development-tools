@@ -1,0 +1,8 @@
+[
+  {
+    "rule": "scp.endpoints.sensitive-route-public",
+    "file": "Controller.java",
+    "line": 3,
+    "endpoint": "POST /internal/{operation}"
+  }
+]

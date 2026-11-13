@@ -17,7 +17,7 @@ sources:
       - yaml
       - dart
       - flutter
-    expected_rule_count: 95
+    expected_rule_count: 111
   - id: aikido
     repository: https://github.com/AikidoSec/opengrep-rules
     license: MIT

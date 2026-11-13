@@ -1,0 +1,105 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "nestjs",
+      "method": "DELETE",
+      "path": "/accounts/{id}",
+      "handler": "AccountsController.remove",
+      "file": "accounts.controller.ts",
+      "line": 8,
+      "protection": "role",
+      "roles": [
+        "admin",
+        "support"
+      ],
+      "evidence": [
+        "accounts.controller.ts:6 @UseGuards(...) on method remove",
+        "accounts.controller.ts:7 @Roles(...) on method remove"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "nestjs",
+      "method": "GET",
+      "path": "/catalog/items",
+      "handler": "CatalogController.items",
+      "file": "catalog.controller.ts",
+      "line": 7,
+      "protection": "unknown",
+      "evidence": [
+        "catalog.controller.ts:7 no local guard; the service registers a global guard"
+      ],
+      "confidence": "low"
+    },
+    {
+      "service": ".",
+      "framework": "nestjs",
+      "method": "GET",
+      "path": "/catalog/items/{id}",
+      "handler": "CatalogController.item",
+      "file": "catalog.controller.ts",
+      "line": 12,
+      "protection": "unknown",
+      "evidence": [
+        "catalog.controller.ts:12 no local guard; the service registers a global guard"
+      ],
+      "confidence": "low"
+    },
+    {
+      "service": ".",
+      "framework": "nestjs",
+      "method": "GET",
+      "path": "/orders",
+      "handler": "OrdersController.list",
+      "file": "orders.controller.ts",
+      "line": 7,
+      "protection": "authenticated",
+      "evidence": [
+        "orders.controller.ts:5 @UseGuards(...) on class OrdersController"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "nestjs",
+      "method": "POST",
+      "path": "/orders",
+      "handler": "OrdersController.create",
+      "file": "orders.controller.ts",
+      "line": 12,
+      "protection": "authenticated",
+      "evidence": [
+        "orders.controller.ts:5 @UseGuards(...) on class OrdersController"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "nestjs",
+      "method": "GET",
+      "path": "/orders/health",
+      "handler": "OrdersController.health",
+      "file": "orders.controller.ts",
+      "line": 19,
+      "protection": "public",
+      "evidence": [
+        "orders.controller.ts:18 @Public(...) on method health"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 2,
+    "public": 1,
+    "role": 1,
+    "unknown": 2
+  },
+  "unresolved": [
+    "catalog.controller.ts:7 CatalogController.items: only a global guard could protect this route; protection unknown",
+    "catalog.controller.ts:12 CatalogController.item: only a global guard could protect this route; protection unknown"
+  ]
+}

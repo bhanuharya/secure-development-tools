@@ -1,0 +1,557 @@
+package endpoints
+
+import (
+	"reflect"
+	"strings"
+	"testing"
+)
+
+func TestSpringConfigDecide(t *testing.T) {
+	cfg := &springConfig{matchers: []springMatcher{
+		{file: "SecurityConfig.java", line: 10, name: "antMatchers", pattern: "/api/register", method: "POST", access: "permitAll"},
+		{file: "SecurityConfig.java", line: 11, name: "antMatchers", pattern: "/api/**", access: "authenticated"},
+	}}
+	tests := []struct {
+		name         string
+		path         string
+		method       string
+		wantProt     Protection
+		wantRoles    []string
+		wantConf     string
+		wantEvidence string // prefix, or the exact fallback sentence
+	}{
+		{"first matcher wins", "/api/register", "POST", ProtPublic, nil, "high", "SecurityConfig.java:10"},
+		{"method mismatch falls through", "/api/register", "GET", ProtAuthenticated, nil, "high", "SecurityConfig.java:11"},
+		{"any method on a method-less matcher", "/api/orders", "DELETE", ProtAuthenticated, nil, "high", "SecurityConfig.java:11"},
+		{"ANY route uses the weakest method", "/api/register", "ANY", ProtPublic, nil, "high", "SecurityConfig.java:10"},
+		{"no matcher and no default", "/legacy/report", "GET", ProtPublic, nil, "low", "no matcher; Spring permits"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			protection, roles, evidence, confidence := cfg.decide(tt.path, tt.method)
+			if protection != tt.wantProt {
+				t.Errorf("protection = %q, want %q", protection, tt.wantProt)
+			}
+			if !reflect.DeepEqual(roles, tt.wantRoles) {
+				t.Errorf("roles = %v, want %v", roles, tt.wantRoles)
+			}
+			if confidence != tt.wantConf {
+				t.Errorf("confidence = %q, want %q", confidence, tt.wantConf)
+			}
+			if len(evidence) != 1 || !strings.HasPrefix(evidence[0], tt.wantEvidence) {
+				t.Errorf("evidence = %v, want one entry starting %q", evidence, tt.wantEvidence)
+			}
+		})
+	}
+}
+
+func TestSpringMatcherDecision(t *testing.T) {
+	tests := []struct {
+		name      string
+		m         springMatcher
+		wantProt  Protection
+		wantRoles []string
+		wantConf  string
+	}{
+		{"permitAll", springMatcher{access: "permitAll"}, ProtPublic, nil, "high"},
+		{"authenticated", springMatcher{access: "authenticated"}, ProtAuthenticated, nil, "high"},
+		{"fullyAuthenticated", springMatcher{access: "fullyAuthenticated"}, ProtAuthenticated, nil, "high"},
+		{"denyAll", springMatcher{access: "denyAll"}, ProtDenied, nil, "high"},
+		{"hasAuthority", springMatcher{access: "hasAuthority", args: `"admin:write"`}, ProtRole, []string{"admin:write"}, "high"},
+		{"hasAnyRole", springMatcher{access: "hasAnyRole", args: `'ADMIN', 'SUPPORT'`}, ProtRole, []string{"ADMIN", "SUPPORT"}, "high"},
+		{"access role", springMatcher{access: "access", args: `"hasRole('ADMIN')"`}, ProtRole, []string{"ADMIN"}, "high"},
+		{"access authenticated", springMatcher{access: "access", args: `"isAuthenticated()"`}, ProtAuthenticated, nil, "high"},
+		{"access unknown SpEL", springMatcher{access: "access", args: `"#oauth2.hasScope('read')"`}, ProtAuthenticated, nil, "medium"},
+		{"role without a literal stays a role", springMatcher{access: "hasRole", args: "ADMIN_ROLE"}, ProtRole, nil, "medium"},
+		{"authority constant stays a role", springMatcher{access: "hasAuthority", args: "AuthoritiesConstants.ADMIN"}, ProtRole, nil, "medium"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			protection, roles, confidence := tt.m.decision()
+			if protection != tt.wantProt {
+				t.Errorf("protection = %q, want %q", protection, tt.wantProt)
+			}
+			if !reflect.DeepEqual(roles, tt.wantRoles) {
+				t.Errorf("roles = %v, want %v", roles, tt.wantRoles)
+			}
+			if confidence != tt.wantConf {
+				t.Errorf("confidence = %q, want %q", confidence, tt.wantConf)
+			}
+		})
+	}
+}
+
+func TestSpringConfigsKeepSourceOrder(t *testing.T) {
+	facts := []Fact{
+		{Kind: "security_matcher", File: "SecurityConfig.java", Line: 7, Column: 43, Metavars: map[string]string{
+			"$MATCHER": "antMatchers", "$PATTERN": "/second", "$ACCESS": "permitAll", "$...ARGS": "",
+		}},
+		{Kind: "security_matcher", File: "SecurityConfig.java", Line: 7, Column: 21, Metavars: map[string]string{
+			"$MATCHER": "antMatchers", "$PATTERN": "/first", "$ACCESS": "authenticated", "$...ARGS": "",
+		}},
+		{Kind: "security_default", File: "SecurityConfig.java", Line: 8, Metavars: map[string]string{
+			"$DEFAULT": "anyExchange", "$ACCESS": "authenticated", "$...ARGS": "",
+		}},
+	}
+	cfg := springConfigs(facts, t.TempDir())["."]
+	if cfg == nil {
+		t.Fatal("no configuration collected")
+	}
+	if !cfg.webflux {
+		t.Error("anyExchange should mark the service as WebFlux")
+	}
+	got := []string{cfg.matchers[0].pattern, cfg.matchers[1].pattern, cfg.matchers[2].name}
+	want := []string{"/first", "/second", "anyExchange"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("matcher order = %v, want %v", got, want)
+	}
+	t.Run("ANY route uses the weakest method", testSpringAnyRouteUsesWeakestMethod)
+}
+
+// testSpringAnyRouteUsesWeakestMethod pins review finding 2: a GET-only
+// authentication matcher must not make an unrestricted @RequestMapping
+// authenticated when every other method falls through to permitAll.
+func testSpringAnyRouteUsesWeakestMethod(t *testing.T) {
+	cfg := &springConfig{matchers: []springMatcher{
+		{file: "SecurityConfig.java", line: 10, name: "antMatchers", pattern: "/internal/change", method: "GET", access: "authenticated"},
+		{file: "SecurityConfig.java", line: 11, name: "anyRequest", pattern: "/**", access: "permitAll"},
+	}}
+	protection, _, evidence, confidence := cfg.decide("/internal/change", "ANY")
+	if protection != ProtPublic || confidence != "high" {
+		t.Fatalf("decide = %q/%q, want public/high", protection, confidence)
+	}
+	if len(evidence) != 1 || !strings.Contains(evidence[0], "SecurityConfig.java:11") ||
+		!strings.Contains(evidence[0], "weakest method POST") {
+		t.Errorf("evidence = %v, want the permitAll matcher naming POST", evidence)
+	}
+}
+
+// TestSpringRouteTemplateOverlap pins review finding 7: a {param} route stands
+// for several paths, so a literal permitAll on one of them makes it public;
+// a matcher that covers the whole template still decides all of it.
+func TestSpringRouteTemplateOverlap(t *testing.T) {
+	partial := &springConfig{matchers: []springMatcher{
+		{file: "Security.java", line: 6, name: "requestMatchers", pattern: "/internal/export", access: "permitAll"},
+		{file: "Security.java", line: 7, name: "anyRequest", pattern: "/**", access: "authenticated"},
+	}}
+	protection, _, evidence, confidence := partial.decide("/internal/{operation}", "POST")
+	if protection != ProtPublic || confidence != "high" {
+		t.Fatalf("partial overlap = %q/%q, want public/high", protection, confidence)
+	}
+	if len(evidence) != 1 || !strings.Contains(evidence[0], "Security.java:6") ||
+		!strings.Contains(evidence[0], "path /internal/export") {
+		t.Errorf("evidence = %v, want the permitAll matcher naming /internal/export", evidence)
+	}
+
+	covered := &springConfig{matchers: []springMatcher{
+		{file: "Security.java", line: 6, name: "requestMatchers", pattern: "/internal/**", access: "authenticated"},
+		{file: "Security.java", line: 7, name: "anyRequest", pattern: "/**", access: "permitAll"},
+	}}
+	if got, _, _, _ := covered.decide("/internal/{operation}", "POST"); got != ProtAuthenticated {
+		t.Errorf("covered template = %q, want authenticated (the fallback never applies)", got)
+	}
+}
+
+// TestSpringChainsDecideByOrder pins review finding 1: a scoped chain must not
+// protect paths outside its securityMatcher, and an undecidable chain order is
+// unknown rather than a guess.
+func TestSpringChainsDecideByOrder(t *testing.T) {
+	facts := []Fact{
+		{Kind: "security_chain", File: "Security.java", Line: 3, EndLine: 6, Metavars: map[string]string{"$HTTP": "http"}},
+		{Kind: "security_order", File: "Security.java", Line: 3, Metavars: map[string]string{"$ORDER": "1"}},
+		{Kind: "security_scope", File: "Security.java", Line: 4, Metavars: map[string]string{"$OWNER": "http", "$SCOPE": "securityMatcher", "$...ARGS": `"/api/**"`}},
+		{Kind: "security_default", File: "Security.java", Line: 5, Metavars: map[string]string{"$DEFAULT": "anyRequest", "$ACCESS": "authenticated"}},
+		{Kind: "security_chain", File: "Security.java", Line: 7, EndLine: 10, Metavars: map[string]string{"$HTTP": "http"}},
+		{Kind: "security_order", File: "Security.java", Line: 7, Metavars: map[string]string{"$ORDER": "2"}},
+		{Kind: "security_default", File: "Security.java", Line: 9, Metavars: map[string]string{"$DEFAULT": "anyRequest", "$ACCESS": "permitAll"}},
+	}
+	cfg := springConfigs(facts, t.TempDir())["."]
+	if got, _, _, _ := cfg.decide("/transfer", "POST"); got != ProtPublic {
+		t.Errorf("/transfer = %q, want public (outside the /api/** chain)", got)
+	}
+	if got, _, _, _ := cfg.decide("/api/orders", "POST"); got != ProtAuthenticated {
+		t.Errorf("/api/orders = %q, want authenticated", got)
+	}
+
+	unordered := []Fact{
+		{Kind: "security_chain", File: "Security.java", Line: 3, EndLine: 6, Metavars: map[string]string{"$HTTP": "http"}},
+		{Kind: "security_default", File: "Security.java", Line: 5, Metavars: map[string]string{"$DEFAULT": "anyRequest", "$ACCESS": "authenticated"}},
+		{Kind: "security_chain", File: "Security.java", Line: 7, EndLine: 10, Metavars: map[string]string{"$HTTP": "http"}},
+		{Kind: "security_default", File: "Security.java", Line: 9, Metavars: map[string]string{"$DEFAULT": "anyRequest", "$ACCESS": "permitAll"}},
+	}
+	cfg = springConfigs(unordered, t.TempDir())["."]
+	if got, _, _, _ := cfg.decide("/transfer", "POST"); got != ProtUnknown {
+		t.Errorf("/transfer with unordered chains = %q, want unknown", got)
+	}
+}
+
+// TestSpringChainWithoutRulesDecides pins review3 finding 4: Spring selects
+// the first matching chain before it looks at authorization rules, so an
+// unscoped ordered chain without rules makes its paths public.
+func TestSpringChainWithoutRulesDecides(t *testing.T) {
+	facts := []Fact{
+		{Kind: "security_chain", File: "Security.java", Line: 3, EndLine: 7, Metavars: map[string]string{"$HTTP": "http"}},
+		{Kind: "security_order", File: "Security.java", Line: 3, Metavars: map[string]string{"$ORDER": "1"}},
+		{Kind: "security_scope", File: "Security.java", Line: 5, Metavars: map[string]string{
+			"$OWNER": "http", "$SCOPE": "securityMatcher", "$...ARGS": `"/transfer"`,
+		}},
+		{Kind: "security_chain", File: "Security.java", Line: 9, EndLine: 13, Metavars: map[string]string{"$HTTP": "http"}},
+		{Kind: "security_order", File: "Security.java", Line: 9, Metavars: map[string]string{"$ORDER": "2"}},
+		{Kind: "security_default", File: "Security.java", Line: 11, Metavars: map[string]string{"$DEFAULT": "anyRequest", "$ACCESS": "authenticated"}},
+	}
+	cfg := springConfigs(facts, t.TempDir())["."]
+	protection, _, evidence, confidence := cfg.decide("/transfer", "POST")
+	if protection != ProtPublic || confidence != "high" {
+		t.Fatalf("/transfer = %q/%q, want public/high", protection, confidence)
+	}
+	if len(evidence) != 1 || !strings.Contains(evidence[0], "Security.java:3") ||
+		!strings.Contains(evidence[0], "no authorization rules") {
+		t.Errorf("evidence = %v, want the first chain as the decider", evidence)
+	}
+	if got, _, _, _ := cfg.decide("/api/orders", "POST"); got != ProtAuthenticated {
+		t.Errorf("/api/orders = %q, want authenticated (the fallback chain)", got)
+	}
+
+	filtered := append(facts, Fact{Kind: "security_filter", File: "Security.java", Line: 6, Metavars: map[string]string{
+		"$FILTER_KIND": "addFilterBefore", "$FILTER": "new JwtFilter()",
+	}})
+	cfg = springConfigs(filtered, t.TempDir())["."]
+	protection, _, _, confidence, note := cfg.decideWithNote("/transfer", "POST")
+	if protection != ProtUnknown || confidence != "low" {
+		t.Fatalf("/transfer with a filter = %q/%q, want unknown/low", protection, confidence)
+	}
+	if !strings.Contains(note, "addFilterBefore") {
+		t.Errorf("note = %q, want the unmodelled filter named", note)
+	}
+}
+
+// TestSpringVariadicAndCompositeScopes pins review3 finding 6: every pattern of
+// a variadic or composite scope restricts the chain, and an unreadable scope
+// makes the routes it may affect unknown.
+func TestSpringVariadicAndCompositeScopes(t *testing.T) {
+	scopeFacts := func(args string) []Fact {
+		return []Fact{
+			{Kind: "security_chain", File: "Security.java", Line: 3, EndLine: 7, Metavars: map[string]string{"$HTTP": "http"}},
+			{Kind: "security_scope", File: "Security.java", Line: 4, Metavars: map[string]string{
+				"$OWNER": "http", "$SCOPE": "securityMatcher", "$...ARGS": args,
+			}},
+			{Kind: "security_default", File: "Security.java", Line: 6, Metavars: map[string]string{"$DEFAULT": "anyRequest", "$ACCESS": "authenticated"}},
+		}
+	}
+	for name, args := range map[string]string{
+		"variadic":  `"/api/**""/admin/**"`,
+		"composite": `new OrRequestMatcher(new AntPathRequestMatcher("/api/**")new AntPathRequestMatcher("/admin/**"))`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := springConfigs(scopeFacts(args), t.TempDir())["."]
+			for _, path := range []string{"/api/orders", "/admin/audit"} {
+				if got, _, _, _ := cfg.decide(path, "POST"); got != ProtAuthenticated {
+					t.Errorf("%s = %q, want authenticated (inside the scope)", path, got)
+				}
+			}
+			if got, _, _, _ := cfg.decide("/transfer", "POST"); got != ProtPublic {
+				t.Errorf("/transfer = %q, want public (outside the scopes)", got)
+			}
+		})
+	}
+	cfg := springConfigs(scopeFacts("customMatcher()"), t.TempDir())["."]
+	protection, _, _, _, note := cfg.decideWithNote("/transfer", "POST")
+	if protection != ProtUnknown || !strings.Contains(note, "customMatcher") {
+		t.Errorf("unreadable scope = %q note %q, want unknown naming customMatcher", protection, note)
+	}
+}
+
+// TestSpringIgnoredPathsArePublic pins review3 finding 7: web.ignoring() runs
+// before every chain, and an unreadable ignore expression cannot leave the
+// other routes confidently protected.
+func TestSpringIgnoredPathsArePublic(t *testing.T) {
+	facts := []Fact{
+		{Kind: "security_ignored", File: "Security.java", Line: 3, Metavars: map[string]string{
+			"$IGNORE": "requestMatchers", "$...ARGS": `"/transfer"`,
+		}},
+		{Kind: "security_chain", File: "Security.java", Line: 6, EndLine: 9, Metavars: map[string]string{"$HTTP": "http"}},
+		{Kind: "security_default", File: "Security.java", Line: 8, Metavars: map[string]string{"$DEFAULT": "anyRequest", "$ACCESS": "authenticated"}},
+	}
+	cfg := springConfigs(facts, t.TempDir())["."]
+	protection, _, evidence, confidence := cfg.decide("/transfer", "POST")
+	if protection != ProtPublic || confidence != "high" {
+		t.Fatalf("/transfer = %q/%q, want public/high", protection, confidence)
+	}
+	if len(evidence) != 1 || !strings.Contains(evidence[0], `web.ignoring().requestMatchers("/transfer")`) {
+		t.Errorf("evidence = %v, want the ignoring call", evidence)
+	}
+	if got, _, _, _ := cfg.decide("/orders", "POST"); got != ProtAuthenticated {
+		t.Errorf("/orders = %q, want authenticated", got)
+	}
+
+	unknown := append(facts, Fact{Kind: "security_ignored", File: "Security.java", Line: 4, Metavars: map[string]string{
+		"$IGNORE": "requestMatchers", "$...ARGS": "CUSTOM_MATCHER",
+	}})
+	cfg = springConfigs(unknown, t.TempDir())["."]
+	if got, _, _, _ := cfg.decide("/transfer", "POST"); got != ProtPublic {
+		t.Errorf("/transfer with another unreadable ignore = %q, want public", got)
+	}
+	protection, _, _, _, note := cfg.decideWithNote("/orders", "POST")
+	if protection != ProtUnknown || !strings.Contains(note, "CUSTOM_MATCHER") {
+		t.Errorf("/orders = %q note %q, want unknown naming the ignore expression", protection, note)
+	}
+}
+
+// TestSpringIgnoredMethodOnlyBypassesThatMethod pins T37 finding 1: an ignore
+// that names HttpMethod.OPTIONS (the CORS preflight shape) only bypasses that
+// method, so GET and POST routes stay with the security chain.
+func TestSpringIgnoredMethodOnlyBypassesThatMethod(t *testing.T) {
+	facts := func(ignoreName string) []Fact {
+		return []Fact{
+			{Kind: "security_ignored", File: "Security.java", Line: 3, Metavars: map[string]string{
+				"$IGNORE": ignoreName, "$...ARGS": `HttpMethod.OPTIONS"/**"`,
+			}},
+			{Kind: "security_chain", File: "Security.java", Line: 6, EndLine: 9, Metavars: map[string]string{"$HTTP": "http"}},
+			{Kind: "security_default", File: "Security.java", Line: 8, Metavars: map[string]string{"$DEFAULT": "anyRequest", "$ACCESS": "authenticated"}},
+		}
+	}
+	for _, name := range []string{"antMatchers", "requestMatchers"} {
+		t.Run(name, func(t *testing.T) {
+			cfg := springConfigs(facts(name), t.TempDir())["."]
+			for _, method := range []string{"GET", "POST", "DELETE"} {
+				if got, _, _, _ := cfg.decide("/orders", method); got != ProtAuthenticated {
+					t.Errorf("%s /orders = %q, want authenticated (ignore names another method)", method, got)
+				}
+			}
+			protection, _, evidence, confidence := cfg.decide("/orders", "OPTIONS")
+			if protection != ProtPublic || confidence != "high" {
+				t.Fatalf("OPTIONS /orders = %q/%q, want public/high", protection, confidence)
+			}
+			want := `web.ignoring().` + name + `(HttpMethod.OPTIONS, "/**")`
+			if len(evidence) != 1 || !strings.Contains(evidence[0], want) {
+				t.Errorf("evidence = %v, want the ignore call %s", evidence, want)
+			}
+		})
+	}
+}
+
+// TestSpringNegatedScopeMatchesOutsidePatterns pins T37 finding 2: a negated
+// chain scope covers every request its inner patterns do not, so the gateway
+// chain is not "ownership unknown". An unmodelled inner matcher stays unknown.
+func TestSpringNegatedScopeMatchesOutsidePatterns(t *testing.T) {
+	config := func(scope string) *springConfig {
+		return springConfigs([]Fact{
+			{Kind: "security_chain", File: "Security.java", Line: 3, EndLine: 7, Metavars: map[string]string{"$HTTP": "http"}},
+			{Kind: "security_scope", File: "Security.java", Line: 4, Metavars: map[string]string{
+				"$OWNER": "http", "$SCOPE": "securityMatcher", "$...ARGS": scope,
+			}},
+			{Kind: "security_default", File: "Security.java", Line: 6, Metavars: map[string]string{"$DEFAULT": "anyRequest", "$ACCESS": "authenticated"}},
+		}, t.TempDir())["."]
+	}
+	cases := []struct {
+		name    string
+		scope   string
+		outside []string
+	}{
+		{
+			"webflux pathMatchers",
+			`new NegatedServerWebExchangeMatcher(ServerWebExchangeMatchers.pathMatchers("/app/**""/i18n/**""/content/**"))`,
+			[]string{"/app/index", "/i18n/messages", "/content/style"},
+		},
+		{
+			"mvc single ant matcher",
+			`new NegatedRequestMatcher(new AntPathRequestMatcher("/app/**"))`,
+			[]string{"/app/index"},
+		},
+		{
+			"mvc or request matcher",
+			`new NegatedRequestMatcher(new OrRequestMatcher(new AntPathRequestMatcher("/app/**")new AntPathRequestMatcher("/assets/**")))`,
+			[]string{"/app/index", "/assets/app.js"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config(tc.scope)
+			if got, _, _, _ := cfg.decide("/services/orders", "POST"); got != ProtAuthenticated {
+				t.Errorf("/services/orders = %q, want authenticated (inside the negated scope)", got)
+			}
+			for _, path := range tc.outside {
+				if got, _, _, _ := cfg.decide(path, "POST"); got != ProtPublic {
+					t.Errorf("%s = %q, want public (excluded from the chain scope)", path, got)
+				}
+			}
+		})
+	}
+
+	cfg := config(`new NegatedRequestMatcher(customMatcher())`)
+	protection, _, _, _, note := cfg.decideWithNote("/services/orders", "POST")
+	if protection != ProtUnknown || !strings.Contains(note, "NegatedRequestMatcher") {
+		t.Errorf("unmodelled inner matcher = %q note %q, want unknown naming NegatedRequestMatcher", protection, note)
+	}
+}
+
+// TestSpringConstantMatcherPath pins review3 finding 8: a simple string
+// constant is substituted, and an unresolved name is unknown.
+func TestSpringConstantMatcherPath(t *testing.T) {
+	facts := []Fact{
+		{Kind: "string_constant", File: "Security.java", Metavars: map[string]string{
+			"$C": "Security", "$NAME": "PUBLIC_PATH", "$VALUE": "/transfer",
+		}},
+		{Kind: "security_matcher_expression", File: "Security.java", Line: 4, Metavars: map[string]string{
+			"$MATCHER": "requestMatchers", "$PATTERN": "PUBLIC_PATH", "$ACCESS": "permitAll",
+		}},
+		{Kind: "security_default", File: "Security.java", Line: 5, Metavars: map[string]string{"$DEFAULT": "anyRequest", "$ACCESS": "authenticated"}},
+	}
+	cfg := springConfigs(facts, t.TempDir())["."]
+	if got, _, _, _ := cfg.decide("/transfer", "POST"); got != ProtPublic {
+		t.Errorf("/transfer = %q, want public through the constant", got)
+	}
+	if got, _, _, _ := cfg.decide("/orders", "POST"); got != ProtAuthenticated {
+		t.Errorf("/orders = %q, want authenticated", got)
+	}
+
+	unresolved := append([]Fact{}, facts...)
+	unresolved[1] = Fact{Kind: "security_matcher_expression", File: "Security.java", Line: 4, Metavars: map[string]string{
+		"$MATCHER": "requestMatchers", "$PATTERN": "CUSTOM_PATH", "$ACCESS": "permitAll",
+	}}
+	cfg = springConfigs(unresolved, t.TempDir())["."]
+	protection, _, _, _, note := cfg.decideWithNote("/transfer", "POST")
+	if protection != ProtUnknown || !strings.Contains(note, "CUSTOM_PATH") {
+		t.Errorf("unresolved constant = %q note %q, want unknown naming CUSTOM_PATH", protection, note)
+	}
+}
+
+// TestSpringTemplateWildcardOverlap pins review3 finding 5: every wildcard
+// pattern that overlaps the template gets a witness of its own, so a public
+// wildcard hidden behind an earlier literal is still found.
+func TestSpringTemplateWildcardOverlap(t *testing.T) {
+	cfg := &springConfig{matchers: []springMatcher{
+		{file: "Security.java", line: 4, name: "requestMatchers", pattern: "/internal/ax", access: "authenticated"},
+		{file: "Security.java", line: 5, name: "requestMatchers", pattern: "/internal/a*", access: "permitAll"},
+		{file: "Security.java", line: 6, name: "anyRequest", pattern: "/**", access: "authenticated"},
+	}}
+	protection, _, evidence, confidence := cfg.decide("/internal/{operation}", "POST")
+	if protection != ProtPublic || confidence != "high" {
+		t.Fatalf("template = %q/%q, want public/high", protection, confidence)
+	}
+	if len(evidence) != 1 || !strings.Contains(evidence[0], "Security.java:5") ||
+		!strings.Contains(evidence[0], "path /internal/a") {
+		t.Errorf("evidence = %v, want the wildcard matcher naming its witness", evidence)
+	}
+}
+
+// TestSpringAccessManagerUnwrap pins review3 finding 9: the wrapper's literal
+// expression is evaluated, while a manager object the resolver cannot read is
+// unknown.
+func TestSpringAccessManagerUnwrap(t *testing.T) {
+	tests := []struct {
+		args     string
+		wantProt Protection
+		wantConf string
+	}{
+		{`new WebExpressionAuthorizationManager("permitAll()")`, ProtPublic, "high"},
+		{`new WebExpressionAuthorizationManager("hasRole('ADMIN')")`, ProtRole, "high"},
+		{"authorizationManager", ProtUnknown, "low"},
+		{"new CustomAuthorizationManager()", ProtUnknown, "low"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.args, func(t *testing.T) {
+			protection, _, confidence := springAccessDecision(tt.args)
+			if protection != tt.wantProt || confidence != tt.wantConf {
+				t.Errorf("decision = %q/%q, want %q/%q", protection, confidence, tt.wantProt, tt.wantConf)
+			}
+		})
+	}
+}
+
+// TestSpringUnmodelledAccessIsUnknown pins the general rule: an access call
+// outside the model cannot leave the matcher looking authenticated.
+func TestSpringUnmodelledAccessIsUnknown(t *testing.T) {
+	m := springMatcher{file: "Security.java", line: 5, name: "requestMatchers", pattern: "/transfer", access: "hasIpAddress", args: `"10.0.0.0/8"`, accessUnknown: true}
+	protection, _, _, note := m.decisionWithNote()
+	if protection != ProtUnknown || !strings.Contains(note, "hasIpAddress") {
+		t.Errorf("decision = %q note %q, want unknown naming hasIpAddress", protection, note)
+	}
+}
+
+// TestSpringConstantSecuredIsRole pins review3 finding 11: a role annotation
+// whose value is a constant keeps role protection without a readable name.
+func TestSpringConstantSecuredIsRole(t *testing.T) {
+	gates := []springGate{{file: "Controller.java", line: 3, annotation: "Secured", expr: "AuthoritiesConstants.ADMIN", class: "Controller", method: "roles"}}
+	protection, roles, evidence, confidence := springGateDecision(gates, false)
+	if protection != ProtRole || confidence != "medium" || len(roles) != 0 {
+		t.Fatalf("decision = %q roles %v conf %q, want role/medium without resolved names", protection, roles, confidence)
+	}
+	if len(evidence) != 1 || !strings.Contains(evidence[0], "AuthoritiesConstants.ADMIN") {
+		t.Errorf("evidence = %v, want the constant as written", evidence)
+	}
+}
+
+// TestSpringSpelComposition pins review finding 3: boolean alternatives that
+// admit anonymous requests make the route public; an unreadable alternative is
+// unknown, while a lone unreadable term keeps the historical medium answer.
+func TestSpringSpelComposition(t *testing.T) {
+	tests := []struct {
+		expr      string
+		wantProt  Protection
+		wantRoles []string
+		wantConf  string
+	}{
+		{"hasRole('ADMIN') or permitAll()", ProtPublic, nil, "high"},
+		{"hasRole('ADMIN') or isAnonymous()", ProtPublic, nil, "high"},
+		{"hasRole('ADMIN') and isAuthenticated()", ProtRole, []string{"ADMIN"}, "high"},
+		{"permitAll() and isAuthenticated()", ProtAuthenticated, nil, "high"},
+		{"hasRole('ROLE_ADMIN')", ProtRole, []string{"ADMIN"}, "high"},
+		{"!isAnonymous()", ProtAuthenticated, nil, "high"},
+		{"!(hasRole('ADMIN') or isAnonymous())", ProtAuthenticated, nil, "high"},
+		{"denyAll()", ProtDenied, nil, "high"},
+		{"!denyAll()", ProtPublic, nil, "high"},
+		{"true", ProtPublic, nil, "high"},
+		{"false", ProtDenied, nil, "high"},
+		{"#oauth2.hasScope('read')", ProtAuthenticated, nil, "medium"},
+		{"hasRole('ADMIN') or #oauth2.hasScope('read')", ProtUnknown, nil, "medium"},
+		{"permitAll() or #oauth2.hasScope('read')", ProtPublic, nil, "high"},
+		{`"hasAnyAuthority(\""+AuthoritiesConstants.ADMIN+"\", \""+AuthoritiesConstants.CS+"\")"`, ProtRole,
+			[]string{"AuthoritiesConstants.ADMIN", "AuthoritiesConstants.CS"}, "medium"},
+		{`"hasAuthority(\""+AuthoritiesConstants.ADMIN+"\")"`, ProtRole,
+			[]string{"AuthoritiesConstants.ADMIN"}, "medium"},
+		{"hasRole(ADMIN_ROLE)", ProtRole, []string{"ADMIN_ROLE"}, "medium"},
+		{"hasAuthority(getAdminRole())", ProtRole, nil, "medium"},
+		{`"hasAnyAuthority(\""+AuthoritiesConstants.ADMIN+"\") or isAnonymous()"`, ProtPublic, nil, "high"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.expr, func(t *testing.T) {
+			protection, roles, confidence := springAccessDecision(tt.expr)
+			if protection != tt.wantProt || confidence != tt.wantConf {
+				t.Errorf("decision = %q/%q, want %q/%q", protection, confidence, tt.wantProt, tt.wantConf)
+			}
+			if !reflect.DeepEqual(roles, tt.wantRoles) {
+				t.Errorf("roles = %v, want %v", roles, tt.wantRoles)
+			}
+		})
+	}
+}
+
+// TestSpringMethodGatesStayWithTheirOverload pins review finding 5: two
+// handlers named update share "Class.method", but only the annotated
+// declaration keeps its gate.
+func TestSpringMethodGatesStayWithTheirOverload(t *testing.T) {
+	facts := []Fact{
+		{Kind: "method_gate", File: "Controller.java", Line: 3, EndLine: 5, MetavarLines: map[string]int{"$ANNOTATION": 3}, Metavars: map[string]string{
+			"$ANNOTATION": "PreAuthorize", "$EXPR": `"isAuthenticated()"`, "$C": "Controller", "$M": "update",
+		}},
+		{Kind: "route", File: "Controller.java", Line: 3, EndLine: 5, Metavars: map[string]string{
+			"$C": "Controller", "$M": "update", "$VERB": "PostMapping", "$PATH": "/private",
+		}},
+		{Kind: "route", File: "Controller.java", Line: 6, EndLine: 7, Metavars: map[string]string{
+			"$C": "Controller", "$M": "update", "$VERB": "PostMapping", "$PATH": "/transfer",
+		}},
+	}
+	cfg := &springConfig{matchers: []springMatcher{
+		{file: "Security.java", line: 10, name: "anyRequest", pattern: "/**", access: "permitAll"},
+	}}
+	routes, _ := resolveSpringFile("Controller.java", facts, cfg, ".")
+	got := map[string]Protection{}
+	for _, route := range routes {
+		got[route.Path] = route.Protection
+	}
+	want := map[string]Protection{"/private": ProtAuthenticated, "/transfer": ProtPublic}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("protections = %v, want %v", got, want)
+	}
+}

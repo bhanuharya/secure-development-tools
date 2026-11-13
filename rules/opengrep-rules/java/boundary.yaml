@@ -13,6 +13,7 @@ rules:
       normalize-and-startsWith check.
     severity: ERROR
     metadata:
+      title: Request-controlled path reaches a file operation
       category: security
       cwe: ["CWE-22", "CWE-73"]
       owasp: ["A01:2021 - Broken Access Control"]
@@ -82,6 +83,7 @@ rules:
       pass values as bind parameters (?, :name, setParameter).
     severity: ERROR
     metadata:
+      title: SQL text built from request data
       category: security
       cwe: ["CWE-89"]
       owasp: ["A03:2021 - Injection"]
@@ -137,6 +139,7 @@ rules:
       records is the finding to fix first.
     severity: WARNING
     metadata:
+      title: Security check method is empty or always allows
       category: security
       cwe: ["CWE-862", "CWE-285"]
       owasp: ["A01:2021 - Broken Access Control"]
@@ -172,6 +175,7 @@ rules:
       validates the token and sets the principal) and that every record is checked against it.
     severity: WARNING
     metadata:
+      title: WebSocket handler lacks a handshake interceptor
       category: security
       cwe: ["CWE-306", "CWE-862"]
       owasp: ["A01:2021 - Broken Access Control"]
@@ -192,6 +196,7 @@ rules:
       user (cross-site WebSocket hijacking). List the front-end origins instead of "*".
     severity: WARNING
     metadata:
+      title: WebSocket endpoint accepts any origin
       category: security
       cwe: ["CWE-1385", "CWE-346"]
       owasp: ["A05:2021 - Security Misconfiguration"]

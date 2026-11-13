@@ -1,0 +1,123 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "fastapi",
+      "method": "GET",
+      "path": "/api/v1/items",
+      "handler": "list_items",
+      "file": "main.py",
+      "line": 17,
+      "protection": "authenticated",
+      "evidence": [
+        "main.py:8 APIRouter dependencies [Depends(...)] on router router"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "fastapi",
+      "method": "POST",
+      "path": "/api/v1/items",
+      "handler": "create_item",
+      "file": "main.py",
+      "line": 27,
+      "protection": "role",
+      "roles": [
+        "admin"
+      ],
+      "evidence": [
+        "main.py:27 route dependencies [Depends(...)] on create_item",
+        "main.py:27 parameter user=Depends(...) on create_item",
+        "main.py:8 APIRouter dependencies [Depends(...)] on router router"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "fastapi",
+      "method": "DELETE",
+      "path": "/api/v1/items/{item_id}",
+      "handler": "delete_item",
+      "file": "main.py",
+      "line": 32,
+      "protection": "role",
+      "roles": [
+        "admin"
+      ],
+      "evidence": [
+        "main.py:32 parameter user=Security(...) on delete_item",
+        "main.py:8 APIRouter dependencies [Depends(...)] on router router"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "fastapi",
+      "method": "GET",
+      "path": "/api/v1/items/{item_id}",
+      "handler": "get_item",
+      "file": "main.py",
+      "line": 22,
+      "protection": "authenticated",
+      "evidence": [
+        "main.py:8 APIRouter dependencies [Depends(...)] on router router"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "fastapi",
+      "method": "PUT",
+      "path": "/beta/open/widgets/{widget_id}",
+      "handler": "update_widget",
+      "file": "main.py",
+      "line": 37,
+      "protection": "authenticated",
+      "evidence": [
+        "main.py:37 parameter user=Depends(...) on update_widget",
+        "main.py:48 include_router dependencies [Depends(...)] on mount /beta"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "fastapi",
+      "method": "GET",
+      "path": "/health",
+      "handler": "health",
+      "file": "main.py",
+      "line": 12,
+      "protection": "public",
+      "evidence": [
+        "main.py:12 no gate decorator or dependency on the route"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "fastapi",
+      "method": "GET",
+      "path": "/imports",
+      "handler": "list_imports",
+      "file": "main.py",
+      "line": 42,
+      "protection": "unknown",
+      "evidence": [
+        "main.py:42 router external_router is not created or mounted in this file"
+      ],
+      "confidence": "low"
+    }
+  ],
+  "summary": {
+    "authenticated": 3,
+    "public": 1,
+    "role": 2,
+    "unknown": 1
+  },
+  "unresolved": [
+    "main.py router external_router is created or mounted in another file; protection unknown"
+  ]
+}

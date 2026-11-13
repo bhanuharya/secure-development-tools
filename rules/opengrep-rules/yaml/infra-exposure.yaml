@@ -1,0 +1,166 @@
+# Infrastructure exposure in Kubernetes manifests, Helm values, Consul configuration and
+# environment files. The weakness is a deployment setting, not application code: an internal
+# service published through a public load balancer, a registry without ACLs, or actuator
+# endpoints exposed through environment variables.
+rules:
+  - id: scp.yaml.k8s.internal-service-public-lb
+    languages: [generic]
+    message: >-
+      A Kubernetes Service that names internal infrastructure (service registry, Consul,
+      search, object store, message broker or database) is published as LoadBalancer or
+      NodePort without protection that fits the type. A LoadBalancer is only safe with an
+      affirmative internal load balancer annotation or a nonempty loadBalancerSourceRanges
+      list that excludes every internet-wide range. Neither protects a NodePort: the
+      annotation only tells the cloud provider how to build a load balancer and the source
+      ranges only filter that load balancer, so the node port stays reachable on every node.
+      Use ClusterIP and reach it through the gateway.
+    severity: ERROR
+    metadata:
+      title: Internal service exposed by a public load balancer
+      category: security
+      cwe: ["CWE-668"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      confidence: HIGH
+    paths:
+      include: ["*.yaml", "*.yml", "*.json"]
+    # Load-balancer annotations and source ranges only protect a LoadBalancer Service. A
+    # NodePort stays reachable on every node whatever the restrictions say. Keep the
+    # exclusions inside this manifest; a key or an empty list provides no protection.
+    pattern-regex: |-
+      (?mx)^[ \t]*kind:[ \t]*["']?Service["']?[ \t]*\n
+      (?=(?:(?!^[ \t]*(?:kind:|---[ \t]*$))[\s\S])*?
+        (?:\b(?:consul|eureka|registry|config-server|elasticsearch|opensearch|kibana|minio|redis|mongo|postgres|mysql|kafka|rabbitmq|zookeeper|prometheus|grafana)\b
+        |^[ \t]*-?[ \t]*(?:port|targetPort)[ \t]*:[ \t]*["']?(?:8500|8761|9200|9300|5601|9000|6379|27017|5432|3306|9092|2181)["']?[ \t]*$))
+      (?!
+        (?=(?:(?!^[ \t]*(?:kind:|---[ \t]*$))[\s\S])*?^[ \t]*type[ \t]*:[ \t]*["']?LoadBalancer["']?[ \t]*$)
+        (?:
+          (?:(?!^[ \t]*(?:kind:|---[ \t]*$))[\s\S])*?^[ \t]*
+          (?:["']?service\.beta\.kubernetes\.io/(?:aws|azure)-load-balancer-internal["']?[ \t]*:[ \t]*["']?true["']?
+          |["']?service\.beta\.kubernetes\.io/aws-load-balancer-scheme["']?[ \t]*:[ \t]*["']?internal["']?
+          |["']?(?:networking\.gke\.io|cloud\.google\.com)/load-balancer-type["']?[ \t]*:[ \t]*["']?Internal["']?)
+          [ \t]*(?:\#[^\n]*)?$
+        |
+          (?:(?!^[ \t]*(?:kind:|---[ \t]*$))[\s\S])*?^[ \t]*loadBalancerSourceRanges[ \t]*:[ \t]*
+          (?:\[
+            (?![^\]]*(?<![0-9a-fA-F:.])(?:0\.0\.0\.0/0|::/0)["']?[ \t\r\n]*(?:\#[^\n]*\n[ \t\r\n]*)*(?:,|\]))
+            [ \t\r\n]*(?:\#[^\n]*\n[ \t\r\n]*)*["']?[0-9a-fA-F:.]+/[0-9]+["']?[^\]]*\]
+          |(?:\#[^\n]*)?\n
+            (?!(?:[ \t]*(?:\#[^\n]*)?\n|[ \t]*-[ \t]+[^\n]*\n)*?
+              [ \t]*-[ \t]+["']?(?:0\.0\.0\.0/0|::/0)["']?[ \t]*(?:\#[^\n]*)?$)
+            (?:[ \t]*(?:\#[^\n]*)?\n)*[ \t]*-[ \t]+["']?[0-9a-fA-F:.]+/[0-9]+["']?[ \t]*(?:\#[^\n]*)?$
+          )
+        )
+      )
+      (?:(?!^[ \t]*(?:kind:|---[ \t]*$))[\s\S])*?^[ \t]*type[ \t]*:[ \t]*["']?(?:LoadBalancer|NodePort)["']?[ \t]*$
+
+  - id: scp.yaml.k8s.internal-service-ingress
+    languages: [generic]
+    message: >-
+      An Ingress routes an internal infrastructure service (service registry, Consul, search,
+      object store, broker or database) or an administrative path (/actuator, /management,
+      /v1/kv, ...) from the internet. The gateway in front of the cluster forwards every
+      request without an access check. Route only the public API paths, and keep the
+      registry and the management endpoints on an internal host name.
+    severity: ERROR
+    metadata:
+      title: Ingress exposes an internal service
+      category: security
+      cwe: ["CWE-668"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: HIGH
+    paths:
+      include: ["*.yaml", "*.yml", "*.json"]
+    pattern-regex: |-
+      (?ms)^[ \t]*kind:[ \t]*["']?Ingress["']?[ \t]*\n(?:(?!^[ \t]*kind:)[\s\S])*?(?:^[ \t]*(?:serviceName|service[ \t]*:[ \t]*\n[ \t]*name)[ \t]*:[ \t]*["']?(?:consul|eureka|registry|config-server|elasticsearch|opensearch|kibana|minio|redis|mongo|postgres|mysql|kafka|rabbitmq|zookeeper|prometheus|grafana)\b|^[ \t]*-?[ \t]*path[ \t]*:[ \t]*["']?/(?:jhipster-registry|eureka|consul|v1/kv|actuator|management)(?:/|["'\s]|$))
+
+  - id: scp.yaml.consul.acl-disabled
+    languages: [generic]
+    message: >-
+      Consul runs without ACLs, or with a default policy of allow: every client on the
+      network can read and change the whole catalog, register services and read the key-value
+      store. An attacker who reaches the HTTP API takes over service discovery and points the
+      gateway at their own hosts. Enable ACLs, keep the default policy at deny, and bootstrap
+      the tokens from a secret. Do not start the agent in development mode outside a
+      development environment.
+    severity: ERROR
+    metadata:
+      title: Consul ACLs disabled or open by default
+      category: security
+      cwe: ["CWE-306"]
+      owasp: ["A07:2021 - Identification and Authentication Failures"]
+      confidence: HIGH
+    paths:
+      include: ["*.hcl", "*.tf", "*.json", "*.yaml", "*.yml", "Dockerfile", "docker-compose*.yml", "docker-compose*.yaml", "values*.yaml", "values*.yml"]
+      exclude: ["**/dev/**", "**/test/**", "**/tests/**", "**/local/**", "**/*.dev.*", "**/*-dev.*"]
+    pattern-either:
+      - pattern-regex: |-
+          (?ms)^[ \t]*acl[ \t]*\{[\s\S]{0,400}?\benabled[ \t]*=[ \t]*false\b
+      - pattern-regex: |-
+          (?m)^[ \t]*default_policy[ \t]*=[ \t]*["']allow["']
+      - pattern-regex: |-
+          (?ms)"acl"[ \t]*:[ \t]*\{[^}]{0,400}?"enabled"[ \t]*:[ \t]*false\b
+      - pattern-regex: |-
+          (?m)"default_policy"[ \t]*:[ \t]*"allow"
+      - pattern-regex: |-
+          (?m)^[ \t]*global\.acls\.manageSystemACLs[ \t]*:[ \t]*false\b
+      - pattern-regex: |-
+          (?ms)^[ \t]*global[ \t]*:[ \t]*(?:#[^\n]*)?\n(?:[ \t]+[^\n]*\n){0,6}?[ \t]+acls[ \t]*:[ \t]*(?:#[^\n]*)?\n(?:[ \t]+[^\n]*\n){0,6}?[ \t]+manageSystemACLs[ \t]*:[ \t]*false\b
+      - pattern-regex: |-
+          (?m)^[^\n#]*(?:\bconsul[ \t]+agent\b[^\n]*\b-dev\b|\[[^\]]*["']consul["'][^\]]*["']agent["'][^\]]*["']-dev["'][^\]]*\])
+
+  - id: scp.yaml.consul.api-on-all-interfaces
+    languages: [generic]
+    message: >-
+      The Consul client binds to every interface (client_addr = "0.0.0.0") while the UI or
+      the HTTP port is published. Every host that can reach the machine gets the catalog, the
+      key-value store and, with the UI, a console that can change them; without ACLs it needs
+      no credential at all. Bind the client to the loopback or the cluster address, and reach
+      the UI through a tunnel or an authenticated proxy.
+    severity: WARNING
+    metadata:
+      title: Consul API bound to every interface
+      category: security
+      cwe: ["CWE-668"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      confidence: MEDIUM
+    paths:
+      include: ["*.hcl", "*.tf", "*.json", "*.yaml", "*.yml", "Dockerfile", "docker-compose*.yml", "docker-compose*.yaml", "values*.yaml", "values*.yml"]
+    # Pair either order without borrowing settings past a new declaration or document.
+    pattern-either:
+      - pattern-regex: |-
+          (?m)^[ \t]*client_addr[ \t]*=[ \t]*["']?0\.0\.0\.0["']?[ \t]*(?:#[^\n]*)?$(?=(?:(?!^[ \t]*(?:(?:client_addr|ui|ui_config)\b|---[ \t]*$))[\s\S])*^[ \t]*(?:ui[ \t]*=[ \t]*true\b|ui_config[ \t]*\{[^}]{0,600}?\benabled[ \t]*=[ \t]*true\b))
+      - pattern-regex: |-
+          (?m)^[ \t]*(?:ui[ \t]*=[ \t]*true[ \t]*(?:#[^\n]*)?$|ui_config[ \t]*\{[^}]{0,600}?\benabled[ \t]*=[ \t]*true\b[^}]*\})(?=(?:(?!^[ \t]*(?:(?:client_addr|ui|ui_config)\b|---[ \t]*$))[\s\S])*^[ \t]*client_addr[ \t]*=[ \t]*["']?0\.0\.0\.0["']?[ \t]*(?:#[^\n]*)?$)
+      - pattern-regex: |-
+          "client_addr"[ \t]*:[ \t]*"0\.0\.0\.0"(?=(?:(?!"(?:client_addr|ui)"[ \t]*:)[^{}])*"ui"[ \t]*:[ \t]*(?:true\b|\{[^}]{0,600}?"enabled"[ \t]*:[ \t]*true\b))
+      - pattern-regex: |-
+          "ui"[ \t]*:[ \t]*(?:true\b|\{[^}]{0,600}?"enabled"[ \t]*:[ \t]*true\b[^}]*\})(?=(?:(?!"(?:client_addr|ui)"[ \t]*:)[^{}])*"client_addr"[ \t]*:[ \t]*"0\.0\.0\.0")
+      - pattern-regex: |-
+          (?m)^[^\n#]*-client\b[^\n]*0\.0\.0\.0(?=[\s\S]{0,250}?(?:^[ \t]*-[ \t]*["']?8500:8500|["']8500:8500["']|^[ \t]*published[ \t]*:[ \t]*["']?8500))
+      - pattern-regex: |-
+          (?m)^[ \t]*-?[ \t]*(?:["']?8500:8500["']?|published[ \t]*:[ \t]*["']?8500)(?=[\s\S]{0,250}?(?:^[^\n#]*-client\b[^\n]*0\.0\.0\.0))
+
+  - id: scp.yaml.spring.actuator-exposure-env
+    languages: [generic]
+    message: >-
+      An environment variable or Helm value exposes sensitive actuator endpoints to every
+      caller of the management port: env and configprops show environment values and the URLs
+      of internal services, heapdump and threaddump show memory (tokens included), logfile
+      shows personal data. Expose only health, info and prometheus, and keep the management
+      port off the internet.
+    severity: ERROR
+    metadata:
+      title: Actuator exposure set through the environment
+      category: security
+      cwe: ["CWE-200"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      confidence: HIGH
+    paths:
+      include: ["*.env", "*.yaml", "*.yml", "*.json", "Dockerfile", "docker-compose*.yml", "docker-compose*.yaml", "values*.yaml", "values*.yml"]
+    pattern-either:
+      - pattern-regex: |-
+          (?im)^[ \t]*(?:-[ \t]*|(?:ENV|ARG|export)[ \t]+)?["']?MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE["']?[ \t]*[=:][ \t]*["']?[^\n#]*?(?:\*|\benv\b|configprops|heapdump|logfile|threaddump|jolokia)
+      - pattern-regex: |-
+          (?im)^[ \t]*-[ \t]*name[ \t]*:[ \t]*["']?MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE["']?[ \t]*\n(?:[ \t]+[^\n]*\n){0,5}?[ \t]+value[ \t]*:[ \t]*["']?[^\n#]*?(?:\*|\benv\b|configprops|heapdump|logfile|threaddump|jolokia)
+      - pattern-regex: |-
+          (?im)^[ \t]*management\.endpoints\.web\.exposure\.include[ \t]*:[ \t]*["']?(?:\*|[^\n#]*\b(?:env|configprops|heapdump|logfile|threaddump|jolokia)\b)

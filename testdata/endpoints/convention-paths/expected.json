@@ -1,0 +1,197 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/account/change-password",
+      "handler": "changePassword",
+      "file": "main.go",
+      "line": 13,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:7 middleware AuthMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/accounts",
+      "handler": "createAccount",
+      "file": "main.go",
+      "line": 12,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:7 middleware AuthMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "PUT",
+      "path": "/api/admin/roles/{id}",
+      "handler": "updateRole",
+      "file": "main.go",
+      "line": 17,
+      "protection": "role",
+      "roles": [
+        "admin"
+      ],
+      "evidence": [
+        "main.go:16 middleware RequireRole(...) on group /admin",
+        "main.go:7 middleware AuthMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/orders",
+      "handler": "createOrder",
+      "file": "main.go",
+      "line": 8,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:7 middleware AuthMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "DELETE",
+      "path": "/api/orders/{id}",
+      "handler": "deleteOrder",
+      "file": "main.go",
+      "line": 11,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:7 middleware AuthMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "PATCH",
+      "path": "/api/orders/{id}",
+      "handler": "patchOrder",
+      "file": "main.go",
+      "line": 10,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:7 middleware AuthMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "PUT",
+      "path": "/api/orders/{id}",
+      "handler": "updateOrder",
+      "file": "main.go",
+      "line": 9,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:7 middleware AuthMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/reports",
+      "handler": "buildReport",
+      "file": "main.go",
+      "line": 24,
+      "protection": "public",
+      "evidence": [
+        "main.go:24 no gate middleware on the route"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/users/{id}/change-password",
+      "handler": "changePasswordForUser",
+      "file": "main.go",
+      "line": 14,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:7 middleware AuthMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/v1/auth/reset-password",
+      "handler": "resetPassword",
+      "file": "main.go",
+      "line": 23,
+      "protection": "public",
+      "evidence": [
+        "main.go:23 no gate middleware on the route"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/v1/registration",
+      "handler": "register",
+      "file": "main.go",
+      "line": 19,
+      "protection": "public",
+      "evidence": [
+        "main.go:19 no gate middleware on the route"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/v2/registration",
+      "handler": "registerV2",
+      "file": "main.go",
+      "line": 20,
+      "protection": "public",
+      "evidence": [
+        "main.go:20 no gate middleware on the route"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/registration/validate-account",
+      "handler": "validateAccount",
+      "file": "main.go",
+      "line": 21,
+      "protection": "public",
+      "evidence": [
+        "main.go:21 no gate middleware on the route"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 7,
+    "public": 5,
+    "role": 1
+  }
+}

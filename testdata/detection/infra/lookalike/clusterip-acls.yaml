@@ -1,0 +1,13 @@
+# Cluster-internal services and a Consul install with ACLs enabled.
+apiVersion: v1
+kind: Service
+metadata:
+  name: consul
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8500
+---
+global:
+  acls:
+    manageSystemACLs: true

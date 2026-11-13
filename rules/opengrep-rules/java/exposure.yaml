@@ -9,6 +9,7 @@ rules:
       them can replay the token or use the password. Log an identifier or a masked value instead.
     severity: WARNING
     metadata:
+      title: Secret passed to a log call
       category: security
       cwe: ["CWE-532"]
       owasp: ["A09:2021 - Security Logging and Monitoring Failures"]
@@ -53,6 +54,7 @@ rules:
       (QueryParserUtil.escape) and cap the page size.
     severity: WARNING
     metadata:
+      title: Search query built from caller-supplied value
       category: security
       cwe: ["CWE-943"]
       owasp: ["A03:2021 - Injection"]

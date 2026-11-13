@@ -1,0 +1,8 @@
+[
+  {
+    "rule": "scp.endpoints.unprotected-among-protected",
+    "file": "main.go",
+    "line": 13,
+    "endpoint": "POST /records"
+  }
+]

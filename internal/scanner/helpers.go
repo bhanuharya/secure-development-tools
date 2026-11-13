@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 func envOr(key, def string) string {
@@ -59,9 +60,11 @@ func checksumFiles(files []string) []string {
 // isRuleFile reports whether a basename is a loadable rule file.
 // Annotated test fixtures (*.test.*) and autofix fixtures (*.fixed.*) are
 // never rules: passing a multi-doc test target as --config fails the whole
-// engine run (exit 7), so discovery must exclude them.
+// engine run (exit 7), so discovery must exclude them. The vendored-title
+// overlay is data for the rules harness, not a rule file: the engine refuses
+// it for a missing `rules:` key.
 func isRuleFile(base string) bool {
-	if strings.Contains(base, ".test.") || strings.Contains(base, ".fixed.") {
+	if strings.Contains(base, ".test.") || strings.Contains(base, ".fixed.") || base == "titles.yaml" {
 		return false
 	}
 	return strings.HasSuffix(base, ".yaml") || strings.HasSuffix(base, ".yml")
@@ -97,6 +100,23 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+// ruleNameFromID is the fallback for a rule without metadata.title: the
+// last id segment with separators turned back into spaces, so reports show
+// something readable instead of a bare slug.
+func ruleNameFromID(ruleID string) string {
+	name := ruleID
+	if i := strings.LastIndexAny(name, "./"); i >= 0 {
+		name = name[i+1:]
+	}
+	name = strings.TrimSpace(strings.NewReplacer("-", " ", "_", " ").Replace(name))
+	if name == "" {
+		return ""
+	}
+	runes := []rune(name)
+	runes[0] = unicode.ToUpper(runes[0])
+	return string(runes)
 }
 
 // cleanRuleID normalizes an engine rule id to a machine-independent key.
@@ -179,7 +199,7 @@ func detectLanguages(root string) []string {
 	exts := map[string]string{
 		".py": "python", ".js": "javascript", ".ts": "typescript",
 		".go": "go", ".java": "java", ".kt": "kotlin", ".yaml": "yaml", ".yml": "yaml",
-		".dart": "dart",
+		".dart": "dart", ".tf": "hcl", ".hcl": "hcl",
 	}
 	found := map[string]bool{}
 	_ = filepath.Walk(root, func(p string, info os.FileInfo, err error) error {

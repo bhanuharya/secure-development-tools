@@ -1,0 +1,23 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/transfer",
+      "handler": "Controller.transfer",
+      "file": "Controller.java",
+      "line": 5,
+      "protection": "public",
+      "evidence": [
+        "Security.java:11 web.ignoring().requestMatchers(\"/transfer\") (bypasses the security filter chain)"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "public": 1
+  }
+}

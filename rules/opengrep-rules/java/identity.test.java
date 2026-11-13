@@ -127,3 +127,56 @@ public class IdentityTest {
         return encoder.matches(password, account.getPassword());
     }
 }
+
+// ---- hardcoded-secret
+class SecretConstants {
+    // ruleid: scp.java.secrets.hardcoded-secret
+    private static final String CLIENT_SECRET = "Ex4mpleSecretValue91";
+    // ruleid: scp.java.secrets.hardcoded-secret
+    private static final String SIGNING_KEY = "s1gning-Key-Value-2024";
+    // ruleid: scp.java.secrets.hardcoded-secret
+    private String dbPassword = "S3cretPass!2024";
+    // ruleid: scp.java.secrets.hardcoded-secret
+    private static final String ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiJ9.abc123";
+}
+
+class SecretLookalikes {
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String CLIENT_SECRET = "client_secret";
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String API_KEY = "X-Api-Key";
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String JWT_SECRET = "/oauth/token";
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String APP_SECRET = "jwt.secret";
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String PASSWORD = "changeme";
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String ADMIN_PASSWORD = "password";
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String DB_PASSWORD = "At least eight characters";
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String ENCRYPTION_KEY = "";
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String SIGNING_SECRET = "${SIGNING_KEY}";
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String TOKEN = "abc123456789";
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----";
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String API_SECRET = "https://example.com/oauth/token";
+}
+
+class SecretJwtAndKeys {
+    // A JWT-shaped value is still material: the segments hold uppercase letters.
+    // ruleid: scp.java.secrets.hardcoded-secret
+    private static final String JWT_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJvcmRlcnMifQ.c2lnbmF0dXJl";
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String KEY_ORDERS_API_KEY = "orders.apikey";
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String KEY_JWT_PRIVATE_KEY = "auth.jwt.private_key_path";
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String MSG_SUCCESS_TOKEN = "success.token_issued";
+    // ok: scp.java.secrets.hardcoded-secret
+    private static final String VERIFY_PASSWORD = "/services/orders/api/authenticate";
+}

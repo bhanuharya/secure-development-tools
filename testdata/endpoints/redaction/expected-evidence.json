@@ -1,0 +1,6 @@
+{
+  "fiber": "main.go:4 middleware basicauth.New(...) on app",
+  "javascript": "app.js:4 middleware authenticate(...) on app",
+  "python": "main.py:4 decorator @require_auth(...) on transfer",
+  "spring": "Security.java:4 .requestMatchers(...).access(...)"
+}
