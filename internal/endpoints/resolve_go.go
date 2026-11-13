@@ -233,10 +233,22 @@ func evidenceLine(mw mwRef) string {
 // reads like the call a developer wrote (AuthMiddleware, not AuthMiddleware()).
 func displayMW(expr string) string {
 	expr = strings.TrimSpace(expr)
+	if inlineFunction(expr) {
+		return "inline function"
+	}
 	if strings.HasSuffix(expr, "()") && !strings.Contains(expr[:len(expr)-2], "(") {
 		return strings.TrimSuffix(expr, "()")
 	}
 	return expr
+}
+
+// inlineFunctionRe matches a function literal written in place of a named
+// middleware: (req, res, next) => {...}, req => ..., function (req) {...},
+// async (...) => ..., func(c *gin.Context) {...}. Its body is code, not a name.
+var inlineFunctionRe = regexp.MustCompile(`^(?:async\s+)?(?:function\b|func\s*\(|\([^()]*\)\s*(?::[^=]*)?=>|[A-Za-z_$][\w$]*\s*=>)`)
+
+func inlineFunction(expr string) bool {
+	return inlineFunctionRe.MatchString(expr)
 }
 
 func roleNames(expr string) []string {

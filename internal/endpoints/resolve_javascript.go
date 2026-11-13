@@ -8,10 +8,11 @@ import (
 )
 
 // This file resolves Express and NestJS facts into routes (SPEC §5, JS
-// bullet). Express mounts and router.use lines are same-file only; a router
-// exported for another file stays unknown. NestJS guards are local to the
-// class/method, and a service-wide APP_GUARD/useGlobalGuards makes an
-// unguarded controller unknown instead of public.
+// bullet). Express mounts are followed across files through relative imports
+// (resolve_javascript_modules.go); a router no mount reaches stays unknown.
+// NestJS guards are local to the class/method, and a service-wide
+// APP_GUARD/useGlobalGuards makes an unguarded controller unknown instead of
+// public.
 
 // resolveJS sends each JavaScript/TypeScript file to the matching resolver.
 // NestJS and Express never share a file: the controller fact decides.
@@ -32,14 +33,26 @@ func resolveJS(facts []Fact, root string, gates *gateMatcher) ([]Route, []string
 	sort.Strings(files)
 	global := nestGlobalGuards(facts, root)
 
-	var routes []Route
-	var unresolved []string
+	// Every file is read before any route is resolved: a router's mount may
+	// be in a file that sorts after it.
+	project := newJSProject(root)
+	var kept []string
 	for _, file := range files {
 		fileFacts := byFile[file]
 		if jsFileExcluded(file) || hasFact(fileFacts, "frontend_import") {
 			continue
 		}
 		js := newJSResolver(file, fileFacts, root, gates)
+		js.project = project
+		project.resolvers[file] = js
+		kept = append(kept, file)
+	}
+	project.link(kept)
+
+	var routes []Route
+	var unresolved []string
+	for _, file := range kept {
+		js := project.resolvers[file]
 		fileRoutes, fileUnresolved := js.resolve(global)
 		routes = append(routes, fileRoutes...)
 		unresolved = append(unresolved, fileUnresolved...)
@@ -105,26 +118,37 @@ type jsUse struct {
 	receiver string
 	args     []string
 	line     int
+	target   *jsTarget // the router this call mounts when it comes from another file or a factory
 }
 
 // jsMount is app.use("/prefix", mw..., router): the prefix and middleware an
-// application adds to a router created in the same file.
+// application or router adds to the router it mounts. from is the resolver of
+// the file with the use() call; nil means the router's own file.
 type jsMount struct {
 	receiver string
 	prefix   string
 	mws      []string
 	line     int
+	from     *jsResolver
 }
 
 // jsState is what a router variable carries at a line: prefixes from its
-// mounts and the middleware registered before the line.
+// mounts and the middleware registered before the line. When unknown, mws
+// still holds the router's own middleware: it applies wherever it is mounted.
 type jsState struct {
 	prefixes []string
 	mws      []mwRef
 	unknown  bool
 	reason   string
-	exported bool // a known router variable, so the sentence can say "exported"
+	why      string // jsUnmounted, jsMountedTwice or jsParentUnknown
+	exported bool   // a known router variable, so the sentence can say "exported"
 }
+
+const (
+	jsUnmounted     = "unmounted"
+	jsMountedTwice  = "mounted twice"
+	jsParentUnknown = "parent unknown"
+)
 
 type jsResolver struct {
 	file, root  string
@@ -136,6 +160,7 @@ type jsResolver struct {
 	uses        []jsUse
 	routes      []Fact
 	nest        bool
+	project     *jsProject
 
 	expressImport bool
 
@@ -318,6 +343,11 @@ func (js *jsResolver) expressRoute(f Fact) (Route, error) {
 	if protection == ProtUnknown {
 		confidence = "low"
 		js.addUnknown(state)
+	} else if state.unknown {
+		// A gate on the route or its router decides the protection, but the
+		// mount prefix is not known, so the path may be missing a prefix.
+		confidence = "medium"
+		js.addPartialPath(state)
 	}
 	return Route{
 		Service:    serviceOf(js.root, js.file),
@@ -340,16 +370,15 @@ func (js *jsResolver) expressRoute(f Fact) (Route, error) {
 func (js *jsResolver) stateOf(name string, line, depth int) *jsState {
 	name = strings.TrimSpace(name)
 	if depth > 8 {
-		return &jsState{unknown: true, reason: receiverName(name)}
+		return &jsState{unknown: true, reason: receiverName(name), why: jsParentUnknown}
 	}
 	b := js.bindingAt(name, line)
 	mounts := js.mountsFor(name, b)
+	var state *jsState
 	if len(mounts) == 0 && (b == nil || !b.engine) {
-		return &jsState{unknown: true, reason: receiverName(name), exported: b != nil && b.router}
-	}
-	state, ok := js.mountState(mounts, depth)
-	if !ok {
-		return &jsState{unknown: true, reason: receiverName(name)}
+		state = &jsState{unknown: true, reason: receiverName(name), why: jsUnmounted, exported: b != nil && b.router}
+	} else {
+		state = js.mountState(name, mounts, depth)
 	}
 	place := "on router"
 	if b != nil && b.engine {
@@ -375,7 +404,7 @@ func (js *jsResolver) stateOf(name string, line, depth int) *jsState {
 func (js *jsResolver) mountsFor(name string, b *jsBinding) []jsMount {
 	var out []jsMount
 	for _, u := range js.uses {
-		if js.classifyUse(u) != "mount" || u.args[len(u.args)-1] != name {
+		if u.target != nil || js.classifyUse(u) != "mount" || u.args[len(u.args)-1] != name {
 			continue
 		}
 		if b == nil || js.bindingAt(name, u.line) != b {
@@ -383,17 +412,25 @@ func (js *jsResolver) mountsFor(name string, b *jsBinding) []jsMount {
 		}
 		out = append(out, js.mountOf(u))
 	}
+	if b != nil && js.project != nil {
+		out = append(out, js.project.mounts[b]...)
+	}
 	return out
 }
 
 // mountState combines every mount that reaches the router. More than one mount
-// with the same chain (the usual case) is fine; differing chains are unknown.
-func (js *jsResolver) mountState(mounts []jsMount, depth int) (*jsState, bool) {
+// with the same chain (the usual case) is fine; differing chains are unknown,
+// and so is a router whose parent no mount reaches.
+func (js *jsResolver) mountState(name string, mounts []jsMount, depth int) *jsState {
 	var merged *jsState
 	for _, m := range mounts {
-		base := js.stateOf(m.receiver, m.line, depth+1)
+		from := m.from
+		if from == nil {
+			from = js
+		}
+		base := from.stateOf(m.receiver, m.line, depth+1)
 		if base.unknown {
-			return nil, false
+			return &jsState{unknown: true, reason: base.reason, why: jsParentUnknown}
 		}
 		next := &jsState{prefixes: append([]string{}, base.prefixes...), mws: append([]mwRef{}, base.mws...)}
 		if m.prefix != "" {
@@ -404,18 +441,18 @@ func (js *jsResolver) mountState(mounts []jsMount, depth int) (*jsState, bool) {
 			place = "on mount"
 		}
 		for _, expr := range m.mws {
-			next.mws = append(next.mws, mwRef{file: js.file, line: m.line, expr: expr, place: place})
+			next.mws = append(next.mws, mwRef{file: from.file, line: m.line, expr: expr, place: place})
 		}
 		if merged == nil {
 			merged = next
 		} else if !sameJSState(merged, next) {
-			return nil, false
+			return &jsState{unknown: true, reason: receiverName(name), why: jsMountedTwice}
 		}
 	}
 	if merged == nil {
 		merged = &jsState{}
 	}
-	return merged, true
+	return merged
 }
 
 func sameJSState(a, b *jsState) bool {
@@ -423,7 +460,7 @@ func sameJSState(a, b *jsState) bool {
 		return false
 	}
 	for i := range a.mws {
-		if a.mws[i].expr != b.mws[i].expr || a.mws[i].line != b.mws[i].line {
+		if a.mws[i].expr != b.mws[i].expr || a.mws[i].line != b.mws[i].line || a.mws[i].file != b.mws[i].file {
 			return false
 		}
 	}
@@ -438,7 +475,7 @@ func (js *jsResolver) classifyUse(u jsUse) string {
 		return ""
 	}
 	last := u.args[len(u.args)-1]
-	if js.routers[last] || js.engines[last] {
+	if u.target != nil || js.routers[last] || js.engines[last] {
 		return "mount"
 	}
 	if isPathExpr(u.args[0]) {
@@ -493,7 +530,7 @@ func (js *jsResolver) decide(line int, routeMW []mwRef, state *jsState) (Protect
 		return ProtAuthenticated, nil, evidence
 	}
 	if state.unknown {
-		evidence = append(evidence, fmt.Sprintf("%s:%d router %s is not mounted in this file", js.file, line, state.reason))
+		evidence = append(evidence, fmt.Sprintf("%s:%d %s", js.file, line, state.unknownEvidence()))
 		return ProtUnknown, nil, evidence
 	}
 	evidence = append(evidence, fmt.Sprintf("%s:%d no gate middleware on the route", js.file, line))
@@ -505,15 +542,45 @@ func (js *jsResolver) decide(line int, routeMW []mwRef, state *jsState) (Protect
 	return ProtPublic, nil, evidence
 }
 
+func (s *jsState) unknownEvidence() string {
+	switch s.why {
+	case jsMountedTwice:
+		return fmt.Sprintf("router %s is mounted more than once with different prefixes or middleware", s.reason)
+	case jsParentUnknown:
+		return fmt.Sprintf("router %s, which mounts this router, is not mounted where this resolver can follow it", s.reason)
+	}
+	return fmt.Sprintf("router %s is not mounted in any file this scan follows", s.reason)
+}
+
 func (js *jsResolver) addUnknown(state *jsState) {
 	name := state.reason
 	if name == "" {
 		name = "router"
 	}
-	sentence := fmt.Sprintf("%s router %s is created or mounted in another file; protection unknown", js.file, name)
-	if state.exported {
-		sentence = fmt.Sprintf("%s router %s is exported and mounted in another file; protection unknown", js.file, name)
+	var sentence string
+	switch {
+	case state.why == jsMountedTwice:
+		sentence = fmt.Sprintf("%s router %s is mounted more than once with different prefixes or middleware; protection unknown", js.file, name)
+	case state.why == jsParentUnknown:
+		sentence = fmt.Sprintf("%s router %s, which mounts this file's router, is not mounted where it can be followed; protection unknown", js.file, name)
+	case state.exported:
+		sentence = fmt.Sprintf("%s router %s is exported, but no mount of it was found; protection unknown", js.file, name)
+	default:
+		sentence = fmt.Sprintf("%s router %s is created or mounted where this scan cannot follow it; protection unknown", js.file, name)
 	}
+	js.addSentence(sentence)
+}
+
+// addPartialPath notes routes whose gate is known but whose mount prefix is not.
+func (js *jsResolver) addPartialPath(state *jsState) {
+	name := state.reason
+	if name == "" {
+		name = "router"
+	}
+	js.addSentence(fmt.Sprintf("%s router %s: its mount could not be followed, so paths are shown without the mount prefix", js.file, name))
+}
+
+func (js *jsResolver) addSentence(sentence string) {
 	for _, s := range js.unresolved {
 		if s == sentence {
 			return

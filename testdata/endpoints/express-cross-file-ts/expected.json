@@ -1,0 +1,83 @@
+{
+  "root": ".",
+  "routes": [
+    {
+      "confidence": "high",
+      "evidence": [
+        "src/routes/admin.routes.ts:4 no gate middleware on the route",
+        "src/app.ts:5 middleware express.json on app (does not match the gate list)"
+      ],
+      "file": "src/routes/admin.routes.ts",
+      "framework": "express",
+      "handler": "assignRole",
+      "line": 4,
+      "method": "POST",
+      "path": "/api/admin/roles",
+      "protection": "public",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "src/routes/orders.routes.ts:6 middleware authenticate on router"
+      ],
+      "file": "src/routes/orders.routes.ts",
+      "framework": "express",
+      "handler": "listOrders",
+      "line": 7,
+      "method": "GET",
+      "path": "/api/orders",
+      "protection": "authenticated",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "src/routes/orders.routes.ts:8 middleware hasRole(...)",
+        "src/routes/orders.routes.ts:6 middleware authenticate on router"
+      ],
+      "file": "src/routes/orders.routes.ts",
+      "framework": "express",
+      "handler": "cancelOrder",
+      "line": 8,
+      "method": "DELETE",
+      "path": "/api/orders/{id}",
+      "protection": "role",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "src/routes/index.ts:10 middleware authenticate on mount /payments"
+      ],
+      "file": "src/routes/payments.routes.ts",
+      "framework": "express",
+      "handler": "createPayment",
+      "line": 10,
+      "method": "POST",
+      "path": "/api/payments",
+      "protection": "authenticated",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "src/routes/index.ts:10 middleware authenticate on mount /payments"
+      ],
+      "file": "src/routes/payments.routes.ts",
+      "framework": "express",
+      "handler": "refundPayment",
+      "line": 11,
+      "method": "POST",
+      "path": "/api/payments/refund",
+      "protection": "authenticated",
+      "service": "."
+    }
+  ],
+  "schema": "sdt-endpoints/v1",
+  "summary": {
+    "authenticated": 3,
+    "public": 1,
+    "role": 1
+  }
+}

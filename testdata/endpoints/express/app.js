@@ -29,7 +29,7 @@ adminRouter.use(verifyJwt);
 adminRouter.get('/reports', listReports);
 adminRouter.patch('/reports/:id', updateReport);
 
-// Exported and mounted by another file, so its protection is unknown here.
+// Exported, but no file in the service mounts it: its protection is unknown.
 webhooksRouter.post('/events', receiveEvent);
 
 module.exports = { app, webhooksRouter };

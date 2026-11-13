@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 // This file is the same-file scope model behind the Express resolver (T36).
@@ -18,11 +19,15 @@ import (
 // which its name refers to it.
 type jsBinding struct {
 	name   string
+	line   int // the declaration
 	start  int
-	end    int
+	end    int // jsTopLevelEnd for a declaration at the top of the file
 	engine bool
 	router bool
 }
+
+// jsTopLevelEnd marks a declaration visible in the whole file.
+const jsTopLevelEnd = math.MaxInt
 
 // jsBindings indexes the engine/router facts a file declares. A router_fn
 // only counts when the file imports express, the same condition that makes it
@@ -32,7 +37,7 @@ func jsBindings(root, file string, facts []Fact, expressImport bool) []jsBinding
 	var out []jsBinding
 	seen := map[string]bool{}
 	for _, f := range facts {
-		b := jsBinding{name: f.Metavars["$R"]}
+		b := jsBinding{name: f.Metavars["$R"], line: f.Line}
 		switch f.Kind {
 		case "engine":
 			b.engine = true
@@ -64,7 +69,7 @@ func jsDeclRange(scopes []lineScope, line int) (int, int) {
 	if scope, ok := innermostScope(scopes, line); ok {
 		return line, scope.end
 	}
-	return 0, math.MaxInt
+	return 0, jsTopLevelEnd
 }
 
 // bindingAt returns the innermost binding of name visible at line.
@@ -93,7 +98,13 @@ func jsFileScopes(path string) []lineScope {
 	}
 	text := string(src)
 	var scopes []lineScope
-	var open []int
+	// Every brace is tracked so an object literal's closing brace closes the
+	// object, not the enclosing function; only block braces become scopes.
+	type brace struct {
+		line  int
+		block bool
+	}
+	var open []brace
 	line := 1
 	for i := 0; i < len(text); {
 		c := text[i]
@@ -119,12 +130,14 @@ func jsFileScopes(path string) []lineScope {
 			}
 		case c == '\'' || c == '"' || c == '`':
 			i, line = jsSkipString(text, i, line)
-		case c == '{' && jsOpensBlock(text, i):
-			open = append(open, line)
+		case c == '{':
+			open = append(open, brace{line: line, block: jsOpensBlock(text, i)})
 			i++
 		case c == '}':
 			if n := len(open); n > 0 {
-				scopes = append(scopes, lineScope{start: open[n-1], end: line})
+				if open[n-1].block {
+					scopes = append(scopes, lineScope{start: open[n-1].line, end: line})
+				}
 				open = open[:n-1]
 			}
 			i++
@@ -173,7 +186,10 @@ func jsOpensBlock(src string, i int) bool {
 	case ')', ';', '{', '}':
 		return true
 	case '>':
-		return j > 0 && src[j-1] == '='
+		if j > 0 && src[j-1] == '=' {
+			return true
+		}
+		return jsAfterReturnType(src, j)
 	}
 	end := j + 1
 	for j >= 0 && jsWordByte(src[j]) {
@@ -183,7 +199,21 @@ func jsOpensBlock(src string, i int) bool {
 	case "else", "try", "finally", "do":
 		return true
 	}
-	return false
+	return jsAfterReturnType(src, j)
+}
+
+// jsAfterReturnType reports whether src[..j] ends with a TypeScript return
+// type after a parameter list, as in `): Router {` or `): Promise<Router> {`.
+func jsAfterReturnType(src string, j int) bool {
+	for j >= 0 && (jsWordByte(src[j]) || strings.IndexByte(" \t\r\n.<>[]|&,", src[j]) >= 0) {
+		j--
+	}
+	if j < 0 || src[j] != ':' {
+		return false
+	}
+	for j--; j >= 0 && (src[j] == ' ' || src[j] == '\t' || src[j] == '\n' || src[j] == '\r'); j-- {
+	}
+	return j >= 0 && src[j] == ')'
 }
 
 func jsWordByte(c byte) bool {
