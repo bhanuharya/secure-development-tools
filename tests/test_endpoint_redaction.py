@@ -114,3 +114,19 @@ def test_memory_redacts_values_before_normalising_individual_entries(tmp_path):
     safe = json.loads(path.read_text())
     assert safe["entries"]["first"]["reason"] == "[REDACTED]"
     assert secret not in path.read_text()
+
+
+CORPUS = json.loads((ROOT / "testdata" / "redaction" / "corpus.json").read_text())
+
+
+@pytest.mark.parametrize("case", CORPUS, ids=[case["name"] for case in CORPUS])
+def test_secret_corpus_never_survives_redaction(case):
+    """The shared secret-shape corpus (also run by the Go redactor's tests): every path that
+    puts source text into a prompt, an answer, the memory file or a report must hide it."""
+    text, path, secret = case["text"], case["path"], case["secret"]
+    numbered = {i + 1: line for i, line in enumerate(text.splitlines())}
+    assert secret not in advisory.redact(text, path)
+    assert secret not in "\n".join(advisory.redact_lines(numbered, path).values())
+    withheld: set = set()
+    advisory.redact(text, path, withheld)
+    assert secret not in json.dumps(advisory.redact_tree({"answer": text}, withheld))

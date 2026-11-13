@@ -64,6 +64,12 @@ XML_VALUE = re.compile(rf"(?i)(<(?P<tag>[\w.:-]*(?:{SECRET_WORD}))>)(?P<value>[^
 # How the AI review words it: "sets the password to the literal `x`", "the token `x`".
 PROSE_VALUE = re.compile(rf"(?i)((?:\bliteral(?:\s+value)?|\b(?:{SECRET_WORD})(?:\s+(?:is|of|to|as))?)\s+)`([^`\n]+)`")
 URL_PASSWORD = re.compile(r"(\b[a-z][a-z0-9+.-]*://[^/\s:@\"']+:)([^@\s/\"']+)(@)", re.I)
+# Shapes found by the shared corpus (testdata/redaction/corpus.json) that the patterns above miss.
+AUTH_SCHEME = re.compile(r"(?i)\b(bearer|basic)(\s+)([A-Za-z0-9._~+/=-]{8,})")
+SECRET_CALL = re.compile(rf"""(?i)(\b(?:set|with|put)?_?(?:{SECRET_WORD})\w*\s*\(\s*)(["'`])((?:(?!\2).)+)\2""")
+BASIC_AUTH_CALL = re.compile(r"""(?i)(\b(?:set_?basic_?auth|basic_?auth|with_?basic_?auth|auth)\s*\(\s*(["'`])(?:(?!\2).)*\2\s*,\s*)(["'`])((?:(?!\3).)+)\3""")
+CONNECTION_PASSWORD = re.compile(r"""(?i)((?:^|[;"'])\s*(?:password|pwd)\s*=\s*)([^;"'\s]+)""")
+YAML_NEXT_LINE = re.compile(rf"""(?im)^([ \t]*)([\w.-]*(?:{SECRET_WORD})[\w.-]*[ \t]*:[ \t]*(?:[|>][-+]?)?[ \t]*\n)([ \t]+)(\S[^\n]*)""")
 ANY_CONFIG_VALUE = re.compile(
     r"""(?x)^(?P<head>\s*(?:-\s+)?(?:export\s+)?["']?[\w.\-/\[\]]+["']?\s*[:=]\s*)
         (?P<quote>["']?)(?P<value>[^"'\s#][^#]*?)(?P=quote)(?P<tail>\s*(?:\#.*)?)$""")
@@ -261,6 +267,16 @@ def redact(text: str, path: str = "", withheld: set | None = None) -> str:
     text = SECRET_ASSIGNMENT.sub(assignment, text)
     text = PROSE_VALUE.sub(lambda m: hide(m.group(2), m.group(0), f"{m.group(1)}`[REDACTED]`"), text)
     text = URL_PASSWORD.sub(lambda m: hide(m.group(2), m.group(0), f"{m.group(1)}[REDACTED]{m.group(3)}"), text)
+    text = AUTH_SCHEME.sub(lambda m: hide(m.group(3), m.group(0), f"{m.group(1)}{m.group(2)}[REDACTED]"), text)
+    text = SECRET_CALL.sub(lambda m: hide(m.group(3), m.group(0), f"{m.group(1)}{m.group(2)}[REDACTED]{m.group(2)}"), text)
+    text = BASIC_AUTH_CALL.sub(lambda m: hide(m.group(4), m.group(0), f"{m.group(1)}{m.group(3)}[REDACTED]{m.group(3)}"), text)
+    text = CONNECTION_PASSWORD.sub(lambda m: hide(m.group(2), m.group(0), f"{m.group(1)}[REDACTED]"), text)
+
+    def next_line(m: re.Match) -> str:  # "password:" with its value on the following, deeper line
+        if len(m.group(3)) <= len(m.group(1)):
+            return m.group(0)
+        return hide(m.group(4), m.group(0), f"{m.group(1)}{m.group(2)}{m.group(3)}[REDACTED]")
+    text = YAML_NEXT_LINE.sub(next_line, text)
     if path and CONFIG_FILE.search(path):
         lines = []
         for line in text.split("\n"):

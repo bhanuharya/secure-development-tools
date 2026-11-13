@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import threading
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -20,6 +21,7 @@ class FakeBitbucket:
         self.private, self.comments, self.fail_comment = private, list(comments), fail_comment
         self.requests = []
         self.pulls = []
+        self.downloads = []
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -41,6 +43,10 @@ class FakeBitbucket:
                     return self.answer(200, {"is_private": fake.private})
                 if self.command == "POST" and path == f"{REPO}/downloads":
                     return self.answer(201, {})
+                if self.command == "GET" and path == f"{REPO}/downloads":
+                    return self.answer(200, {"values": [{"name": n} for n in fake.downloads]})
+                if self.command == "DELETE" and path.startswith(f"{REPO}/downloads/"):
+                    return self.answer(204, {})
                 if self.command == "GET" and path == f"{REPO}/pullrequests":
                     return self.answer(200, {"values": fake.pulls})
                 if self.command == "GET" and path.endswith("/comments"):
@@ -49,7 +55,7 @@ class FakeBitbucket:
                     return self.answer(403, {"error": {"message": "no pull request write scope"}})
                 return self.answer(201, {"id": 7})
 
-            do_GET = do_POST = do_PUT = handle_any
+            do_GET = do_POST = do_PUT = do_DELETE = handle_any
 
         self.server = HTTPServer(("127.0.0.1", 0), Handler)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
@@ -374,3 +380,16 @@ def test_poll_lists_a_pull_request_once_per_commit_no_scan_has_seen(out):
     assert poll() == []                                              # listed once, even though no comment came yet
     fake.pulls = [pull(1, "abc1234def56"), pull(2, "999888777666")]
     assert poll() == ["shop\t2\tfeature/2\tmain\t999888777666"]  # a new push
+
+
+def test_upload_removes_only_this_pull_requests_older_reports(out):
+    (out / "SAST Report - shop - PR 42.docx").rename(out / "SAST Report - shop - PR 42 - 131126-0100.docx")
+    fake = FakeBitbucket()
+    fake.downloads = ["SAST Report - shop - PR 42 - 131126-0100.docx", "SAST Report - shop - PR 42 - 101126-0900.docx", "SAST Report - shop - PR 42.docx",
+                      "SAST Report - shop - PR 4 - 101126-0900.docx", "SAST Report - shop - PR 42 - notes.txt",
+                      "SAST Report - shop - PR 42.docx-old", "release-notes.pdf"]
+    done = run(fake, out)
+    assert done.returncode == 0, done.stdout + done.stderr
+    deleted = [urllib.parse.unquote(r[1].split("/downloads/", 1)[1]) for r in fake.sent("DELETE")]
+    assert sorted(deleted) == ["SAST Report - shop - PR 42 - 101126-0900.docx", "SAST Report - shop - PR 42.docx"]
+

@@ -10,8 +10,8 @@ project:
 profiles:
   pr:
     mode: changed
-    scanners: [opengrep, gitleaks, trivy-fs]
-    requiredScanners: [opengrep, gitleaks, trivy-fs]
+    scanners: [opengrep, gitleaks, trivy-fs, endpoints]
+    requiredScanners: [opengrep, gitleaks, trivy-fs, endpoints]
     timeout: 15m
     parallelism: 3
     missingHistory: fail
