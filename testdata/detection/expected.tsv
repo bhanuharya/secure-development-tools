@@ -170,3 +170,5 @@ gateway/lookalike/nginx-deny-all-first.conf	NGINX sensitive proxy with deny-all-
 gateway/nginx/nginx-cidr-all.conf	NGINX sensitive proxy with unrestricted IPv4 allow	284	rules
 gateway/nginx/nginx-cidr-all-v6.conf	NGINX sensitive proxy with unrestricted IPv6 allow	284	rules
 gateway/lookalike/nginx-cidr-private.conf	NGINX sensitive proxy with private CIDR allows (not unrestricted)	284	none
+android/app/src/main/AndroidManifest.xml	release manifest allows cleartext HTTP	319	rules
+android/lookalike/app/src/debug/AndroidManifest.xml	cleartext allowed in the debug manifest only (not shipped)	319	none

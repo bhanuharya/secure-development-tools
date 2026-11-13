@@ -1,0 +1,150 @@
+# Native platform configuration of Flutter apps: the Android manifest and its XML
+# resources, and the iOS Info.plist. Debug and profile manifests and a package's
+# example app are not shipped, so they are not reported. Excludes name files and
+# app folders, never a bare directory such as build/: paths are matched against
+# the whole path, including folders above the checkout (docs/detection.md).
+rules:
+  - id: scp.flutter.android.cleartext-traffic
+    languages: [generic]
+    message: The release manifest allows cleartext HTTP for every host. Traffic can be read and changed on the network; remove android:usesCleartextTraffic="true" (or cleartextTrafficPermitted="true" in base-config) and allow cleartext only for specific development hosts in a network security config.
+    severity: WARNING
+    metadata:
+      title: Android app allows cleartext HTTP
+      name: "Release builds should not allow cleartext traffic"
+      category: security
+      cwe: ["CWE-319"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      owasp-mobile: ["M5: Insecure Communication"]
+      masvs: ["MASVS-NETWORK-1"]
+      confidence: HIGH
+      license: MIT
+      remediation: Delete android:usesCleartextTraffic="true" from src/main/AndroidManifest.xml (keep it in src/debug if a local server needs it), or add res/xml/network_security_config.xml with a domain-config that permits cleartext only for the hosts that need it.
+      references:
+        - https://developer.android.com/privacy-and-security/security-config
+        - https://mas.owasp.org/MASVS/controls/MASVS-NETWORK-1/
+    paths:
+      include: ["AndroidManifest.xml", "**/res/xml/*.xml"]
+      exclude: ["**/src/debug/AndroidManifest.xml", "**/src/profile/AndroidManifest.xml", "**/src/debug/res/xml/*.xml", "**/src/profile/res/xml/*.xml", "**/example/android/**"]
+    pattern-either:
+      - pattern-regex: android:usesCleartextTraffic\s*=\s*"true"
+      - pattern-regex: <base-config\b[^>]*\bcleartextTrafficPermitted\s*=\s*"true"
+
+  - id: scp.flutter.android.debuggable
+    languages: [generic]
+    message: The release manifest sets android:debuggable="true". Anyone with the APK can attach a debugger, read memory and run code in the app's process; leave the attribute out and let the build type decide.
+    severity: WARNING
+    metadata:
+      title: Android release manifest is debuggable
+      name: "Release manifests should not be debuggable"
+      category: security
+      cwe: ["CWE-489"]
+      owasp: ["A05:2021 - Security Misconfiguration"]
+      owasp-mobile: ["M8: Security Misconfiguration"]
+      masvs: ["MASVS-RESILIENCE-4"]
+      confidence: HIGH
+      license: MIT
+      remediation: Remove android:debuggable from src/main/AndroidManifest.xml; Gradle sets it for debug builds only.
+      references:
+        - https://developer.android.com/privacy-and-security/risks/android-debuggable
+    paths:
+      include: ["AndroidManifest.xml"]
+      exclude: ["**/src/debug/AndroidManifest.xml", "**/src/profile/AndroidManifest.xml", "**/example/android/**"]
+    pattern-regex: android:debuggable\s*=\s*"true"
+
+  - id: scp.flutter.android.exported-without-permission
+    languages: [generic]
+    message: This service, receiver or provider is exported without a permission. Any app on the device can start, bind to or query it; add android:permission (signature level for internal use) or set android:exported="false".
+    severity: WARNING
+    metadata:
+      title: Android component exported without a permission
+      name: "Exported components should require a permission"
+      category: security
+      cwe: ["CWE-926"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      owasp-mobile: ["M8: Security Misconfiguration"]
+      masvs: ["MASVS-PLATFORM-1"]
+      confidence: MEDIUM
+      license: MIT
+      remediation: Set android:exported="false" unless another app must reach the component; otherwise declare a permission with android:protectionLevel="signature" and require it with android:permission.
+      references:
+        - https://developer.android.com/privacy-and-security/risks/android-exported
+        - https://mas.owasp.org/MASVS/controls/MASVS-PLATFORM-1/
+    paths:
+      include: ["AndroidManifest.xml"]
+      exclude: ["**/src/debug/AndroidManifest.xml", "**/src/profile/AndroidManifest.xml", "**/example/android/**"]
+    patterns:
+      - pattern-regex: <(?:service|receiver|provider)\b[^>]*?\bandroid:exported\s*=\s*"true"[^>]*>
+      - pattern-not-regex: <(?:service|receiver|provider)\b[^>]*?\bandroid:(?:permission|readPermission|writePermission)\s*=\s*"[^"]+"[^>]*>
+
+  - id: scp.flutter.android.custom-scheme-link
+    languages: [generic]
+    message: This activity opens links with a custom URL scheme. Any installed app can register the same scheme and receive the link, and any app or web page can send one; never put tokens or one-time codes in these links, validate every parameter in the Dart handler, and prefer verified App Links (https with autoVerify).
+    severity: INFO
+    metadata:
+      title: Deep link uses a custom URL scheme
+      name: "Deep links should use verified App Links"
+      category: security
+      cwe: ["CWE-939"]
+      owasp: ["A04:2021 - Insecure Design"]
+      owasp-mobile: ["M4: Insufficient Input/Output Validation"]
+      masvs: ["MASVS-PLATFORM-1"]
+      confidence: MEDIUM
+      license: MIT
+      remediation: Move sign-in callbacks and links that carry data to https App Links with android:autoVerify="true" and a published assetlinks.json; keep the custom scheme only for links that carry nothing sensitive, and validate them in the Dart handler.
+      references:
+        - https://developer.android.com/training/app-links/verify-android-applinks
+        - https://mas.owasp.org/MASVS/controls/MASVS-PLATFORM-1/
+    paths:
+      include: ["AndroidManifest.xml"]
+      exclude: ["**/src/debug/AndroidManifest.xml", "**/src/profile/AndroidManifest.xml", "**/example/android/**"]
+    patterns:
+      - pattern-regex: <data\b[^>]*?\bandroid:scheme\s*=\s*"(?!(?:https?|tel|sms|smsto|mailto|geo|content|file|market)")[A-Za-z][A-Za-z0-9+.-]*"
+      # <queries> declares apps this app may look for; it does not receive links.
+      - pattern-not-regex: <queries>[\s\S]*?</queries>
+
+  - id: scp.flutter.android.fileprovider-broad-path
+    languages: [generic]
+    message: This FileProvider path shares a whole storage root. A content URI granted for one file can be rewritten to reach any other file under it; share a dedicated subdirectory instead.
+    severity: WARNING
+    metadata:
+      title: FileProvider shares a whole storage root
+      name: "FileProvider paths should name a subdirectory"
+      category: security
+      cwe: ["CWE-552"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      owasp-mobile: ["M8: Security Misconfiguration"]
+      masvs: ["MASVS-PLATFORM-1"]
+      confidence: MEDIUM
+      license: MIT
+      remediation: Replace root-path and path="." (or "/" or "") with a subdirectory used only for shared files, for example <cache-path name="shared" path="shared/" />, and copy a file there before sharing it.
+      references:
+        - https://developer.android.com/privacy-and-security/risks/file-providers
+    paths:
+      include: ["**/res/xml/*.xml"]
+      exclude: ["**/example/android/**"]
+    pattern-either:
+      - pattern-regex: <root-path\b[^>]*>
+      - pattern-regex: <(?:files-path|cache-path|external-path|external-files-path|external-cache-path|external-media-path)\b[^>]*?\bpath\s*=\s*"(?:\.|/|\./|)"[^>]*>
+
+  - id: scp.flutter.ios.ats-arbitrary-loads
+    languages: [generic]
+    message: Info.plist turns off App Transport Security for every host (NSAllowsArbitraryLoads). The app may then load http:// URLs or accept weak TLS; remove the key and add NSExceptionDomains only for hosts that need an exception.
+    severity: WARNING
+    metadata:
+      title: iOS app turns off App Transport Security
+      name: "App Transport Security should stay on"
+      category: security
+      cwe: ["CWE-319"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      owasp-mobile: ["M5: Insecure Communication"]
+      masvs: ["MASVS-NETWORK-1"]
+      confidence: HIGH
+      license: MIT
+      remediation: Delete NSAllowsArbitraryLoads (and NSAllowsArbitraryLoadsInWebContent) from ios/Runner/Info.plist; list specific hosts under NSExceptionDomains if one still needs http.
+      references:
+        - https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity
+        - https://mas.owasp.org/MASVS/controls/MASVS-NETWORK-1/
+    paths:
+      include: ["Info.plist"]
+      exclude: ["**/example/ios/**", "**/example/macos/**", "**/ios/Pods/**", "**/macos/Pods/**"]
+    pattern-regex: <key>\s*NSAllowsArbitraryLoads(?:InWebContent)?\s*</key>\s*<true\s*/>
