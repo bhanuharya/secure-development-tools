@@ -6,6 +6,9 @@
   4). A first scan of a large service made 15 to 19 calls of about 30 s each, so the step took about eight
   minutes and could run out of `SDT_CODEX_BUDGET` before the last rules. The report, the remembered verdicts
   and the stop after two consecutive failed calls are unchanged.
+- The code scanner and the endpoint fact run use at most two cores, down from four, unless `SDT_SCAN_THREADS`
+  says otherwise. Each core past the second cost more CPU than it saved time: on four services, 4 cores used 37%
+  more CPU than 2 for an 11% shorter code scan. An agent that already sets `SDT_SCAN_THREADS` is unchanged.
 - `out/timings.tsv` also has each scanner's CPU seconds (`cpu:opengrep`) and peak memory in MiB (`mem:opengrep`),
   from the run manifest's new `cpuMs` and `maxRssKb`. Compare those between builds: wall time grows whenever
   another build shares the agent.

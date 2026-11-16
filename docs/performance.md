@@ -63,7 +63,7 @@ Results can name the scanned repositories; keep them out of the repository.
 3. **One change per measurement.** Measure the change itself: the baseline is
    the commit before it, built the same way.
 4. **Bounded resources.** Every engine runs with the scan's core budget
-   (`SDT_SCAN_THREADS`, default up to 4) and a time limit; output is capped. A
+   (`SDT_SCAN_THREADS`, default up to 2) and a time limit; output is capped. A
    new engine invocation follows the same rules.
 
 ## Where the cost is today

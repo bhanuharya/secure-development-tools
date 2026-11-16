@@ -7,10 +7,12 @@ import (
 	"strings"
 )
 
-// defaultScanThreads is where more cores stop helping the code scanner. On a
-// 14-thread machine it took as long or longer with all of them than with 4
-// (five repositories, 30 s to 160 s scans) and used up to twice the CPU.
-const defaultScanThreads = 4
+// defaultScanThreads is where more cores stop paying for themselves. The engine
+// runs its workers as threads of one process, and each one past the first adds
+// more CPU than it saves time: on four services (6 s to 60 s code scans), 2
+// workers took 24% less time than 1 for 22% more CPU, while 4 took another 11%
+// less time for 37% more CPU than 2. Beyond 4 it took as long or longer.
+const defaultScanThreads = 2
 
 // ScanThreads is the number of cores a code-scanning engine uses in one scan
 // (the rule scan and the endpoint fact run alike):
