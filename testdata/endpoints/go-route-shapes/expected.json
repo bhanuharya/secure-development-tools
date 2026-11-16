@@ -1,0 +1,69 @@
+{
+  "root": ".",
+  "routes": [
+    {
+      "confidence": "high",
+      "evidence": [
+        "main.go:24 middleware requireToken on group /api"
+      ],
+      "file": "internal/general/register.go",
+      "framework": "fiber",
+      "handler": "index",
+      "line": 7,
+      "method": "GET",
+      "path": "/api/general",
+      "protection": "authenticated",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "main.go:24 middleware requireToken on group /api"
+      ],
+      "file": "internal/general/register.go",
+      "framework": "fiber",
+      "handler": "ping",
+      "line": 6,
+      "method": "GET",
+      "path": "/api/general/ping",
+      "protection": "authenticated",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "main.go:24 middleware requireToken on group /api"
+      ],
+      "file": "main.go",
+      "framework": "fiber",
+      "handler": "listOrders",
+      "line": 25,
+      "method": "GET",
+      "path": "/api/orders",
+      "protection": "authenticated",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "main.go:22 no gate middleware on the route"
+      ],
+      "file": "main.go",
+      "framework": "fiber",
+      "handler": "health",
+      "line": 22,
+      "method": "GET",
+      "path": "/health",
+      "protection": "public",
+      "service": "."
+    }
+  ],
+  "schema": "sdt-endpoints/v1",
+  "summary": {
+    "authenticated": 3,
+    "public": 1
+  },
+  "unresolved": [
+    "legacy/legacy.go:12 route path \"status\" could not be resolved"
+  ]
+}

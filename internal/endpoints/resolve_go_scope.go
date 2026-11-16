@@ -129,6 +129,7 @@ type goSyntax struct {
 	scopes   []lineScope
 	wrappers []goWrapper
 	fields   []goFieldSet
+	ctxVars  []goVarScope // request-context parameters (c *fiber.Ctx)
 }
 
 // lineScope is the source range of a lexical block: a function body, a closure
@@ -158,6 +159,7 @@ type fileResolver struct {
 	imports   map[string]string
 	wrappers  []goWrapper
 	fields    []goFieldSet
+	ctxVars   []goVarScope
 	project   *goProject
 }
 
@@ -189,6 +191,7 @@ func newFileResolver(file string, facts []Fact, root string, gates *gateMatcher)
 	fr.funcs, fr.calls, fr.scopes = syn.funcs, syn.calls, syn.scopes
 	fr.pkg, fr.imports, fr.wrappers = syn.pkg, syn.imports, syn.wrappers
 	fr.fields = typedFieldSets(syn.fields, syn.funcs)
+	fr.ctxVars = syn.ctxVars
 	fr.addEngineBindings()
 	fr.addGroupBindings()
 	fr.addChiBindings()
@@ -247,6 +250,10 @@ func (fr *fileResolver) addGroupBindings() {
 		}
 		seen[key] = true
 		start, end := fr.declRange(f.Line)
+		prefix := f.Metavars["$PREFIX"]
+		if p, ok := fr.routePath(prefix); ok && prefix != "" {
+			prefix = p // app.Group("api") is /api in fiber, gin and echo
+		}
 		fr.bindings = append(fr.bindings, binding{
 			name:  name,
 			start: start,
@@ -254,8 +261,8 @@ func (fr *fileResolver) addGroupBindings() {
 			node: &groupNode{
 				baseName: f.Metavars["$BASE"],
 				baseLine: f.Line,
-				prefix:   f.Metavars["$PREFIX"],
-				mws:      fr.resolveMWs(factMWs(fr.file, f)),
+				prefix:   prefix,
+				mws:      fr.resolveMWs(factMWs(fr.file, f, prefix)),
 			},
 		})
 	}
@@ -309,7 +316,7 @@ func (fr *fileResolver) stateOfExpr(expr string, line, depth int) *routeState {
 	switch method {
 	case "Group", "Route":
 		if len(args) > 0 {
-			if prefix := unquote(args[0]); strings.HasPrefix(prefix, "/") {
+			if prefix, ok := fr.literalPrefix(args[0]); ok {
 				state.prefixes = append(state.prefixes, prefix)
 			}
 		}
@@ -401,7 +408,7 @@ func (fr *fileResolver) useMWs(u Fact, state *routeState) []mwRef {
 	args := factArgs(u)
 	prefix := ""
 	if fr.framework == "fiber" && len(args) > 0 {
-		if p := unquote(args[0]); strings.HasPrefix(p, "/") {
+		if p, ok := fr.literalPrefix(args[0]); ok {
 			prefix = joinPaths(state.prefixes, p)
 			args = args[1:]
 		}
@@ -588,10 +595,9 @@ func groupPlace(state *routeState) string {
 	return "on router"
 }
 
-// factMWs reads $A1..$A5 from a group/use fact.
-func factMWs(file string, f Fact) []mwRef {
+// factMWs reads $A1..$A5 from a group fact with the given prefix.
+func factMWs(file string, f Fact, prefix string) []mwRef {
 	var out []mwRef
-	prefix := f.Metavars["$PREFIX"]
 	place := "on a group"
 	if prefix != "" {
 		place = "on group " + prefix
@@ -838,6 +844,10 @@ func parseGoScope(path string) goSyntax {
 	}
 	ast.Inspect(file, func(n ast.Node) bool {
 		switch node := n.(type) {
+		case *ast.FuncDecl:
+			syn.ctxVars = append(syn.ctxVars, contextParams(src, fset, node.Type, node.Body)...)
+		case *ast.FuncLit:
+			syn.ctxVars = append(syn.ctxVars, contextParams(src, fset, node.Type, node.Body)...)
 		case *ast.BlockStmt:
 			// Every block is a scope: a router declared inside { ... } must
 			// stop being visible (and protected) when the block ends (T31).

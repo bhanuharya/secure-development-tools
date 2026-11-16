@@ -186,3 +186,21 @@ func TestAnalyzeRoleRuleNeedsARoleRoute(t *testing.T) {
 		t.Fatalf("no role route means no rule 3: %+v", fs)
 	}
 }
+
+func TestAnalyzeCompoundAdminSegments(t *testing.T) {
+	for path, want := range map[string]bool{
+		"/v1/superadmin/stafflist":      true,
+		"/v1/super-admin":               true,
+		"/admin-console":                true,
+		"/api/sys_admin/users":          true,
+		"/assets/css/admin-console.css": false,
+		"/api/administrators":           false,
+		"/api/badminton/courts":         false,
+	} {
+		fs := analyzeDefault(t, testRoute("GET", path, endpoints.ProtPublic, 7))
+		got := len(fs) == 1 && fs[0].Rule.ID == endpoints.RuleSensitiveRoutePublic
+		if got != want {
+			t.Errorf("%s: sensitive-route-public = %v, want %v (%+v)", path, got, want, fs)
+		}
+	}
+}

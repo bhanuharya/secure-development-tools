@@ -74,7 +74,13 @@ lost certainty, which often comes from a newer SDT version rather than from the 
 from `Group(prefix, middleware...)`, `Use(middleware)` and the engine's own
 `Use`. Prefixes nest. Gin, chi and net/http put the handler last; echo and fiber
 put middleware after it. A route is protected when any middleware on its chain
-matches the gate list. A middleware that names a role makes it `role`.
+matches the gate list. A middleware that names a role makes it `role`. Fiber, gin
+and echo add a missing leading slash (`grp.Get("ping", h)` serves `/ping`), so
+such paths are routes; under chi and net/http they stay in `unresolved`. A call
+with a route's shape is not a route when its receiver is a request context
+(fiber's `c.Get("Accept-Language", "en")` reads a header) or an imported package
+other than net/http (`slog.Any("key", v)`), or when a handler argument is a
+string.
 
 A function that receives the router (`func Register(grp fiber.Router)`) is
 resolved from its calls: in the same file, from the other files of its package,
@@ -173,7 +179,9 @@ the protected group.
 ```
 
 **`scp.endpoints.sensitive-route-public`** (error, CWE-306, CWE-284). Any route
-whose path matches the sensitive list is `public`.
+whose path matches the sensitive list is `public`. An admin segment may be
+compound: `/superadmin`, `/super-admin` and `/admin-console` match, while a file
+name such as `admin-console.css` and words such as `/administrators` do not.
 
 ```text
 GET /api/admin/users is public, but its path matches the sensitive pattern

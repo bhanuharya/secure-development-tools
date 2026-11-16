@@ -84,13 +84,9 @@ func (fr *fileResolver) resolveRoutes() []Route {
 // places with different routers registers its routes once per caller, so one
 // fact can give several routes, one per distinct prefix.
 func (fr *fileResolver) routeFromFact(f Fact) ([]Route, error) {
-	rawPath := f.Metavars["$PATH"]
-	if !strings.HasPrefix(rawPath, "/") {
-		return nil, fmt.Errorf("route path %q could not be resolved", rawPath)
-	}
 	receiver := f.Metavars["$R"]
-	if receiver == "" {
-		return nil, fmt.Errorf("route receiver could not be resolved")
+	if fr.notRouter(receiver, f.Line) {
+		return nil, nil
 	}
 	lead := 1
 	if f.Metavars["$VERB"] != "" {
@@ -101,6 +97,18 @@ func (fr *fileResolver) routeFromFact(f Fact) ([]Route, error) {
 		if h := f.Metavars["$H"]; h != "" {
 			args = []string{h}
 		}
+	}
+	for _, arg := range args {
+		if goStringLit(arg) {
+			return nil, nil // a handler is never a string: c.Get("Accept-Language", "en")
+		}
+	}
+	rawPath, ok := fr.routePath(f.Metavars["$PATH"])
+	if !ok {
+		return nil, fmt.Errorf("route path %q could not be resolved", f.Metavars["$PATH"])
+	}
+	if receiver == "" {
+		return nil, fmt.Errorf("route receiver could not be resolved")
 	}
 	handler, middleware := splitHandlers(fr.framework, args)
 	if handler == "" {
