@@ -1423,6 +1423,64 @@ def test_report_shows_review_recommendations_without_ai_wording(tmp_path):
     assert "Advisory review" not in plain
 
 
+def _rule_section(text):
+    """The text of the first rule's section, past the contents and Fix First."""
+    start = text.index("1.1 Credentials should not be hard-coded [S6437] - ")
+    return text[start:text.index("2. Secret Leaks", start)]
+
+
+def _assessed_group(root, verdicts):
+    """One rule with one finding per verdict on lib/api.dart, each with its review note."""
+    group = sdt_to_docx.Group("java:S6437", "Credentials should not be hard-coded", "Vulnerability", "Critical")
+    group.fixes = ["Revoke the secret."]
+    for line, verdict in enumerate(verdicts, 1):
+        note = {"verdict": verdict, "confidence": "high", "reason": f"Line {line} evidence.",
+                "check": f"Confirm line {line}.", "suggested_fix": f"Record line {line}."}
+        group.occurrences.append(sdt_to_docx.Occurrence("lib/api.dart", line, "Revoke and change this password.",
+                                                        "Open", "", ai=note))
+    return group
+
+
+def test_fix_advice_comes_after_the_false_positive_assessment(tmp_path):
+    root = _checkout(tmp_path)
+    group = _assessed_group(root, ["likely_true_positive", "likely_false_positive", "likely_true_positive"])
+    text, *_ = _write_report(tmp_path, {"code": [group], "secret": [], "dependency": [], "config": []}, src_root=root)
+    section = _rule_section(text)
+    # Every assessment is read before the rule's fix, and the fix says whom it is for.
+    assert section.rindex("Assessment: ") < section.index("Recommendation") < section.index("Revoke the secret.")
+    assert ("This applies to the 2 findings not assessed as false positives (#1, #3). The likely false positive (#2) "
+            "only needs the check in its advisory and a Safe decision with the reason.") in section
+    # The false positive's heading does not read as an instruction to rotate the password.
+    assert "#2 Likely false positive. The rule says: Revoke and change this password." in section
+    assert "#1 Revoke and change this password." in section
+
+
+def test_a_rule_whose_findings_are_all_false_positives_gives_its_fix_only_conditionally(tmp_path):
+    root = _checkout(tmp_path)
+    group = _assessed_group(root, ["likely_false_positive", "likely_false_positive"])
+    text, *_ = _write_report(tmp_path, {"code": [group], "secret": [], "dependency": [], "config": []}, src_root=root)
+    section = _rule_section(text)
+    assert section.rindex("Assessment: False positive") < section.index("Recommendation")
+    assert ("Every finding of this rule was assessed as a likely false positive: do the check in its advisory and "
+            "mark it Safe with the reason. Fix a finding as follows only if its check shows it is real:") in section
+
+
+def test_grouped_findings_also_get_the_fix_after_their_assessment(tmp_path):
+    root = _checkout(tmp_path)
+    for i in range(12):
+        (root / "lib" / f"g{i:02}.dart").write_text("a\nrisky()\n")
+    group = _assessed_group(root, [])
+    for i in range(12):
+        verdict = "likely_false_positive" if i < 4 else "needs_context"
+        group.occurrences.append(sdt_to_docx.Occurrence(f"lib/g{i:02}.dart", 2, "m", "Open", "", ai={
+            "verdict": verdict, "confidence": "high", "reason": "r", "check": "c", "suggested_fix": "s"}))
+    text, *_ = _write_report(tmp_path, {"code": [group], "secret": [], "dependency": [], "config": []}, src_root=root)
+    section = _rule_section(text)
+    assert section.index("1.1.12 lib/g") < section.index("Recommendation") < section.index("Revoke the secret.")
+    assert ("This applies to the 8 findings not assessed as false positives. The 4 likely false positives only need "
+            "the check in their advisory and a Safe decision with the reason.") in section
+
+
 def test_report_pages_have_header_page_numbers_logo_and_repeating_table_headers(tmp_path):
     root = _checkout(tmp_path)
     found = sdt_to_docx.merge(sdt_to_docx.from_findings(DOCX_FINDINGS, root), None)

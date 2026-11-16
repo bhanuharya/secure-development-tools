@@ -12,6 +12,11 @@
   so without a cache every scan cloned the whole history of every branch again: 80 to 150 s for one large
   service on the lab. If the mirror cannot be updated, the scan clones in full as before, and a mirror unused
   for 30 days is removed. Unset (the default), nothing changes.
+- The SAST report gives a rule's fix after its findings have been assessed, not before. A rule section used to
+  open with the rule's recommendation (for a hard-coded password: revoke and rotate it), and a finding the review
+  judged a false positive was headed by the scanner's message saying the same. The recommendation now follows the
+  findings and names the ones it is for, those not assessed as false positives; a false positive is headed
+  "Likely false positive. The rule says: ...".
 
 ## 2026-11-03
 

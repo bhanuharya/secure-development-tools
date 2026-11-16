@@ -28,7 +28,7 @@ leaves Needs a Decision, Fix First and the Review Notes.
 |---|---|
 | Cover | Logo (when supplied), scope link, metadata (scanners, totals, coverage gaps), Executive Summary, Findings Summary, Changes Since Previous Scan, contents (a Word TOC field with clickable entries) |
 | Fix First | The open findings at priority P1 and P2, most urgent first, each with what moved its priority (Why) and what to do |
-| 1. Code Security | Per rule: severity, type, status, assignee, risk, recommendation, then the findings (see layout below) |
+| 1. Code Security | Per rule: severity, type, status, assignee, risk, then the findings with their assessment (see layout below), then the recommendation for the findings not assessed as false positives |
 | 2. Secret Leaks | Grouped by secret type and file (gitleaks and SonarQube reports of the same file collapse); still-in-code first, Firebase/Google client keys last ("restrict, don't rotate") |
 | 3. Dependencies & Configuration | One row per vulnerable package with all its advisories and one **Upgrade To** version (the lowest release that fixes all of them), reachability; Trivy configuration checks |
 | Resolved in SonarQube | Findings already decided there (Safe, False positive, Accepted, Fixed): one compact row each (category, finding, where, status). Kept for the audit trail, but out of the sections above, out of the Total/Needs-a-Decision counts, and not reported as fixed in Changes Since Previous Scan. The section and its contents entry appear only when there are any. |
@@ -47,6 +47,11 @@ table headers use navy (`#003F7E`).
   finding listed (line, status, assessment, evidence). Nearby lines share one excerpt, so nothing repeats and
   nothing is dropped.
 * Excerpts mark flagged lines with `>` and lines the advisory cites as evidence ("at line 92") with `*`.
+* The rule's **Recommendation** (how to fix) comes after its findings, once each one has been assessed, and says
+  which findings it is for: those not assessed as false positives. When every finding is a likely false positive,
+  it says so and gives the fix only for a finding whose check shows it is real. A finding assessed as a false
+  positive is headed "Likely false positive. The rule says: ...", so the scanner's own instruction (such as
+  "Revoke and change this password") is not read as the verdict.
 
 ### Links
 
