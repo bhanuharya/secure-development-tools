@@ -20,6 +20,10 @@ Guardrails, because tokens cost money and code is sensitive:
     --max-failures consecutive failed calls (bad model name, auth, outage) instead of
     spending more.
 
+Rules are reviewed --parallel at a time (SDT_CODEX_PARALLEL, default 4): one call takes
+tens of seconds and a large service has fifteen rules, so one at a time spends most of
+the budget waiting. The report lists rules in the same order either way.
+
   SONAR_TOKEN=... python3 tools/sdt_triage_codex.py --sonar-url http://localhost:9000 \\
       --project-key KEY --branch main --src-root source --out out/triage.json
 """
@@ -34,7 +38,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -48,6 +54,7 @@ CONTEXT_LINES = 64  # lines of surrounding code: enough to see where a flagged v
 PROMPT_VERSION = "7"  # part of every remembered verdict: change it when the prompt or context changes
 MAX_REASON = 400
 MAX_PER_CALL = 6
+DEFAULT_PARALLEL = 4
 GUIDANCE_TEXT = ("impact", "verify_fix")
 
 RESPONSE_SCHEMA = {
@@ -485,10 +492,77 @@ def review_batch(group, items, keys, shown, memory, report, codex, model, call, 
         shown[key] = (occurrence, shown[key][1], report["results"][-1])
 
 
+class _Run:
+    """What the rule reviews share: the clock, the budget and the failure count."""
+
+    def __init__(self, budget: float, max_failures: int, clock):
+        self.clock, self.budget, self.max_failures = clock, budget, max_failures
+        self.started = clock()
+        self.lock = threading.Lock()
+        self.failures = 0
+        self.stopped = ""
+
+    def remaining(self) -> float:
+        return self.budget - (self.clock() - self.started)
+
+    def stop(self, reason: str) -> None:
+        with self.lock:
+            self.stopped = self.stopped or reason
+
+    def failed(self, reason: str) -> None:
+        with self.lock:
+            self.failures += 1
+            if self.failures >= self.max_failures:
+                self.stopped = self.stopped or f"{self.failures} consecutive failed calls (last: {reason[:200]})"
+
+    def succeeded(self) -> None:
+        with self.lock:
+            self.failures = 0
+
+
+def review_group(group, run: _Run, src_root, codex, model, call, per_call_timeout, max_per_rule, memory,
+                 evidence, confirm) -> tuple[dict, dict, set]:
+    """Review one rule. Returns its part of the report, the memory entries it added or
+    changed, and the values it withheld. ``memory`` is only read: rules run side by side."""
+    part = {"calls": 0, "failed_calls": 0, "remembered": 0, "results": []}
+    if run.stopped:
+        return part, {}, set()
+    if run.remaining() < 10:
+        run.stop("time budget spent")
+        return part, {}, set()
+    local = dict(memory)
+    items, keys, shown, withheld = collect_reviews(group, src_root, model, max_per_rule, local, part, evidence)
+    hidden = set().union(*withheld.values())
+    for offset in range(0, len(items), MAX_PER_CALL):
+        if run.stopped:
+            break
+        # Account for time spent in every batch, even when a rule spans several calls.
+        remaining = run.remaining()
+        if remaining < 10:
+            run.stop("time budget spent")
+            break
+        part["calls"] += 1
+        try:
+            review_batch(group, items[offset:offset + MAX_PER_CALL], keys, shown, local, part,
+                         codex, model, call, min(per_call_timeout, remaining), withheld)
+        except (subprocess.TimeoutExpired, RuntimeError, ValueError, OSError) as exc:
+            part["failed_calls"] += 1
+            reason = "timed out" if isinstance(exc, subprocess.TimeoutExpired) else str(exc)
+            print(f"sdt_triage_codex: {group.rule}: {reason}", file=sys.stderr)
+            run.failed(reason)
+            continue
+        run.succeeded()
+    if confirm and not run.stopped:
+        second_opinions(group, shown, local, part, codex, model, call,
+                        min(per_call_timeout, run.remaining()), clock=run.clock, withheld=withheld)
+    changed = {key: value for key, value in local.items() if memory.get(key) is not value}
+    return part, changed, hidden
+
+
 def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, model: str, *,
            per_call_timeout: float, budget: float, max_rules: int, max_per_rule: int, max_failures: int,
            call=run_codex, clock=time.monotonic, memory: dict | None = None, confirm: bool = False,
-           findings: dict | None = None) -> dict:
+           findings: dict | None = None, parallel: int = 1) -> dict:
     """Review up to max_rules code rules, stopping on budget or repeated failure.
 
     ``memory`` holds earlier verdicts by memory_key: a question already answered for the same
@@ -498,51 +572,40 @@ def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, m
     With ``confirm``, every high-confidence false positive is put to a second, sceptical review
     once; its verdict is kept as ``second_opinion`` (and remembered) for anything that acts on
     the advisory, such as sdt_sonar_autoclose.py.
+
+    ``parallel`` rules are reviewed at a time. Each rule's results, memory entries and counts
+    are kept apart and merged in rule order, so the report does not depend on which call
+    finished first; a memory key names its rule, so two rules never write the same entry.
     """
-    started, failures = clock(), 0
+    run = _Run(budget, max_failures, clock)
     report = {"engine": "codex", "model": model, "advisory": True,
               "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
               "calls": 0, "failed_calls": 0, "remembered": 0, "stopped": "", "results": []}
     memory = {} if memory is None else memory
-    all_hidden: set = set()
     evidence = finding_evidence(findings or {})
 
-    def finish():
-        safe_memory = redact_tree(memory, all_hidden)
-        memory.clear()
-        memory.update(safe_memory)
-        return redact_tree(report, all_hidden)
-    for group in groups[:max_rules]:
-        remaining = budget - (clock() - started)
-        if remaining < 10:
-            report["stopped"] = "time budget spent"
-            break
-        items, keys, shown, withheld = collect_reviews(group, src_root, model, max_per_rule, memory, report, evidence)
-        all_hidden.update(set().union(*withheld.values()))
-        for offset in range(0, len(items), MAX_PER_CALL):
-            # Account for time spent in every batch, even when a rule spans several calls.
-            remaining = budget - (clock() - started)
-            if remaining < 10:
-                report["stopped"] = "time budget spent"
-                return finish()
-            report["calls"] += 1
-            try:
-                review_batch(group, items[offset:offset + MAX_PER_CALL], keys, shown, memory, report,
-                             codex, model, call, min(per_call_timeout, remaining), withheld)
-            except (subprocess.TimeoutExpired, RuntimeError, ValueError, OSError) as exc:
-                failures += 1
-                report["failed_calls"] += 1
-                reason = "timed out" if isinstance(exc, subprocess.TimeoutExpired) else str(exc)
-                print(f"sdt_triage_codex: {group.rule}: {reason}", file=sys.stderr)
-                if failures >= max_failures:
-                    report["stopped"] = f"{failures} consecutive failed calls (last: {reason[:200]})"
-                    return finish()
-                continue
-            failures = 0
-        if confirm:
-            second_opinions(group, shown, memory, report, codex, model, call,
-                            min(per_call_timeout, budget - (clock() - started)), clock=clock, withheld=withheld)
-    return finish()
+    def one(group):
+        return review_group(group, run, src_root, codex, model, call, per_call_timeout, max_per_rule,
+                            memory, evidence, confirm)
+
+    selected = groups[:max_rules]
+    if parallel > 1 and len(selected) > 1:
+        with ThreadPoolExecutor(max_workers=min(parallel, len(selected))) as pool:
+            parts = list(pool.map(one, selected))
+    else:
+        parts = [one(group) for group in selected]
+    all_hidden: set = set()
+    for part, changed, hidden in parts:
+        for name in ("calls", "failed_calls", "remembered"):
+            report[name] += part[name]
+        report["results"].extend(part["results"])
+        memory.update(changed)
+        all_hidden |= hidden
+    report["stopped"] = run.stopped
+    safe_memory = redact_tree(memory, all_hidden)
+    memory.clear()
+    memory.update(safe_memory)
+    return redact_tree(report, all_hidden)
 
 
 def second_opinions(group, shown: dict, memory: dict, report: dict, codex: str, model: str, call, timeout: float,
@@ -598,6 +661,8 @@ def main() -> int:
     ap.add_argument("--max-rules", type=int, default=15)
     ap.add_argument("--max-per-rule", type=int, default=6)
     ap.add_argument("--max-failures", type=int, default=2, help="stop after this many consecutive failed calls")
+    ap.add_argument("--parallel", type=int, default=int(os.environ.get("SDT_CODEX_PARALLEL", DEFAULT_PARALLEL)),
+                    help="rules reviewed at a time (default: $SDT_CODEX_PARALLEL, else %(default)s)")
     ap.add_argument("--memory", type=Path, help="file of remembered verdicts (default: $SDT_TRIAGE_MEMORY, else "
                                                 "$SDT_STATE_DIR/triage/<project>.json, else ~/.cache/sdt/triage/); "
                                                 "unchanged code is not asked again")
@@ -628,7 +693,8 @@ def main() -> int:
     memory = {} if args.refresh else load_memory(memory_path)
     report = triage(groups, args.src_root, codex, args.model, per_call_timeout=args.per_call_timeout,
                     budget=args.budget, max_rules=args.max_rules, max_per_rule=args.max_per_rule,
-                    max_failures=args.max_failures, memory=memory, confirm=args.confirm, findings=findings)
+                    max_failures=args.max_failures, memory=memory, confirm=args.confirm, findings=findings,
+                    parallel=args.parallel)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(redact_tree(report), indent=2) + "\n")
     try:

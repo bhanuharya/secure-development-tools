@@ -202,6 +202,7 @@ status or an SDT verdict, and secret findings and secret-looking values are neve
 | `SDT_CODEX_REASONING` | `medium` | `minimal`/`low`/`medium`/`high`/`max`: reasoning depth. `medium` is the default so a single call stays under the per-call timeout; `inherit` falls back to the agent's codex config |
 | `SDT_CODEX_TIMEOUT` | `120` | seconds per call |
 | `SDT_CODEX_BUDGET` | `600` | seconds for the whole review; the step is also wrapped in `timeout`. Raise it when running a deeper model or more reasoning |
+| `SDT_CODEX_PARALLEL` | `4` | rules reviewed at a time. Each is one Codex process and one model call; lower it if the account is rate-limited, `1` for one call at a time |
 | `SDT_AI_TRIAGE` | `1` | `0` turns the review off |
 | `SDT_TRIAGE_MEMORY` | `~/.cache/sdt/triage/<project>.json` | remembered verdicts: unchanged code is not asked again |
 | `SDT_AI_AUTOCLOSE` | `0` | `1` marks the clearest false positives Safe in SonarQube (see SDT's `docs/sast-report.md`) |

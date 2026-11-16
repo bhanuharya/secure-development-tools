@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-16
+
+- The AI review asks about four rules at a time instead of one after another (`SDT_CODEX_PARALLEL`, default
+  4). A first scan of a large service made 15 to 19 calls of about 30 s each, so the step took about eight
+  minutes and could run out of `SDT_CODEX_BUDGET` before the last rules. The report, the remembered verdicts
+  and the stop after two consecutive failed calls are unchanged.
+
 ## 2026-11-03
 
 - The SAST report gives every finding a priority, P1 (act now) to P4 (fix when the code is touched), next to its
