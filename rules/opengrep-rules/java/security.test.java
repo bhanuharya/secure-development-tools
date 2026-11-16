@@ -18,12 +18,26 @@ public class SecurityTest {
     public void safe(String input) throws Exception {
         // ok: scp.java.crypto.weak-md5
         MessageDigest.getInstance("SHA-256");
+        // ok: scp.java.injection.command
+        Runtime.getRuntime().exec("ipconfig");
+        final String fixed = "uptime";
+        // ok: scp.java.injection.command
+        Runtime.getRuntime().exec(fixed);
     }
 
     public InputStream fetchFromRequest(HttpServletRequest request) throws Exception {
         // ruleid: scp.java.ssrf.request-controlled-url
         URL url = new URL(request.getParameter("url"));
         return url.openStream();
+    }
+
+    public InputStream fetchFromCookie(HttpServletRequest request) throws Exception {
+        String target = "";
+        for (javax.servlet.http.Cookie cookie : request.getCookies()) {
+            target = cookie.getValue();
+        }
+        // ruleid: scp.java.ssrf.request-controlled-url
+        return new URL(target).openStream();
     }
 
     public String fetchFromParameter(@RequestParam("target") String target, RestTemplate rest) {

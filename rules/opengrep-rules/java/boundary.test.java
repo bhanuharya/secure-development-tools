@@ -7,11 +7,14 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.UUID;
 import javax.persistence.EntityManager;
+import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpSession;
 import org.apache.commons.io.FilenameUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -70,7 +73,43 @@ public class BoundaryTest {
         return ResponseEntity.ok().headers(headers).body(content);
     }
 
+    // Cookies, header lists and @CookieValue are request data too.
+    public void readCookieFile(HttpServletRequest request) throws Exception {
+        String name = "none";
+        for (Cookie cookie : request.getCookies()) {
+            if (cookie.getName().equals("file")) {
+                name = java.net.URLDecoder.decode(cookie.getValue(), "UTF-8");
+            }
+        }
+        // ruleid: scp.java.path.request-path-to-file-operation
+        Files.newInputStream(Paths.get("/data/reports/" + name));
+    }
+
+    public byte[] readHeaderFile(HttpServletRequest request) throws Exception {
+        java.util.Enumeration<String> names = request.getHeaders("X-File");
+        String name = names.nextElement();
+        // ruleid: scp.java.path.request-path-to-file-operation
+        return Files.readAllBytes(Paths.get("/data", name));
+    }
+
+    public byte[] readCookieValue(@CookieValue("report") String report) throws Exception {
+        // ruleid: scp.java.path.request-path-to-file-operation
+        return Files.readAllBytes(Paths.get("/data/reports", report));
+    }
+
+    public byte[] readFixedCookieFile(HttpServletRequest request) throws Exception {
+        Cookie theme = new Cookie("theme", "dark");
+        // ok: scp.java.path.request-path-to-file-operation
+        return Files.readAllBytes(Paths.get("/data/themes", "default.css"));
+    }
+
     // ---- sql-string-from-request
+    public List<?> byValues(HttpServletRequest request) {
+        String[] ids = request.getParameterValues("id");
+        // ruleid: scp.java.injection.sql-string-from-request
+        return entityManager.createNativeQuery("SELECT * FROM report WHERE id = " + ids[0]).getResultList();
+    }
+
     public List<String> search(@RequestParam String name) {
         // ruleid: scp.java.injection.sql-string-from-request
         return jdbcTemplate.queryForList("SELECT name FROM customer WHERE name LIKE '%" + name + "%'", String.class);
@@ -90,6 +129,52 @@ public class BoundaryTest {
     public <T> void batchUpdate(String sql, List<Object[]> rows) {
         // ok: scp.java.injection.sql-string-from-request
         jdbcTemplate.batchUpdate(sql, rows);
+    }
+
+    // ---- request-data-in-session
+    public void rememberName(HttpServletRequest request) {
+        String key = request.getParameter("key");
+        // ruleid: scp.java.boundary.request-data-in-session
+        request.getSession().setAttribute(key, "10340");
+    }
+
+    public void rememberLegacyName(HttpServletRequest request) {
+        // ruleid: scp.java.boundary.request-data-in-session
+        request.getSession().putValue(request.getHeader("X-Key"), "10340");
+    }
+
+    public void rememberRole(HttpServletRequest request) {
+        HttpSession session = request.getSession();
+        // ruleid: scp.java.boundary.request-data-in-session
+        session.setAttribute("role", request.getHeader("X-Role"));
+    }
+
+    public void rememberCookieName(HttpServletRequest request, HttpSession session) {
+        for (Cookie cookie : request.getCookies()) {
+            // ruleid: scp.java.boundary.request-data-in-session
+            session.setAttribute(cookie.getValue(), Boolean.TRUE);
+        }
+    }
+
+    public void rememberEveryParameter(HttpServletRequest request) {
+        java.util.Enumeration<String> names = request.getParameterNames();
+        while (names.hasMoreElements()) {
+            String name = names.nextElement();
+            // ruleid: scp.java.boundary.request-data-in-session
+            request.getSession().setAttribute(name, Boolean.TRUE);
+        }
+    }
+
+    public void rememberChainedValue(HttpServletRequest request) {
+        // The vendored tainted-session-from-http-request rule reports this one.
+        // ok: scp.java.boundary.request-data-in-session
+        request.getSession().setAttribute("lastSearch", request.getParameter("q"));
+    }
+
+    public void rememberServerValue(HttpServletRequest request, String verifiedUserId) {
+        HttpSession session = request.getSession();
+        // ok: scp.java.boundary.request-data-in-session
+        session.setAttribute("userId", verifiedUserId);
     }
 
     // ---- noop-security-check
