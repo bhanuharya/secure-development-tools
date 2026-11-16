@@ -415,7 +415,7 @@ RULE_CHECKS = [
 ]
 GENERIC = ("Trace the value used at the flagged line back to its source: it is a false positive if it is a constant "
            "or app-internal value, a real issue if it comes from user, network, deep-link or file input.",
-           "Apply the rule's recommendation shown above.",
+           "Apply the rule's recommendation, given after its findings.",
            "value is constant or app-internal")
 
 

@@ -3,8 +3,9 @@
 
 One report per repository scan (a branch or a pull request), by kind of finding, code first:
 
-  1. Code Security   - per rule: severity, status, assignee, risk, recommendation, every
-                       occurrence (file, line, status) and the code around it;
+  1. Code Security   - per rule: severity, status, assignee, risk, every occurrence (file,
+                       line, status, assessment) and the code around it, then the
+                       recommendation for the occurrences not assessed as false positives;
   2. Secret Leaks    - every secret: type, file, line, commit, still in code or history only;
   3. Dependencies &  - one row per vulnerable package with its advisories, fixed version and
      Configuration     reachability, plus Trivy configuration checks;
@@ -1054,6 +1055,40 @@ def recommendations(group: Group) -> list[str]:
     return steps or ["Fix the flagged code, or record in SonarQube why it is not exploitable."]
 
 
+def _false_positive(o: "Occurrence") -> bool:
+    return bool(o.ai) and o.ai.get("verdict") == "likely_false_positive"
+
+
+def recommendation_block(group: Group, ordered: list["Occurrence"], numbered: bool) -> list[str]:
+    """The rule's fix, after its findings have been assessed: it applies to the findings not
+    assessed as false positives, and says so when some or all of them are."""
+    steps = [para(run(f"{i}. ", bold=True) + run(step), before=0, after=0)
+             for i, step in enumerate(recommendations(group), 1)]
+    out = [para(run("Recommendation", bold=True), before=160)]
+    cleared = [i for i, o in enumerate(ordered, 1) if _false_positive(o)]
+    if not cleared:
+        return out + steps
+    if len(cleared) == len(ordered):
+        lead = ("Every finding of this rule was assessed as a likely false positive: do the check in its advisory "
+                "and mark it Safe with the reason. Fix a finding as follows only if its check shows it is real:"
+                if len(ordered) > 1 else
+                "This finding was assessed as a likely false positive: do the check in its advisory and mark it "
+                "Safe with the reason. Fix it as follows only if the check shows it is real:")
+    else:
+        rest = [i for i in range(1, len(ordered) + 1) if i not in cleared]
+
+        def refs(items: list[int]) -> str:
+            return f" ({', '.join(f'#{i}' for i in items)})" if numbered else ""
+
+        lead = (f"This applies to the {plural(len(rest), 'finding')} not assessed as "
+                f"{'a false positive' if len(rest) == 1 else 'false positives'}{refs(rest)}. "
+                + (f"The likely false positive{refs(cleared)} only needs the check in its advisory"
+                   if len(cleared) == 1 else
+                   f"The {len(cleared)} likely false positives{refs(cleared)} only need the check in their advisory")
+                + " and a Safe decision with the reason.")
+    return out + [para(run(lead), before=0, after=40)] + steps
+
+
 def review_notes(report: Report) -> list[str]:
     code = [o for g in report.code for o in g.occurrences]
     if not (code or report.secrets or report.dependencies or report.config):
@@ -1500,9 +1535,6 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
         if g.risk:
             parts.append(para(run("Risk", bold=True)))
             parts += [para(run(text)) for text in g.risk]
-        parts.append(para(run("Recommendation", bold=True)))
-        parts += [para(run(f"{i}. ", bold=True) + run(step), before=0, after=0)
-                  for i, step in enumerate(recommendations(g), 1)]
         ordered = sorted(g.occurrences, key=lambda o: (o.priority.rank if o.priority else 9, o.path or "~", o.line))
         if len(ordered) <= GROUP_THRESHOLD:
             # Few findings: every one gets its own row, code excerpt and advisory.
@@ -1522,10 +1554,16 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
                                         cited=cited_lines(occurrence.ai, occurrence.line),
                                         credential=bool(sdt_advisory.CREDENTIAL_RULE.search(g.rule)))
                 if blocks:
-                    parts.append(para(run(f"#{i} ", bold=True) + run(occurrence.message or g.name), before=160, after=0))
+                    # The scanner's message often reads as an instruction ("Revoke and change this
+                    # password"): for a finding assessed as a false positive it is what the rule said.
+                    flagged = occurrence.message or g.name
+                    if _false_positive(occurrence):
+                        flagged = f"Likely false positive. The rule says: {flagged}"
+                    parts.append(para(run(f"#{i} ", bold=True) + run(flagged), before=160, after=0))
                     parts += [code_block(block) for block in blocks]
                 if occurrence.ai:
                     parts += advisory_block(occurrence.ai)
+            parts += recommendation_block(g, ordered, numbered=True)
             continue
         # Many findings: grouped by file, one row and one code excerpt per file.
         files: "OrderedDict[str, list[Occurrence]]" = OrderedDict()
@@ -1583,6 +1621,7 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
                 if o.ai and any(o.ai.get(key) for key in ("impact", "fix_steps", "fix_example", "verify_fix")):
                     parts.append(para(run(f"{where}:{o.line}", bold=True), before=120, after=20))
                     parts += advisory_block(o.ai)
+        parts += recommendation_block(g, ordered, numbered=False)
 
     # ------------------------------------------------ 2. secret leaks
     parts.append(section_heading("2. Secret Leaks", 1, "sec_secrets", page_break=True))
