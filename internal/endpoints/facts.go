@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -127,7 +128,9 @@ func runFactsWithTimeout(dir string, timeout time.Duration) ([]Fact, error) {
 	for _, x := range factExcludes {
 		args = append(args, "--exclude", x)
 	}
-	args = append(args, "--config", rules, ".")
+	// The same core budget as the rule scan: without -j the engine takes every
+	// core, which on a shared agent competes with the other scanners and builds.
+	args = append(args, "-j", strconv.Itoa(execute.ScanThreads()), "--config", rules, ".")
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()

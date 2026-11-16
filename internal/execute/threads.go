@@ -1,4 +1,4 @@
-package scanner
+package execute
 
 import (
 	"os"
@@ -12,9 +12,10 @@ import (
 // (five repositories, 30 s to 160 s scans) and used up to twice the CPU.
 const defaultScanThreads = 4
 
-// scanThreads is the number of cores the code scanner uses in one scan:
+// ScanThreads is the number of cores a code-scanning engine uses in one scan
+// (the rule scan and the endpoint fact run alike):
 // SDT_SCAN_THREADS when set, else every core up to defaultScanThreads.
-func scanThreads() int {
+func ScanThreads() int {
 	if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv("SDT_SCAN_THREADS"))); err == nil && n >= 1 {
 		return n
 	}
