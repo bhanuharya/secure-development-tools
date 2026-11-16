@@ -43,28 +43,3 @@ func SoFar() Process {
 	selfRSS, childRSS := peaks()
 	return Process{CPU: self + children, SelfMaxRSSKB: selfRSS, ChildrenMaxRSSKB: childRSS}
 }
-
-// Meter measures in-process work and the children it starts and waits for.
-type Meter struct {
-	start    time.Time
-	self     time.Duration
-	children time.Duration
-}
-
-// Start begins a measurement. Work running in other goroutines of this
-// process at the same time is counted too; meter steps that run alone.
-func Start() Meter {
-	self, children := processCPU()
-	return Meter{start: time.Now(), self: self, children: children}
-}
-
-// Stop ends the measurement. MaxRSSKB is the larger of this process's peak
-// and the largest child's peak so far.
-func (m Meter) Stop() Usage {
-	self, children := processCPU()
-	return Usage{
-		Wall:     time.Since(m.start),
-		CPU:      (self - m.self) + (children - m.children),
-		MaxRSSKB: peakRSSKB(),
-	}
-}

@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -109,7 +110,11 @@ func TestRulePackFindsThePlantedWeaknesses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("endpoints plan: %v", err)
 	}
-	inventoryParsed := inventory.Parse("test", root, inventoryTask.Stdout, "", 0)
+	inventoryReport, _, err := inventoryTask.Run(context.Background())
+	if err != nil {
+		t.Fatalf("endpoints run: %v", err)
+	}
+	inventoryParsed := inventory.Parse("test", root, inventoryReport, "", 0)
 	if inventoryParsed.Health != HealthCompleted {
 		t.Fatalf("endpoints parse: %v", inventoryParsed.Diagnostics)
 	}

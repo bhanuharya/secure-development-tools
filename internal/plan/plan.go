@@ -2,6 +2,7 @@
 package plan
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -36,12 +37,9 @@ type Task struct {
 	UpdateMode        string   `json:"updateMode,omitempty"`
 	Note              string   `json:"note,omitempty"`
 	ExecArgs          []string `json:"execArgs,omitempty"`
-	// Stdout is a native report an in-process adapter produced during
-	// planning. It is deliberately not serialized: the plan describes the
-	// invocation, not its result, and the digest stays content-free.
-	Stdout []byte `json:"-"`
-	// Usage is what that in-process work cost; like Stdout, a result, not part of the plan.
-	Usage usage.Usage `json:"-"`
+	// Run is an in-process adapter's work, done at execution time. It is not
+	// serialized: the plan describes the invocation, and planning does no scanning.
+	Run func(ctx context.Context) ([]byte, usage.Usage, error) `json:"-"`
 }
 
 // Skip records a capability-based skip with reason.

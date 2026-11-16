@@ -45,8 +45,3 @@ func peaks() (self, children int64) {
 	_ = syscall.Getrusage(syscall.RUSAGE_CHILDREN, &c)
 	return rssKB(int64(s.Maxrss)), rssKB(int64(c.Maxrss))
 }
-
-func peakRSSKB() int64 {
-	self, children := peaks()
-	return max(self, children)
-}

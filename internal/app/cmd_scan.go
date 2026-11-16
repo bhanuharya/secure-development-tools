@@ -82,7 +82,7 @@ func planTasksFull(cfg *config.ScanConfiguration, profile string, ctx *sdtctx.Sc
 			Adapter: t.Adapter, Tool: t.Tool, Executable: t.Executable, Args: t.Args,
 			Targets: t.Targets, TimeoutSeconds: t.TimeoutSeconds, Mode: t.Mode, RuleBundle: t.RuleBundle,
 			RuleChecksums: t.RuleChecksums, Excludes: t.SkippedFiles, Note: t.Note, ExecArgs: t.ExecArgs,
-			Stdout: t.Stdout, Usage: t.Usage,
+			Run: t.Run,
 		})
 		// stash report path via parallel slice hack: re-lookup after build.
 		pendingReportPaths[t.Adapter] = t.ReportPath
@@ -271,7 +271,7 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 		execTasks = append(execTasks, execute.Task{
 			Adapter: t.Adapter, Executable: t.Executable, Args: args,
 			TimeoutSeconds: t.TimeoutSeconds, Dir: scanRoot, ReportPath: pendingReportPaths[t.Adapter],
-			Stdout: t.Stdout, Usage: t.Usage,
+			Run: t.Run,
 		})
 	}
 	// A request to stop sdt (Ctrl-C, or SIGTERM from the CI server) stops the

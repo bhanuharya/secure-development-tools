@@ -6,6 +6,9 @@
   4). A first scan of a large service made 15 to 19 calls of about 30 s each, so the step took about eight
   minutes and could run out of `SDT_CODEX_BUDGET` before the last rules. The report, the remembered verdicts
   and the stop after two consecutive failed calls are unchanged.
+- `out/timings.tsv` also has each scanner's CPU seconds (`cpu:opengrep`) and peak memory in MiB (`mem:opengrep`),
+  from the run manifest's new `cpuMs` and `maxRssKb`. Compare those between builds: wall time grows whenever
+  another build shares the agent.
 - Optional clone cache: with `SDT_CLONE_CACHE` set to a folder on the agent, each repository is kept there as a
   mirror, updated at the start of every scan of it. The checkout borrows the mirror's objects and fetches only
   what is new, then copies them in so the checkout stands alone. The workspace is still wiped after each build,

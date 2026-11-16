@@ -26,19 +26,14 @@ func TestOfProcessCountsCPUAndMemory(t *testing.T) {
 	}
 }
 
-func TestMeterCountsWorkInThisProcessAndItsChildren(t *testing.T) {
+func TestSoFarCountsThisProcess(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("rusage is a unix measurement")
 	}
-	m := Start()
 	busy := time.Now()
-	for time.Since(busy) < 50*time.Millisecond {
+	for time.Since(busy) < 30*time.Millisecond {
 	}
-	if err := exec.Command("sh", "-c", "i=0; while [ $i -lt 100000 ]; do i=$((i+1)); done").Run(); err != nil {
-		t.Skipf("sh not available: %v", err)
-	}
-	u := m.Stop()
-	if u.CPU < 40*time.Millisecond || u.MaxRSSKB <= 0 {
-		t.Fatalf("in-process and child work not measured: %+v", u)
+	if p := SoFar(); p.CPU < 20*time.Millisecond || p.SelfMaxRSSKB <= 0 {
+		t.Fatalf("this process's cost not measured: %+v", p)
 	}
 }

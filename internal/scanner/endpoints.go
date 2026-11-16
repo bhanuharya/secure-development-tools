@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -16,8 +17,8 @@ func init() { Register(&EndpointsAdapter{}) }
 
 // EndpointsAdapter inventories HTTP routes and reports the ones that break the
 // service's own access-control convention (SPEC §6, §8). The inventory runs in
-// process during Plan: it is pure Go plus one Opengrep facts run, and the Task
-// carries the resulting native report so no second process is needed.
+// process: pure Go plus one Opengrep facts run. Plan only describes it; the
+// work runs at execution time, beside the other scanners.
 type EndpointsAdapter struct{}
 
 // endpointsReport is the native report handed from Plan to Parse: the
@@ -39,24 +40,30 @@ func (a *EndpointsAdapter) Detect(root string, languages []string) Applicability
 }
 
 func (a *EndpointsAdapter) Plan(ctx *sdtctx.ScanContext, cfg *config.ScanConfiguration, root string) (Task, error) {
-	// Planning runs one adapter at a time, so the meter sees only this work
-	// and the fact engine it starts.
-	meter := usage.Start()
-	inv, err := endpoints.BuildInventory(root, cfg.Endpoints)
-	if err != nil {
-		return Task{}, fmt.Errorf("endpoint inventory: %w", err)
-	}
-	findings, err := endpoints.Analyze(inv, cfg.Endpoints)
-	if err != nil {
+	// A wrong convention setting (an invalid path pattern) is a planning error,
+	// found before anything runs.
+	if _, err := endpoints.Analyze(&endpoints.Inventory{Schema: endpoints.Schema}, cfg.Endpoints); err != nil {
 		return Task{}, fmt.Errorf("endpoint convention config: %w", err)
 	}
-	raw, err := json.Marshal(endpointsReport{Inventory: inv, Findings: findings})
-	if err != nil {
-		return Task{}, fmt.Errorf("render endpoint report: %w", err)
-	}
+	conv := cfg.Endpoints
 	return Task{
 		Adapter: "endpoints", Tool: "endpoints", Targets: []string{root},
-		TimeoutSeconds: 120, Mode: "in-process", Stdout: raw, Usage: meter.Stop(),
+		TimeoutSeconds: 120, Mode: "in-process",
+		Run: func(ctx context.Context) ([]byte, usage.Usage, error) {
+			inv, cost, err := endpoints.Build(ctx, root, conv)
+			if err != nil {
+				return nil, cost, fmt.Errorf("endpoint inventory: %w", err)
+			}
+			findings, err := endpoints.Analyze(inv, conv)
+			if err != nil {
+				return nil, cost, fmt.Errorf("endpoint convention config: %w", err)
+			}
+			raw, err := json.Marshal(endpointsReport{Inventory: inv, Findings: findings})
+			if err != nil {
+				return nil, cost, fmt.Errorf("render endpoint report: %w", err)
+			}
+			return raw, cost, nil
+		},
 	}, nil
 }
 

@@ -2,6 +2,7 @@
 package scanner
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/bhanuharya/secure-development-tools/internal/config"
@@ -51,12 +52,11 @@ type Task struct {
 	// ExecArgs, when set, is what runs in place of Args: an equivalent
 	// invocation that is cheaper to execute (see mergedRules).
 	ExecArgs []string
-	// Stdout, when set, is the native report an in-process adapter produced
-	// during Plan. The orchestrator skips spawning a process and hands these
-	// bytes to Parse.
-	Stdout []byte
-	// Usage is what an in-process adapter's work during Plan cost.
-	Usage usage.Usage
+	// Run, when set, is an in-process adapter's work: the orchestrator calls
+	// it at execution time, beside the other scanners and under the scan's
+	// context and the task's time limit, instead of spawning Executable. It
+	// returns the native report Parse reads and what the work cost.
+	Run func(ctx context.Context) ([]byte, usage.Usage, error)
 }
 
 // Artifact is an extra file an adapter contributes to the run's artifact
