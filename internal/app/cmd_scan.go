@@ -26,6 +26,7 @@ import (
 	"github.com/bhanuharya/secure-development-tools/internal/reachability"
 	"github.com/bhanuharya/secure-development-tools/internal/report"
 	"github.com/bhanuharya/secure-development-tools/internal/scanner"
+	"github.com/bhanuharya/secure-development-tools/internal/usage"
 )
 
 // stagedDeferralReason marks scanners skipped only because staged mode defers
@@ -81,7 +82,7 @@ func planTasksFull(cfg *config.ScanConfiguration, profile string, ctx *sdtctx.Sc
 			Adapter: t.Adapter, Tool: t.Tool, Executable: t.Executable, Args: t.Args,
 			Targets: t.Targets, TimeoutSeconds: t.TimeoutSeconds, Mode: t.Mode, RuleBundle: t.RuleBundle,
 			RuleChecksums: t.RuleChecksums, Excludes: t.SkippedFiles, Note: t.Note, ExecArgs: t.ExecArgs,
-			Stdout: t.Stdout,
+			Stdout: t.Stdout, Usage: t.Usage,
 		})
 		// stash report path via parallel slice hack: re-lookup after build.
 		pendingReportPaths[t.Adapter] = t.ReportPath
@@ -270,7 +271,7 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 		execTasks = append(execTasks, execute.Task{
 			Adapter: t.Adapter, Executable: t.Executable, Args: args,
 			TimeoutSeconds: t.TimeoutSeconds, Dir: scanRoot, ReportPath: pendingReportPaths[t.Adapter],
-			Stdout: t.Stdout,
+			Stdout: t.Stdout, Usage: t.Usage,
 		})
 	}
 	// A request to stop sdt (Ctrl-C, or SIGTERM from the CI server) stops the
@@ -302,6 +303,7 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 		execHealth := string(r.Classify())
 		health[r.Adapter] = execHealth
 		rec := report.TaskRecord{Adapter: r.Adapter, State: execHealth, NativeExit: r.NativeExit, DurationMS: r.Duration.Milliseconds(),
+			CPUMS: r.CPU.Milliseconds(), MaxRSSKB: r.MaxRSSKB,
 			Note: planned[r.Adapter].Note, SkippedFiles: planned[r.Adapter].Excludes}
 		if r.Err != nil {
 			diagnostics = append(diagnostics, fmt.Sprintf("%s execution error: %v", r.Adapter, r.Err))
@@ -639,6 +641,10 @@ func writeArtifacts(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.P
 		Tools: tools, Tasks: taskRecords,
 		Findings: report.FindingCounts{Total: len(findings), ByCategory: byCat, BySeverity: bySev, ByState: byState, ByAction: byAction},
 		AI:       report.AIMeta{Used: false},
+	}
+	if cost := usage.SoFar(); cost.CPU > 0 {
+		manifest.Resources = &report.Resources{CPUMS: cost.CPU.Milliseconds(), MaxRSSKB: cost.SelfMaxRSSKB,
+			ScannerMaxRSSKB: cost.ChildrenMaxRSSKB}
 	}
 	artifacts := []struct {
 		name   string

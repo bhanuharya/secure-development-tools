@@ -7,6 +7,7 @@ import (
 	"github.com/bhanuharya/secure-development-tools/internal/config"
 	sdtctx "github.com/bhanuharya/secure-development-tools/internal/context"
 	"github.com/bhanuharya/secure-development-tools/internal/finding"
+	"github.com/bhanuharya/secure-development-tools/internal/usage"
 )
 
 // Health mirrors execute health for policy decisions.
@@ -54,6 +55,8 @@ type Task struct {
 	// during Plan. The orchestrator skips spawning a process and hands these
 	// bytes to Parse.
 	Stdout []byte
+	// Usage is what an in-process adapter's work during Plan cost.
+	Usage usage.Usage
 }
 
 // Artifact is an extra file an adapter contributes to the run's artifact

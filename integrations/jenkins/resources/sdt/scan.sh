@@ -160,11 +160,19 @@ if sys.argv[3]:
 json.dump(report, open(sys.argv[2], "w"), indent=2)
 PY
 timing scan
-# The scanners ran side by side inside that step; their own times, from the run manifest.
+# The scanners ran side by side inside that step; their own times, from the run manifest. CPU time (cpu:,
+# seconds, all of a scanner's processes) and peak memory (mem:, MiB, its largest process) say what each
+# asked of the agent, which wall time does not when other builds share it.
 python3 - "$OUT/sdt/run-manifest.json" >> "$TIMINGS" <<'PY' || true
 import json, sys
-for task in json.load(open(sys.argv[1])).get("tasks") or []:
+tasks = json.load(open(sys.argv[1])).get("tasks") or []
+for task in tasks:
     print(f"scan:{task['adapter']}\t{task.get('durationMs', 0) // 1000}")
+for task in tasks:
+    if task.get("cpuMs"):
+        print(f"cpu:{task['adapter']}\t{task['cpuMs'] // 1000}")
+    if task.get("maxRssKb"):
+        print(f"mem:{task['adapter']}\t{task['maxRssKb'] // 1024}")
 PY
 
 # ------------------------------------------------------------------- 2. SBOM

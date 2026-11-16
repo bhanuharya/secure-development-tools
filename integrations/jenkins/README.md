@@ -268,7 +268,10 @@ the report is produced exactly as before. Check with your data policy that sendi
   large repositories were scanned in 161 s side by side that way, against 239 s one after the other.
 - **Where a scan spent its time:** `out/timings.tsv`, archived with the build, has the seconds per step (waiting
   for an agent, clone, each scanner, SonarQube analysis and import, AI review, report, fleet store). The last line
-  of the reports stage prints the same.
+  of the reports stage prints the same. For each scanner it also has the CPU seconds (`cpu:opengrep`, all of the
+  scanner's processes) and peak memory in MiB (`mem:opengrep`, its largest process), from `run-manifest.json`
+  (`cpuMs`, `maxRssKb`). Compare those between builds, not wall time: wall time grows when other builds share
+  the agent.
 - **Secrets in git history** show as project-level Vulnerabilities (`sdt:secret-in-history`). Rotate the credential,
   then mark the issue *Accepted* with the rotation reference as comment.
 - **Noisy rules:** `python3 tools/sdt_rule_precision.py --database $SDT_FLEET_DATABASE` in SDT lists precision per

@@ -9,6 +9,7 @@ import (
 	sdtctx "github.com/bhanuharya/secure-development-tools/internal/context"
 	"github.com/bhanuharya/secure-development-tools/internal/endpoints"
 	"github.com/bhanuharya/secure-development-tools/internal/finding"
+	"github.com/bhanuharya/secure-development-tools/internal/usage"
 )
 
 func init() { Register(&EndpointsAdapter{}) }
@@ -38,6 +39,9 @@ func (a *EndpointsAdapter) Detect(root string, languages []string) Applicability
 }
 
 func (a *EndpointsAdapter) Plan(ctx *sdtctx.ScanContext, cfg *config.ScanConfiguration, root string) (Task, error) {
+	// Planning runs one adapter at a time, so the meter sees only this work
+	// and the fact engine it starts.
+	meter := usage.Start()
 	inv, err := endpoints.BuildInventory(root, cfg.Endpoints)
 	if err != nil {
 		return Task{}, fmt.Errorf("endpoint inventory: %w", err)
@@ -52,7 +56,7 @@ func (a *EndpointsAdapter) Plan(ctx *sdtctx.ScanContext, cfg *config.ScanConfigu
 	}
 	return Task{
 		Adapter: "endpoints", Tool: "endpoints", Targets: []string{root},
-		TimeoutSeconds: 120, Mode: "in-process", Stdout: raw,
+		TimeoutSeconds: 120, Mode: "in-process", Stdout: raw, Usage: meter.Stop(),
 	}, nil
 }
 

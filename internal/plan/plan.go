@@ -11,6 +11,7 @@ import (
 	"github.com/bhanuharya/secure-development-tools/internal/config"
 	sdtctx "github.com/bhanuharya/secure-development-tools/internal/context"
 	"github.com/bhanuharya/secure-development-tools/internal/policy"
+	"github.com/bhanuharya/secure-development-tools/internal/usage"
 )
 
 const SchemaVersion = "secure-dev/plan/v1alpha1"
@@ -39,6 +40,8 @@ type Task struct {
 	// planning. It is deliberately not serialized: the plan describes the
 	// invocation, not its result, and the digest stays content-free.
 	Stdout []byte `json:"-"`
+	// Usage is what that in-process work cost; like Stdout, a result, not part of the plan.
+	Usage usage.Usage `json:"-"`
 }
 
 // Skip records a capability-based skip with reason.

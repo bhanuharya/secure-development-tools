@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/bhanuharya/secure-development-tools/internal/usage"
 )
 
 func readFile(p string) ([]byte, error) { return os.ReadFile(p) }
@@ -30,6 +32,8 @@ type Task struct {
 	// Stdout, when non-nil, is an already-produced native report: the
 	// adapter did its work in-process, so no process is spawned.
 	Stdout []byte
+	// Usage is what that in-process work cost; it becomes the result's cost.
+	Usage usage.Usage
 }
 
 // Result captures a completed task.
@@ -40,7 +44,11 @@ type Result struct {
 	StderrRedacted string
 	TimedOut       bool
 	Duration       time.Duration
-	Err            error
+	// CPU and MaxRSSKB are the scanner's CPU time and peak resident memory
+	// (see usage.OfProcess); zero when not measured.
+	CPU      time.Duration
+	MaxRSSKB int64
+	Err      error
 }
 
 // Health classifies the outcome.
@@ -91,7 +99,7 @@ func RunOne(ctx context.Context, t Task, redact func(string) string) Result {
 		if err := ctx.Err(); err != nil {
 			return Result{Adapter: t.Adapter, Err: fmt.Errorf("%s cancelled: %w", t.Adapter, err)}
 		}
-		return Result{Adapter: t.Adapter, Stdout: t.Stdout}
+		return Result{Adapter: t.Adapter, Stdout: t.Stdout, Duration: t.Usage.Wall, CPU: t.Usage.CPU, MaxRSSKB: t.Usage.MaxRSSKB}
 	}
 	timeout := time.Duration(t.TimeoutSeconds) * time.Second
 	if timeout <= 0 {
@@ -114,7 +122,8 @@ func RunOne(ctx context.Context, t Task, redact func(string) string) Result {
 	start := time.Now()
 	err := cmd.Run()
 	dur := time.Since(start)
-	r := Result{Adapter: t.Adapter, Duration: dur}
+	cost := usage.OfProcess(cmd.ProcessState, dur)
+	r := Result{Adapter: t.Adapter, Duration: dur, CPU: cost.CPU, MaxRSSKB: cost.MaxRSSKB}
 	r.Stdout = stdout.Bytes()
 	if redact != nil {
 		r.StderrRedacted = redact(stderr.String())
