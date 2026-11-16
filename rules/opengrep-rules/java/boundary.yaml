@@ -26,15 +26,22 @@ rules:
       - pattern: (Part $PART).getSubmittedFileName()
       - pattern: (HttpServletRequest $REQ).getParameter(...)
       - pattern: (HttpServletRequest $REQ).getHeader(...)
+      # Annotation names spelled out, not @$ANNOTATION with a regex: matching every annotated
+      # parameter of every method and filtering afterwards cost a third of this pack's CPU time.
       - patterns:
           - pattern-either:
               - pattern-inside: |
-                  $RET $METHOD(..., @$ANNOTATION(...) String $ARG, ...) { ... }
+                  $RET $METHOD(..., @RequestParam(...) String $ARG, ...) { ... }
               - pattern-inside: |
-                  $RET $METHOD(..., @$ANNOTATION String $ARG, ...) { ... }
-          - metavariable-regex:
-              metavariable: $ANNOTATION
-              regex: ^(RequestParam|PathVariable|RequestHeader)$
+                  $RET $METHOD(..., @RequestParam String $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @PathVariable(...) String $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @PathVariable String $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @RequestHeader(...) String $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @RequestHeader String $ARG, ...) { ... }
           - focus-metavariable: $ARG
     pattern-sanitizers:
       # Directory parts removed: what is left cannot leave the target directory.
@@ -94,15 +101,26 @@ rules:
     pattern-sources:
       - pattern: (HttpServletRequest $REQ).getParameter(...)
       - pattern: (HttpServletRequest $REQ).getHeader(...)
+      # Annotation names spelled out, not @$ANNOTATION with a regex: matching every annotated
+      # parameter of every method and filtering afterwards cost a third of this pack's CPU time.
       - patterns:
           - pattern-either:
               - pattern-inside: |
-                  $RET $METHOD(..., @$ANNOTATION(...) $TYPE $ARG, ...) { ... }
+                  $RET $METHOD(..., @RequestParam(...) $TYPE $ARG, ...) { ... }
               - pattern-inside: |
-                  $RET $METHOD(..., @$ANNOTATION $TYPE $ARG, ...) { ... }
-          - metavariable-regex:
-              metavariable: $ANNOTATION
-              regex: ^(RequestParam|PathVariable|RequestHeader|RequestBody)$
+                  $RET $METHOD(..., @RequestParam $TYPE $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @PathVariable(...) $TYPE $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @PathVariable $TYPE $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @RequestHeader(...) $TYPE $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @RequestHeader $TYPE $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @RequestBody(...) $TYPE $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @RequestBody $TYPE $ARG, ...) { ... }
           - focus-metavariable: $ARG
     pattern-sanitizers:
       - pattern: Integer.parseInt(...)

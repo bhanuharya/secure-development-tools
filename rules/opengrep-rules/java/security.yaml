@@ -39,19 +39,26 @@ rules:
           - pattern: (HttpServletRequest $REQ).getParameter(...)
           - pattern: (HttpServletRequest $REQ).getHeader(...)
           - pattern: (HttpServletRequest $REQ).getQueryString()
+          # Annotation names spelled out, not @$ANNOTATION with a regex: matching every annotated
+          # parameter of every method and filtering afterwards cost a third of this pack's CPU time.
           - patterns:
-              - pattern-inside: |
-                  $RET $METHOD(..., @$ANNOTATION(...) $TYPE $ARG, ...) { ... }
-              - metavariable-regex:
-                  metavariable: $ANNOTATION
-                  regex: ^(RequestParam|PathVariable|RequestHeader|RequestBody)$
-              - focus-metavariable: $ARG
-          - patterns:
-              - pattern-inside: |
-                  $RET $METHOD(..., @$ANNOTATION $TYPE $ARG, ...) { ... }
-              - metavariable-regex:
-                  metavariable: $ANNOTATION
-                  regex: ^(RequestParam|PathVariable|RequestHeader|RequestBody)$
+              - pattern-either:
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam(...) $TYPE $ARG, ...) { ... }
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam $TYPE $ARG, ...) { ... }
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable(...) $TYPE $ARG, ...) { ... }
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable $TYPE $ARG, ...) { ... }
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestHeader(...) $TYPE $ARG, ...) { ... }
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestHeader $TYPE $ARG, ...) { ... }
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody(...) $TYPE $ARG, ...) { ... }
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody $TYPE $ARG, ...) { ... }
               - focus-metavariable: $ARG
     pattern-sinks:
       - patterns:
