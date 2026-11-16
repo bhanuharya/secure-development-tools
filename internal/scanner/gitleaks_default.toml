@@ -44,6 +44,11 @@ description = "Kebab-case slugs and identifiers (lowercase words joined by hyphe
 targetRules = ["generic-api-key"]
 regexes = ['''^[a-z0-9]{1,24}(?:-[a-z0-9]{1,24}){2,}$''']
 
+[[allowlists]]
+description = "JHipster's published default secrets (my-secret-token-to-change-in-production... and my-secret-key-which-should-be-changed..., plain or base64) are public placeholders, not credentials; JHipster writes them into its generated Gatling load tests. A configuration that still uses one is reported by the code rule for known default secrets, which names the risk: anyone can sign tokens with it."
+targetRules = ["generic-api-key"]
+regexes = ['''^(?:my-secret-token-to-change-in-production|my-secret-key-which-should-be-changed-in-production|bXktc2VjcmV0LXRva2VuLXRvLWNoYW5nZS1pbi1wcm9kdWN0aW9u|bXktc2VjcmV0LWtleS13aGljaC1zaG91bGQtYmUtY2hhbmdlZC1pbi1wcm9kdWN0aW9u)''']
+
 # --- Added detections --------------------------------------------------------
 
 [[rules]]

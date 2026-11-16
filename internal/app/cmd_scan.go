@@ -379,6 +379,10 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 		diagnostics = append(diagnostics, fmt.Sprintf("dedup: %d exact duplicate occurrence(s) collapsed (identical fingerprint)", dropped))
 	}
 	findings = deduped
+	if kept, dropped := collapseCrossScannerSecrets(findings); dropped > 0 {
+		diagnostics = append(diagnostics, fmt.Sprintf("dedup: %d hard-coded credential finding(s) of a code rule collapsed into the secret scanner's finding on the same line", dropped))
+		findings = kept
+	}
 
 	// Reachability (Bet 2): annotate dependency findings before policy.
 	// Best-effort and sound by construction — see internal/reachability.

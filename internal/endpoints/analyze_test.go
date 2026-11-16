@@ -204,3 +204,22 @@ func TestAnalyzeCompoundAdminSegments(t *testing.T) {
 		}
 	}
 }
+
+func TestAnalyzeCompoundAuthSegmentsArePublicByDesign(t *testing.T) {
+	protected := []endpoints.Route{
+		testRoute("POST", "/api/orders", endpoints.ProtAuthenticated, 10, testGate),
+		testRoute("POST", "/api/payments", endpoints.ProtAuthenticated, 11, testGate),
+		testRoute("PUT", "/api/profile", endpoints.ProtAuthenticated, 12, testGate),
+		testRoute("DELETE", "/api/orders/{id}", endpoints.ProtAuthenticated, 13, testGate),
+	}
+	for path, want := range map[string]int{
+		"/v1/employee-auth":   0, // a login: public by design
+		"/v1/partner_auth":    0,
+		"/v1/oauth/approvals": 1, // not an auth segment: still reported
+	} {
+		routes := append(append([]endpoints.Route{}, protected...), testRoute("POST", path, endpoints.ProtPublic, 20))
+		if got := len(analyzeDefault(t, routes...)); got != want {
+			t.Errorf("%s: %d finding(s), want %d", path, got, want)
+		}
+	}
+}

@@ -218,8 +218,9 @@ endpoints:
 ```
 
 `publicPaths` and `sensitivePaths` are regular expressions added to the built-in
-lists. The defaults cover login, registration, health, docs, webhooks and
-callbacks on the public side, and administration, internal, roles, transfer,
+lists. The defaults cover login (also a compound auth segment such as
+`/employee-auth`), registration, health, docs, webhooks and callbacks on the
+public side, and administration, internal, roles, transfer,
 withdrawal, approval and password reset on the sensitive side. `authGates`
 lists literal middleware or dependency names added to the built-in gate list,
 so a gate unknown to the defaults (`checkCaller`) protects Go, JavaScript and
