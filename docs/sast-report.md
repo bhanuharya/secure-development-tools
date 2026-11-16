@@ -140,6 +140,8 @@ Guardrails:
 * at most six occurrences per model call, including second opinions (default six per rule);
 * per-call timeout (`SDT_CODEX_TIMEOUT`, 120 s), whole-run budget (`SDT_CODEX_BUDGET`, 600 s), and a stop after
   two consecutive failed calls;
+* rules are reviewed four at a time (`SDT_CODEX_PARALLEL`; `1` asks one call at a time). The report lists them
+  in the same order either way;
 * without Codex (or with `SDT_AI_TRIAGE=0`) the step is a no-op and the deterministic advisory is used.
 
 A verdict is remembered per question (model, rule, file and the code shown) in `SDT_TRIAGE_MEMORY` (default

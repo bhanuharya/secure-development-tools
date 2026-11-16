@@ -1232,6 +1232,64 @@ def test_triage_respects_the_time_budget(tmp_path):
     assert report["stopped"] == "time budget spent" and report["calls"] < 5
 
 
+def _shuffled_answers(codex, model, prompt, timeout):
+    """A fake reviewer whose calls finish out of order: later rules answer sooner."""
+    import time as _time
+    rule = re.search(r"^Rule: r(\d+)", prompt, re.M).group(1)
+    _time.sleep(0.02 * (5 - int(rule)))
+    ids = re.findall(r"^### (o\d+):", prompt, re.M)
+    return {"results": [{"id": item, "verdict": "likely_true_positive", "confidence": "medium",
+                         "reason": f"rule r{rule} item {item}", "suggested_fix": ""} for item in ids]}
+
+
+def test_triage_side_by_side_gives_the_same_report_and_memory(tmp_path):
+    root, groups = _triage_groups(tmp_path)
+    many = [sdt_to_docx.Group(f"r{i}", "n", "Finding", "High", occurrences=list(groups[0].occurrences))
+            for i in range(5)]
+    one_memory, side_memory = {}, {}
+    one = _run_triage(root, many, _shuffled_answers, memory=one_memory)
+    side = _run_triage(root, many, _shuffled_answers, memory=side_memory, parallel=4)
+    assert one["calls"] == side["calls"] == 5 and side["stopped"] == ""
+    assert side["results"] == one["results"] and side["results"][0]["rule"] == "r0"
+    assert side_memory == one_memory and len(side_memory) == len(side["results"])
+    again = _run_triage(root, many, lambda *a: pytest.fail("all remembered"), memory=side_memory, parallel=4)
+    assert again["remembered"] == len(side["results"]) and again["calls"] == 0
+
+
+def test_triage_side_by_side_still_stops_after_consecutive_failures(tmp_path):
+    root, groups = _triage_groups(tmp_path)
+    many = [sdt_to_docx.Group(f"r{i}", "n", "Finding", "High", occurrences=list(groups[0].occurrences))
+            for i in range(12)]
+    calls = []
+
+    def call(codex, model, prompt, timeout):
+        calls.append(timeout)
+        raise RuntimeError("codex exited 1: unauthorized")
+
+    report = _run_triage(root, many, call, max_failures=2, parallel=3)
+    # Calls already under way when the second failure lands may still finish; nothing new starts.
+    assert 2 <= len(calls) <= 4 and report["failed_calls"] == len(calls) and report["results"] == []
+    assert report["stopped"].startswith("2 consecutive failed calls")
+
+
+def test_triage_parallel_comes_from_the_environment(monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setattr(sdt_triage_codex, "find_codex", lambda explicit: "codex")
+    monkeypatch.setattr(sdt_triage_codex, "triage", lambda *a, **k: seen.update(k) or {
+        "results": [], "calls": 0, "failed_calls": 0, "remembered": 0, "stopped": ""})
+    findings = tmp_path / "findings.json"
+    findings.write_text(json.dumps({"findings": []}))
+    argv = ["sdt_triage_codex.py", "--out", str(tmp_path / "t.json"), "--src-root", str(tmp_path),
+            "--findings", str(findings), "--memory", str(tmp_path / "m.json")]
+    monkeypatch.setattr(sys, "argv", argv)
+    monkeypatch.delenv("SDT_CODEX_PARALLEL", raising=False)
+    sdt_triage_codex.main()
+    assert seen["parallel"] == sdt_triage_codex.DEFAULT_PARALLEL
+    monkeypatch.setenv("SDT_CODEX_PARALLEL", "1")
+    sdt_triage_codex.main()
+    assert seen["parallel"] == 1
+
+
 def test_triage_never_sends_secret_values(tmp_path):
     stripe = "sk_" + "live_" + "0123456789abcdefghij"  # built at runtime: no key-shaped literal in the source
     code = f'const apiKey = "{stripe}";\nfinal google = "AIza' + "B" * 35 + '";\npassword: "hunter22x"'
