@@ -37,6 +37,17 @@ type Manifest struct {
 	Findings      FindingCounts  `json:"findings"`
 	Artifacts     []ArtifactRec  `json:"artifacts"`
 	AI            AIMeta         `json:"ai"`
+	// Resources is what the whole scan cost: sdt itself and every process it
+	// started. Tasks carry the same per scanner.
+	Resources *Resources `json:"resources,omitempty"`
+}
+
+// Resources is CPU time (user plus system) and peak resident memory.
+type Resources struct {
+	CPUMS int64 `json:"cpuMs"`
+	// MaxRSSKB is sdt's own peak; ScannerMaxRSSKB the largest scanner process's.
+	MaxRSSKB        int64 `json:"maxRssKb"`
+	ScannerMaxRSSKB int64 `json:"scannerMaxRssKb,omitempty"`
 }
 
 type ToolIdentity struct {
@@ -50,6 +61,10 @@ type TaskRecord struct {
 	State      string `json:"state"`
 	NativeExit int    `json:"nativeExit,omitempty"`
 	DurationMS int64  `json:"durationMs,omitempty"`
+	// CPUMS is the scanner's CPU time (user plus system, all its processes);
+	// MaxRSSKB the peak resident memory of its largest process.
+	CPUMS      int64  `json:"cpuMs,omitempty"`
+	MaxRSSKB   int64  `json:"maxRssKb,omitempty"`
 	Diagnostic string `json:"diagnostic,omitempty"`
 	// Note and SkippedFiles record what a scanner that ran normally left out on purpose.
 	Note         string   `json:"note,omitempty"`

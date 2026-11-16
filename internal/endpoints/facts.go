@@ -8,11 +8,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/bhanuharya/secure-development-tools/internal/config"
 	"github.com/bhanuharya/secure-development-tools/internal/execute"
+	"github.com/bhanuharya/secure-development-tools/internal/usage"
 )
 
 // Fact is one engine result: what kind of fact, where, and its metavariables.
@@ -103,33 +105,43 @@ const factOutputGrace = time.Second
 
 // RunFacts runs the fact rules over dir and returns parsed facts.
 func RunFacts(dir string) ([]Fact, error) {
-	return runFactsWithTimeout(dir, factRunTimeout)
+	facts, _, err := runFacts(context.Background(), dir, factRunTimeout)
+	return facts, err
 }
 
 func runFactsWithTimeout(dir string, timeout time.Duration) ([]Fact, error) {
+	facts, _, err := runFacts(context.Background(), dir, timeout)
+	return facts, err
+}
+
+// runFacts runs the fact engine under parent (a scan's cancellation and time
+// limit) and timeout, and reports what the engine process cost.
+func runFacts(parent context.Context, dir string, timeout time.Duration) ([]Fact, usage.Usage, error) {
 	bin := opengrepBinary()
 	if bin == "" {
-		return nil, fmt.Errorf("opengrep is not installed (set SDT_OPENGREP_BIN)")
+		return nil, usage.Usage{}, fmt.Errorf("opengrep is not installed (set SDT_OPENGREP_BIN)")
 	}
 	rules, err := factRulesDir()
 	if err != nil {
-		return nil, err
+		return nil, usage.Usage{}, err
 	}
 	rules, err = filepath.Abs(rules)
 	if err != nil {
-		return nil, err
+		return nil, usage.Usage{}, err
 	}
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
-		return nil, err
+		return nil, usage.Usage{}, err
 	}
 	args := []string{"scan", "--json", "--quiet", "--no-git-ignore"}
 	for _, x := range factExcludes {
 		args = append(args, "--exclude", x)
 	}
-	args = append(args, "--config", rules, ".")
+	// The same core budget as the rule scan: without -j the engine takes every
+	// core, which on a shared agent competes with the other scanners and builds.
+	args = append(args, "-j", strconv.Itoa(execute.ScanThreads()), "--config", rules, ".")
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = absDir
@@ -143,19 +155,25 @@ func runFactsWithTimeout(dir string, timeout time.Duration) ([]Fact, error) {
 	cmd.WaitDelay = factOutputGrace
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
+	started := time.Now()
 	out, err := cmd.Output()
+	cost := usage.OfProcess(cmd.ProcessState, time.Since(started))
 	if err != nil {
+		if parent.Err() != nil {
+			return nil, cost, fmt.Errorf("fact run stopped: %w", parent.Err())
+		}
 		if ctx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("opengrep timed out after %s", timeout)
+			return nil, cost, fmt.Errorf("opengrep timed out after %s", timeout)
 		}
 		// 0 = clean, 1 = facts found; anything else is an engine failure.
 		if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() == 1 {
 			// Fall through: stdout still carries the results.
 		} else {
-			return nil, fmt.Errorf("opengrep failed: %v: %s", err, tail(stderr.String(), 400))
+			return nil, cost, fmt.Errorf("opengrep failed: %v: %s", err, tail(stderr.String(), 400))
 		}
 	}
-	return parseFacts(out, absDir)
+	facts, err := parseFacts(out, absDir)
+	return facts, cost, err
 }
 
 func parseFacts(raw []byte, root string) ([]Fact, error) {
@@ -226,13 +244,20 @@ func tail(s string, n int) string {
 // cfg supplies the extra gate names, so a middleware unknown to the defaults
 // can still protect a route (SPEC §7).
 func BuildInventory(dir string, cfg config.EndpointsCfg) (*Inventory, error) {
+	inv, _, err := Build(context.Background(), dir, cfg)
+	return inv, err
+}
+
+// Build is BuildInventory under a scan's context, and reports what the fact
+// engine cost (the resolver's own work is part of sdt's).
+func Build(ctx context.Context, dir string, cfg config.EndpointsCfg) (*Inventory, usage.Usage, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
-		return nil, err
+		return nil, usage.Usage{}, err
 	}
-	facts, err := RunFacts(absDir)
+	facts, cost, err := runFacts(ctx, absDir, factRunTimeout)
 	if err != nil {
-		return nil, err
+		return nil, cost, err
 	}
 	routes, unresolved := resolveFacts(facts, absDir, newGateMatcher(cfg.AuthGates))
 	routes, baseNotes := applyBasePaths(absDir, routes)
@@ -262,5 +287,5 @@ func BuildInventory(dir string, cfg config.EndpointsCfg) (*Inventory, error) {
 		Routes:     routes,
 		Summary:    summary,
 		Unresolved: unresolved,
-	}, nil
+	}, cost, nil
 }

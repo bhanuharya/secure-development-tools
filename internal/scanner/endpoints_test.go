@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"context"
 	"encoding/json"
 	"path/filepath"
 	"testing"
@@ -23,10 +24,17 @@ func TestEndpointsAdapterPlansInProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	if task.Executable != "" || task.Stdout == nil {
-		t.Fatalf("expected an in-process report, got executable %q", task.Executable)
+	if task.Executable != "" || task.Run == nil {
+		t.Fatalf("expected in-process work, got executable %q", task.Executable)
 	}
-	parsed := adapter.Parse("test", root, task.Stdout, "", 0)
+	report, cost, err := task.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if cost.CPU <= 0 || cost.MaxRSSKB <= 0 {
+		t.Fatalf("the fact engine's cost was not measured: %+v", cost)
+	}
+	parsed := adapter.Parse("test", root, report, "", 0)
 	if parsed.Health != HealthCompleted {
 		t.Fatalf("Parse health = %s: %v", parsed.Health, parsed.Diagnostics)
 	}

@@ -191,6 +191,7 @@ for the fleet runner's settings.
 - [`docs/fleet-scanning.md`](docs/fleet-scanning.md) — scheduled workspace scans, SonarQube import, fleet store, review sync
 - [`docs/sast-report.md`](docs/sast-report.md) — the per-scan SAST report (.docx) developers receive
 - [`docs/endpoints.md`](docs/endpoints.md) — the route inventory: effective protection per endpoint, convention findings, limits
+- [`docs/performance.md`](docs/performance.md) — what a scan costs (CPU, memory per scanner), how to compare two builds, rules for speed changes
 - [`SECURITY.md`](SECURITY.md) — reporting a vulnerability
 - [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [`rules/NOTICE`](rules/NOTICE) — licenses, including the vendored Semgrep rules
 - [`integrations/jenkins/`](integrations/jenkins/README.md) — Jenkins shared library, scanner image and SonarQube setup for per-PR, on-demand and nightly fleet scans

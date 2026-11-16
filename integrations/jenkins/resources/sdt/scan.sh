@@ -16,7 +16,7 @@
 #            SONAR_TEST_PATTERNS (comma-separated globs of test code; empty analyses tests as application code),
 #            SDT_REGISTRY_BLOCK_MINUTES (30: after Maven Central blocks this machine, how long Java scans
 #            read dependencies from the repository's own files without asking it again),
-#            SDT_SCAN_THREADS (cores one scan may use; empty: the code scanner takes up to 4, the others all),
+#            SDT_SCAN_THREADS (cores one scan may use; empty: the code scanner takes up to 2, the others all),
 #            SDT_SCAN_NICE (priority of everything the scan starts, 0-19; 19 gives way to all other work),
 #            SDT_SCAN_GENERATED_FILES (1: the code scan also analyses minified and generated files)
 # Writes:    $OUT/timings.tsv (seconds per step; reports.sh adds its own steps)
@@ -160,11 +160,19 @@ if sys.argv[3]:
 json.dump(report, open(sys.argv[2], "w"), indent=2)
 PY
 timing scan
-# The scanners ran side by side inside that step; their own times, from the run manifest.
+# The scanners ran side by side inside that step; their own times, from the run manifest. CPU time (cpu:,
+# seconds, all of a scanner's processes) and peak memory (mem:, MiB, its largest process) say what each
+# asked of the agent, which wall time does not when other builds share it.
 python3 - "$OUT/sdt/run-manifest.json" >> "$TIMINGS" <<'PY' || true
 import json, sys
-for task in json.load(open(sys.argv[1])).get("tasks") or []:
+tasks = json.load(open(sys.argv[1])).get("tasks") or []
+for task in tasks:
     print(f"scan:{task['adapter']}\t{task.get('durationMs', 0) // 1000}")
+for task in tasks:
+    if task.get("cpuMs"):
+        print(f"cpu:{task['adapter']}\t{task['cpuMs'] // 1000}")
+    if task.get("maxRssKb"):
+        print(f"mem:{task['adapter']}\t{task['maxRssKb'] // 1024}")
 PY
 
 # ------------------------------------------------------------------- 2. SBOM

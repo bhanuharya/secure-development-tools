@@ -196,10 +196,14 @@ func toStringList(v any, cweNormalize bool) []string {
 
 // detectLanguages is a lightweight filename-based detector.
 func detectLanguages(root string) []string {
+	// Every language a rule folder exists for, the vendored ones included: what
+	// is not detected here is not scanned (ruleFiles loads only these folders).
 	exts := map[string]string{
-		".py": "python", ".js": "javascript", ".ts": "typescript",
-		".go": "go", ".java": "java", ".kt": "kotlin", ".yaml": "yaml", ".yml": "yaml",
+		".py": "python", ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript", ".cjs": "javascript",
+		".ts": "typescript", ".tsx": "typescript", ".mts": "typescript", ".cts": "typescript",
+		".go": "go", ".java": "java", ".kt": "kotlin", ".kts": "kotlin", ".yaml": "yaml", ".yml": "yaml",
 		".dart": "dart", ".tf": "hcl", ".hcl": "hcl",
+		".c": "c", ".h": "c", ".php": "php", ".rs": "rust", ".json": "json",
 	}
 	found := map[string]bool{}
 	_ = filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
