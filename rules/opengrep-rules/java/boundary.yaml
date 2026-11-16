@@ -25,7 +25,16 @@ rules:
       - pattern: (MultipartFile $UPLOAD).getOriginalFilename()
       - pattern: (Part $PART).getSubmittedFileName()
       - pattern: (HttpServletRequest $REQ).getParameter(...)
+      - pattern: (HttpServletRequest $REQ).getParameterValues(...)
+      - pattern: (HttpServletRequest $REQ).getParameterMap()
+      - pattern: (HttpServletRequest $REQ).getParameterNames()
+      - pattern: (HttpServletRequest $REQ).getHeaderNames()
+      - pattern: (HttpServletRequest $REQ).getQueryString()
       - pattern: (HttpServletRequest $REQ).getHeader(...)
+      - pattern: (HttpServletRequest $REQ).getHeaders(...)
+      # A cookie's value is what the browser, or whoever sends the request, chose.
+      - pattern: (HttpServletRequest $REQ).getCookies()
+      - pattern: (Cookie $COOKIE).getValue()
       # Annotation names spelled out, not @$ANNOTATION with a regex: matching every annotated
       # parameter of every method and filtering afterwards cost a third of this pack's CPU time.
       - patterns:
@@ -42,6 +51,10 @@ rules:
                   $RET $METHOD(..., @RequestHeader(...) String $ARG, ...) { ... }
               - pattern-inside: |
                   $RET $METHOD(..., @RequestHeader String $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @CookieValue(...) String $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @CookieValue String $ARG, ...) { ... }
           - focus-metavariable: $ARG
     pattern-sanitizers:
       # Directory parts removed: what is left cannot leave the target directory.
@@ -52,7 +65,22 @@ rules:
       - pattern: File.createTempFile(...)
       - pattern: java.io.File.createTempFile(...)
       - pattern: Files.createTempFile(...)
+    # With --taint-intrafile (opengrep 1.29), Paths.get(x) with one argument returns an untainted
+    # path, as if it were a lookup by key: Files.readAllBytes(Paths.get(name)) was not reported.
+    # The propagator and the Paths.get sinks below carry the argument's taint across it.
+    pattern-propagators:
+      - pattern: $TO = Paths.get($FROM)
+        from: $FROM
+        to: $TO
     pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: Files.$OP(Paths.get($ARG), ...)
+              - pattern: java.nio.file.Files.$OP(java.nio.file.Paths.get($ARG), ...)
+          - metavariable-regex:
+              metavariable: $OP
+              regex: ^(write|writeString|copy|move|delete|deleteIfExists|newOutputStream|newBufferedWriter|newInputStream|newBufferedReader|readAllBytes|readAllLines|readString|lines|createFile)$
+          - focus-metavariable: $ARG
       # The operation, not the construction: a File, Path or URI that is only used for a header
       # or a log line is not a sink.
       - pattern: new FileOutputStream(...)
@@ -63,7 +91,9 @@ rules:
       - pattern: new FileReader(...)
       - pattern: new RandomAccessFile(...)
       - patterns:
-          - pattern: Files.$OP(...)
+          - pattern-either:
+              - pattern: Files.$OP(...)
+              - pattern: java.nio.file.Files.$OP(...)
           - metavariable-regex:
               metavariable: $OP
               regex: ^(write|writeString|copy|move|delete|deleteIfExists|newOutputStream|newBufferedWriter|newInputStream|newBufferedReader|readAllBytes|readAllLines|readString|lines|createFile)$
@@ -100,7 +130,16 @@ rules:
     mode: taint
     pattern-sources:
       - pattern: (HttpServletRequest $REQ).getParameter(...)
+      - pattern: (HttpServletRequest $REQ).getParameterValues(...)
+      - pattern: (HttpServletRequest $REQ).getParameterMap()
+      - pattern: (HttpServletRequest $REQ).getParameterNames()
+      - pattern: (HttpServletRequest $REQ).getHeaderNames()
+      - pattern: (HttpServletRequest $REQ).getQueryString()
       - pattern: (HttpServletRequest $REQ).getHeader(...)
+      - pattern: (HttpServletRequest $REQ).getHeaders(...)
+      # A cookie's value is what the browser, or whoever sends the request, chose.
+      - pattern: (HttpServletRequest $REQ).getCookies()
+      - pattern: (Cookie $COOKIE).getValue()
       # Annotation names spelled out, not @$ANNOTATION with a regex: matching every annotated
       # parameter of every method and filtering afterwards cost a third of this pack's CPU time.
       - patterns:
@@ -121,6 +160,10 @@ rules:
                   $RET $METHOD(..., @RequestBody(...) $TYPE $ARG, ...) { ... }
               - pattern-inside: |
                   $RET $METHOD(..., @RequestBody $TYPE $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @CookieValue(...) $TYPE $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @CookieValue $TYPE $ARG, ...) { ... }
           - focus-metavariable: $ARG
     pattern-sanitizers:
       - pattern: Integer.parseInt(...)
@@ -146,6 +189,70 @@ rules:
               - pattern: (Statement $S).addBatch($SQL)
               - pattern: (Connection $C).prepareStatement($SQL, ...)
           - focus-metavariable: $SQL
+
+  - id: scp.java.boundary.request-data-in-session
+    languages: [java]
+    message: >-
+      A value from the request is stored in the session. Code that reads the session later treats
+      what it finds there as set by the server: a caller-chosen attribute name can overwrite another
+      attribute (the logged-in user, a role, a verification flag), and a caller-chosen value is
+      used without the checks request data gets. Store only values the server has validated, under
+      fixed attribute names.
+    severity: WARNING
+    metadata:
+      title: Request data stored in the session
+      category: security
+      cwe: ["CWE-501"]
+      owasp: ["A04:2021 - Insecure Design"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/src/test/**"]
+    mode: taint
+    pattern-sources:
+      - pattern: (HttpServletRequest $REQ).getParameter(...)
+      - pattern: (HttpServletRequest $REQ).getParameterValues(...)
+      - pattern: (HttpServletRequest $REQ).getParameterMap()
+      - pattern: (HttpServletRequest $REQ).getParameterNames()
+      - pattern: (HttpServletRequest $REQ).getHeaderNames()
+      - pattern: (HttpServletRequest $REQ).getQueryString()
+      - pattern: (HttpServletRequest $REQ).getHeader(...)
+      - pattern: (HttpServletRequest $REQ).getHeaders(...)
+      - pattern: (HttpServletRequest $REQ).getCookies()
+      - pattern: (Cookie $COOKIE).getValue()
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  $RET $METHOD(..., @RequestParam(...) $TYPE $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @RequestParam $TYPE $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @RequestHeader(...) $TYPE $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @RequestHeader $TYPE $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @CookieValue(...) $TYPE $ARG, ...) { ... }
+              - pattern-inside: |
+                  $RET $METHOD(..., @CookieValue $TYPE $ARG, ...) { ... }
+          - focus-metavariable: $ARG
+    pattern-sinks:
+      # The attribute name, however the session is reached.
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpSession $SESSION).$SET($NAME, $VALUE)
+              - pattern: (HttpServletRequest $REQ).getSession(...).$SET($NAME, $VALUE)
+          - metavariable-regex:
+              metavariable: $SET
+              regex: ^(setAttribute|putValue)$
+          - focus-metavariable: $NAME
+      # The value, when the session is held in a variable. Called on getSession() directly, the
+      # vendored tainted-session-from-http-request rule reports it.
+      - patterns:
+          - pattern: (HttpSession $SESSION).$SET($NAME, $VALUE)
+          - pattern-not: (HttpServletRequest $REQ).getSession(...).$SET($NAME, $VALUE)
+          - metavariable-regex:
+              metavariable: $SET
+              regex: ^(setAttribute|putValue)$
+          - focus-metavariable: $VALUE
 
   - id: scp.java.authz.noop-security-check
     languages: [java]

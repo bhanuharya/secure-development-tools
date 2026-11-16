@@ -8,7 +8,11 @@ rules:
       category: security
       cwe: ["CWE-78"]
       owasp: ["A03:2021 - Injection"]
-    pattern: Runtime.getRuntime().exec(...)
+    patterns:
+      - pattern: Runtime.getRuntime().exec(...)
+      # A command that is a constant (a literal, or a final string built from literals) has no
+      # input to inject.
+      - pattern-not: Runtime.getRuntime().exec("...", ...)
 
   - id: scp.java.crypto.weak-md5
     languages: [java]
@@ -37,8 +41,15 @@ rules:
     pattern-sources:
       - pattern-either:
           - pattern: (HttpServletRequest $REQ).getParameter(...)
+          - pattern: (HttpServletRequest $REQ).getParameterValues(...)
+          - pattern: (HttpServletRequest $REQ).getParameterMap()
+          - pattern: (HttpServletRequest $REQ).getParameterNames()
+          - pattern: (HttpServletRequest $REQ).getHeaderNames()
           - pattern: (HttpServletRequest $REQ).getHeader(...)
+          - pattern: (HttpServletRequest $REQ).getHeaders(...)
           - pattern: (HttpServletRequest $REQ).getQueryString()
+          - pattern: (HttpServletRequest $REQ).getCookies()
+          - pattern: (Cookie $COOKIE).getValue()
           # Annotation names spelled out, not @$ANNOTATION with a regex: matching every annotated
           # parameter of every method and filtering afterwards cost a third of this pack's CPU time.
           - patterns:
@@ -59,6 +70,10 @@ rules:
                       $RET $METHOD(..., @RequestBody(...) $TYPE $ARG, ...) { ... }
                   - pattern-inside: |
                       $RET $METHOD(..., @RequestBody $TYPE $ARG, ...) { ... }
+                  - pattern-inside: |
+                      $RET $METHOD(..., @CookieValue(...) $TYPE $ARG, ...) { ... }
+                  - pattern-inside: |
+                      $RET $METHOD(..., @CookieValue $TYPE $ARG, ...) { ... }
               - focus-metavariable: $ARG
     pattern-sinks:
       - patterns:

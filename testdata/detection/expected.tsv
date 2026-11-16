@@ -74,6 +74,9 @@ java/CredentialChangeById.java	password and e-mail change for the account named 
 java/PasswordCheckOpen.java	password and PIN check open without login	307,306	rules
 java/RecoverablePassword.java	stored PIN decoded back to clear text	257,916	rules
 java/PasswordChangeLog.java	encoded password passed to a log call	532	rules
+java/NioPathTraversal.java	path traversal through Paths.get, file name from a cookie	22,73	rules
+java/SessionAttributeName.java	request data used as a session attribute name	501	rules
+java/lookalike/SessionServerValue.java	server-side values stored in the session (not a trust boundary violation)	501	none
 java/default-secret/application-prod.yml	client secret left at the generator's default	1392,798	rules
 java/prod-secret/application-prod.yml	signing key and API key as literals in the production profile	798,321	rules
 java/registry-url/application-prod.yml	registry address built with the password inside	522,200	rules
