@@ -125,6 +125,9 @@ oauth:
   jwt:
     # ruleid: scp.yaml.spring.known-default-secret
     base64-secret: bXktc2VjcmV0LWtleS13aGljaC1zaG91bGQtYmUtY2hhbmdlZC1pbi1wcm9kdWN0aW9uLWFuZC1iZS1iYXNlNjQtZW5jb2RlZAo=
+  uaa:
+    # ruleid: scp.yaml.spring.known-default-secret
+    client-secret: bXktc2VjcmV0LXRva2VuLXRvLWNoYW5nZS1pbi1wcm9kdWN0aW9uLWFuZC10by1rZWVwLWluLWEtc2VjdXJlLXBsYWNl
     # ok: scp.yaml.spring.known-default-secret, scp.yaml.spring.prod-literal-secret
     secret: ${JWT_SECRET}
 partner:

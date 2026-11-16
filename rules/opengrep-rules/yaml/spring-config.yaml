@@ -176,7 +176,7 @@ rules:
       include: ["application*.yml", "application*.yaml", "application*.properties", "bootstrap*.yml", "bootstrap*.yaml"]
       exclude: ["**/src/test/**", "application-dev*", "bootstrap-dev*", "application-test*", "application-local*"]
     pattern-regex: |-
-      (?im)^[ \t]*[\w.-]*secret(?:-?key)?[ \t]*[:=][ \t]*["']?(?:internal|changeit|changeme|change-me|secret|my-secret-token-to-change-in-production|my-secret-key-which-should-be-changed-in-production-and-be-base64-encoded|bXktc2VjcmV0LWtleS13aGljaC1zaG91bGQt[A-Za-z0-9+/=]*)["']?[ \t]*(?:#[^\n]*)?$
+      (?im)^[ \t]*[\w.-]*secret(?:-?key)?[ \t]*[:=][ \t]*["']?(?:internal|changeit|changeme|change-me|secret|my-secret-token-to-change-in-production|my-secret-key-which-should-be-changed-in-production-and-be-base64-encoded|bXktc2VjcmV0LWtleS13aGljaC1zaG91bGQt[A-Za-z0-9+/=]*|bXktc2VjcmV0LXRva2VuLXRvLWNoYW5nZS1pbi1wcm9kdWN0aW9u[A-Za-z0-9+/=]*)["']?[ \t]*(?:#[^\n]*)?$
 
   - id: scp.yaml.spring.prod-literal-secret
     languages: [generic]
@@ -196,7 +196,7 @@ rules:
       include: ["application-prod*.yml", "application-prod*.yaml", "application-prod*.properties", "bootstrap-prod*.yml", "bootstrap-prod*.yaml"]
       exclude: ["**/src/test/**"]
     pattern-regex: |-
-      (?im)^[ \t]*[\w.-]*(?:secret|secret-?key|api-?key|access-?key|private-?key|token)[ \t]*[:=][ \t]*(?!["']?\$\{)(?!["']?ENC\()(?!["']?<)(?!["']?(?:true|false|null|~|\d+)["']?[ \t]*(?:#[^\n]*)?$)(?!["']?(?:internal|changeit|changeme|change-me|secret|my-secret-token-to-change-in-production|my-secret-key-which-should-be-changed-in-production-and-be-base64-encoded|bXktc2VjcmV0LWtleS13aGljaC1zaG91bGQt[A-Za-z0-9+/=]*)["']?[ \t]*(?:#[^\n]*)?$)["']?[^\s"'#{}\[\]][^\s"'#]{2,}["']?[ \t]*(?:#[^\n]*)?$
+      (?im)^[ \t]*[\w.-]*(?:secret|secret-?key|api-?key|access-?key|private-?key|token)[ \t]*[:=][ \t]*(?!["']?\$\{)(?!["']?ENC\()(?!["']?<)(?!["']?(?:true|false|null|~|\d+)["']?[ \t]*(?:#[^\n]*)?$)(?!["']?(?:internal|changeit|changeme|change-me|secret|my-secret-token-to-change-in-production|my-secret-key-which-should-be-changed-in-production-and-be-base64-encoded|bXktc2VjcmV0LWtleS13aGljaC1zaG91bGQt[A-Za-z0-9+/=]*|bXktc2VjcmV0LXRva2VuLXRvLWNoYW5nZS1pbi1wcm9kdWN0aW9u[A-Za-z0-9+/=]*)["']?[ \t]*(?:#[^\n]*)?$)["']?[^\s"'#{}\[\]][^\s"'#]{2,}["']?[ \t]*(?:#[^\n]*)?$
 
   - id: scp.yaml.spring.service-url-literal-credentials
     languages: [generic]

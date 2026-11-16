@@ -226,3 +226,20 @@ func TestGitleaksDefaultsCutCKEditorKeysAndSlugs(t *testing.T) {
 		t.Fatalf("findings with sdt defaults:\n%s\n\nwant:\n%s", got, want)
 	}
 }
+
+func TestGitleaksDefaultsCutJHipsterPlaceholders(t *testing.T) {
+	t.Setenv("GITLEAKS_CONFIG", "")
+	// JHipster's published placeholder, base64-encoded as its generated Gatling tests send it.
+	// Assembled from parts so this file does not carry it whole.
+	placeholder := base64.StdEncoding.EncodeToString([]byte("my-secret-" + "token-to-change-in-production-and-to-keep-in-a-secure-place"))
+	root := writeTree(t, map[string]string{
+		"src/test/gatling/user-files/simulations/ClientGatlingTest.scala": `        .formParam("client_secret", "` + placeholder + `")` + "\n",
+		// Keep: a real client secret in the same shape.
+		"src/test/gatling/user-files/simulations/OrderGatlingTest.scala": `        .formParam("client_secret", "` + fakeSecret("client", 40) + `")` + "\n",
+	})
+	got := strings.Join(gitleaksHits(t, config.Defaults(), root), "\n")
+	want := "generic-api-key src/test/gatling/user-files/simulations/OrderGatlingTest.scala"
+	if got != want {
+		t.Fatalf("findings with sdt defaults:\n%s\n\nwant:\n%s", got, want)
+	}
+}

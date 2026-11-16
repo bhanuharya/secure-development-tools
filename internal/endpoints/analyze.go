@@ -19,11 +19,12 @@ const (
 
 // Default path lists from SPEC §7. Config entries are extras added to these.
 // registration covers onboarding flows (POST /api/v1/registration), which are
-// public by design just like register, login and password recovery. An admin
+// public by design just like register, login and password recovery. An auth
+// segment may be compound (/employee-auth, /partner_auth); /oauth is not one. An admin
 // segment may be compound (/superadmin, /super-admin, /admin-console), but a
 // file name such as admin-console.css is not a segment of its own.
 const (
-	defaultPublicPathRegex    = `(?i)(login|logout|signin|sign-in|signup|sign-up|register$|registration|authenticate|/auth(/|$)|/token|refresh|forgot|otp|callback|webhook|notify|health|ping|public|captcha|metrics|/swagger|/docs)`
+	defaultPublicPathRegex    = `(?i)(login|logout|signin|sign-in|signup|sign-up|register$|registration|authenticate|[/_-]auth(/|$)|/token|refresh|forgot|otp|callback|webhook|notify|health|ping|public|captcha|metrics|/swagger|/docs)`
 	defaultSensitivePathRegex = `(?i)/((?:[a-z]+[-_]?)?admin(?:[-_][a-z]+)*|management|backoffice|back-office|internal|feign|actuator|registry|eureka|debug|test)(/|$)|register/bo|update-cif|/roles?(/|$)|authorit|disburs|transfer|withdraw|inject|approve|reject|reset-password|change-password|update-password|update-email|bank-account|/users/init`
 )
 

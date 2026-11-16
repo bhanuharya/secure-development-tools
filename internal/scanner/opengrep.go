@@ -68,7 +68,10 @@ func (a *OpengrepAdapter) Plan(ctx *sdtctx.ScanContext, cfg *config.ScanConfigur
 			// over Semgrep CE. Required for taint-mode rules to track
 			// sources to sinks across function boundaries. Semgrep CE
 			// rejects the flag, so it stays OpenGrep-only.
-			"--taint-intrafile")
+			"--taint-intrafile",
+			// Where each taint finding's value came from, so the sinks of one
+			// flow are reported once (collapseTaintFlows).
+			"--dataflow-traces")
 	} else {
 		options = append(options, "--quiet")
 	}
@@ -126,10 +129,13 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 				Col  int `json:"col"`
 			} `json:"end"`
 			Extra struct {
-				Message  string `json:"message"`
-				Severity string `json:"severity"`
-				Fix      string `json:"fix"`
-				Lines    string `json:"lines"`
+				Message       string `json:"message"`
+				Severity      string `json:"severity"`
+				Fix           string `json:"fix"`
+				Lines         string `json:"lines"`
+				DataflowTrace *struct {
+					TaintSource json.RawMessage `json:"taint_source"`
+				} `json:"dataflow_trace"`
 				Metadata struct {
 					Title      string `json:"title"`
 					CWE        any    `json:"cwe"`
@@ -146,6 +152,7 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 	}
 	titles := ruleTitles(rulePackDir(root))
 	var out []*finding.Finding
+	sources := map[*finding.Finding]string{}
 	for i, r := range data.Results {
 		sev := finding.MapSeverity(r.Extra.Severity)
 		if sev.Canonical == finding.SevInfo && r.Extra.Metadata.Category == "security" {
@@ -203,9 +210,19 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 		trimmedLines := strings.TrimSpace(r.Extra.Lines)
 		semCtx := fingerprintCtx(ruleID+"\n"+trimmedLines, &sl)
 		f.Fingerprint = finding.Fingerprint{Algorithm: finding.FingerprintVersion, Value: finding.FingerprintValue(f.Category, "opengrep", ruleID, rel, semCtx)}
+		if r.Extra.DataflowTrace != nil {
+			if line, col, ok := taintSourceAt(r.Extra.DataflowTrace.TaintSource); ok {
+				sources[f] = fmt.Sprintf("%s\x00%s\x00%d:%d", ruleID, rel, line, col)
+			}
+		}
 		out = append(out, f)
 	}
-	return ParseResult{Findings: out, Health: HealthCompleted}
+	out, collapsed := collapseTaintFlows(out, sources)
+	var diagnostics []string
+	if collapsed > 0 {
+		diagnostics = append(diagnostics, fmt.Sprintf("opengrep: %d further sink(s) of a reported taint flow folded into its finding", collapsed))
+	}
+	return ParseResult{Findings: out, Health: HealthCompleted, Diagnostics: diagnostics}
 }
 
 // ruleFolderAliases adds rule folders beyond the one named after a detected language:
