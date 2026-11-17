@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-17
+
+- The AI review sees the variable in a query built around a password column. Redaction read the text between the
+  quotes after `PASSWORD=` in `"... PASSWORD='" + pwd + "'"` as a secret value and sent `PASSWORD='[REDACTED]'`,
+  and then also removed `" + pwd + "` from every other line of the excerpt. The review saw a fixed query and
+  dismissed the SQL injection; with `SDT_AI_AUTOCLOSE=1` such a finding could be marked Safe. Concatenations (`+`,
+  `.`, `||`, `&`), interpolation slots (`{pwd}`, `%s`, `?`) and calls (`password = request.getParameter(...)`) now
+  stay readable; literal values are still withheld. On 196 OWASP Benchmark cases (renamed so nothing marks them as
+  test code), the review dismissed all 15 real SQL injections before and none of the 104 real cases after, while
+  still dismissing 23% of the false alarms.
+
 ## 2026-11-16
 
 - The AI review asks about four rules at a time instead of one after another (`SDT_CODEX_PARALLEL`, default

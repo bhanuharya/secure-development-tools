@@ -40,6 +40,12 @@ SECRET_WORD = (r"password|passwd|pwd|passphrase|secret|token|salt|credentials?|a
                r"(?:api|app|auth|access|aes|cookie|encryption|hmac|jwt|master|private|secret|session|signing)[._-]?key")
 SECRET_ASSIGNMENT = re.compile(
     rf"""(?i)((?:{SECRET_WORD}|auth)["']?\s*[:=]\s*)(["'`])((?:\\.|(?!\2)[^\\])*)\2""", re.S)
+# What SECRET_ASSIGNMENT finds between the quotes is code, not a value, when it closes the string and
+# concatenates ("... PASSWORD='" + pwd + "'", PHP "'" . $pwd . "'") or is only an interpolation slot
+# ({pwd}, %s, ?). Hiding it hides where the value comes from: a query built from the request then reads
+# as a fixed string, and the review dismisses a SQL injection.
+EXPRESSION_VALUE = re.compile(
+    r"""^\s*["'`]\s*(?:\+|\.|\|\||&)|(?:\+|\.|\|\||&)\s*["'`]\s*$|^(?:\{[A-Za-z_][\w.\[\]]*\}|%[sdr]|\?)$""")
 # A literal default of a secret lookup is the value the application runs with when the variable is missing:
 # env('JWT_SECRET', 'x'), env.array('APP_KEYS', ['a', 'b']), os.getenv("DB_PASSWORD", default="x"),
 # process.env.JWT_SECRET || 'x', os.getenv("DB_PASSWORD") or "x", ${JWT_SECRET:x}.
@@ -68,7 +74,8 @@ URL_PASSWORD = re.compile(r"(\b[a-z][a-z0-9+.-]*://[^/\s:@\"']+:)([^@\s/\"']+)(@
 AUTH_SCHEME = re.compile(r"(?i)\b(bearer|basic)(\s+)([A-Za-z0-9._~+/=-]{8,})")
 SECRET_CALL = re.compile(rf"""(?i)(\b(?:set|with|put)?_?(?:{SECRET_WORD})\w*\s*\(\s*)(["'`])((?:(?!\2).)+)\2""")
 BASIC_AUTH_CALL = re.compile(r"""(?i)(\b(?:set_?basic_?auth|basic_?auth|with_?basic_?auth|auth)\s*\(\s*(["'`])(?:(?!\2).)*\2\s*,\s*)(["'`])((?:(?!\3).)+)\3""")
-CONNECTION_PASSWORD = re.compile(r"""(?i)((?:^|[;"'])\s*(?:password|pwd)\s*=\s*)([^;"'\s]+)""")
+# A call on the right-hand side (password = request.getParameter(...)) is where the value comes from.
+CONNECTION_PASSWORD = re.compile(r"""(?i)((?:^|[;"'])\s*(?:password|pwd)\s*=\s*)(?![\w.$]+\s*\()([^;"'\s]+)""")
 YAML_NEXT_LINE = re.compile(rf"""(?im)^([ \t]*)([\w.-]*(?:{SECRET_WORD})[\w.-]*[ \t]*:[ \t]*(?:[|>][-+]?)?[ \t]*\n)([ \t]+)(\S[^\n]*)""")
 ANY_CONFIG_VALUE = re.compile(
     r"""(?x)^(?P<head>\s*(?:-\s+)?(?:export\s+)?["']?[\w.\-/\[\]]+["']?\s*[:=]\s*)
@@ -261,6 +268,8 @@ def redact(text: str, path: str = "", withheld: set | None = None) -> str:
     text = PLACEHOLDER_DEFAULT.sub(lambda m: hide(m.group(2), m.group(0), f"{m.group(1)}[REDACTED]{m.group(3)}"), text)
     def assignment(match: re.Match) -> str:
         value, quote = match.group(3), match.group(2)
+        if EXPRESSION_VALUE.search(value):
+            return match.group(0)
         _remember(value, withheld, quote)
         return hide(value, match.group(0), f"{match.group(1)}{quote}{_hidden(value)}{quote}")
 
