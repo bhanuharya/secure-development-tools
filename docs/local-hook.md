@@ -139,7 +139,7 @@ Measured on the same machine.
 | Disk, to build `sdt` | the Go toolchain, about 100 MB, and up to 500 MB of build cache |
 | Disk, per repository that is checked | 1.4 MB in `.git/sdt/` |
 | Memory while a commit is checked | 450 to 600 MB, all processes together, for a few seconds |
-| Processor per commit | 10 to 13 s of processor time on up to 4 threads (`SDT_SCAN_THREADS` sets the number) |
+| Processor per commit | 10 to 13 s of processor time, measured on up to 4 threads; the default is now up to 2 (`SDT_SCAN_THREADS` sets the number) |
 | Network | none: the check ran with no network interface at all |
 
 There is no server and nothing shared between developers: each machine runs its
