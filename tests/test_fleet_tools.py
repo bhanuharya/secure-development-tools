@@ -1764,6 +1764,37 @@ def test_redaction_covers_settings_files_short_values_and_addresses_but_keeps_pl
     assert redact(line, "A.java") == line
 
 
+def test_a_query_built_from_a_password_variable_keeps_the_variable():
+    # The text between the quotes after PASSWORD= is code here, not a value: hiding it made the
+    # review read a SQL injection as a fixed query and dismiss it.
+    redact = sdt_advisory.redact
+    for line in (
+        '''String sql = "SELECT * FROM USERS WHERE USERNAME='foo' AND PASSWORD='" + bar + "'";''',
+        '''String q = "select * from users where name='" + name + "' and pwd='" + pwd + "'";''',
+        '''$sql = "SELECT * FROM users WHERE password='" . $pass . "'";''',
+        '''query = f"SELECT * FROM users WHERE password='{pwd}'"''',
+        '''cursor.execute("SELECT * FROM users WHERE password='%s'" % pwd)''',
+    ):
+        assert redact(line, "A.java") == line, line
+    # A call is where the value comes from, not the value.
+    line = 'password = request.getParameter("password");'
+    assert redact(line, "A.java") == line
+    # Literals next to such code are still withheld.
+    value = "S3cret" + "Value42"  # built at runtime: no key-shaped literal in the source
+    assert value not in redact(f'''String sql = "UPDATE u SET password='{value}' WHERE id=" + id;''', "A.java")
+    assert value not in redact(f'password = "{value}";', "A.java")
+
+
+def test_a_concatenation_is_not_withheld_from_the_other_lines():
+    lines = {
+        10: '''    String sql = "SELECT * FROM USERS WHERE PASSWORD='" + bar + "'";''',
+        11: '''    log.info("query: '" + bar + "'");''',
+    }
+    withheld: set = set()
+    out = sdt_advisory.redact_lines(lines, "A.java", withheld=withheld)
+    assert out == lines and not withheld
+
+
 def test_the_line_a_credential_rule_flags_shows_no_value_at_all():
     flagged = sdt_advisory.redact_credential_line
     line = flagged('return DriverManager.getConnection(url, "app", "R00t!Pw");', "Db.java")
