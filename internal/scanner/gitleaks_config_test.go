@@ -204,15 +204,15 @@ func TestGitleaksDefaultsCutCKEditorKeysAndSlugs(t *testing.T) {
 	license := ckeditorLicense()
 	// A real app token (HS256, no CKEditor markers) must survive the jwt allowlist.
 	realJWT := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`)) + "." +
-		base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"42","role":"admin","iss":"mstock-api"}`)) + "." +
+		base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"42","role":"admin","iss":"example-api"}`)) + "." +
 		base64.RawURLEncoding.EncodeToString([]byte(fakeSecret("jwtsig", 32)))
 	root := writeTree(t, map[string]string{
 		// Cut: CKEditor license key in a Strapi content-type schema and the generated types.
 		"src/api/article/content-types/article/schema.json": `{"body":{"type":"customField","options":{"licenseKey":"` + license + `"}}}` + "\n",
 		"types/generated/components.d.ts":                   "  body: { licenseKey: '" + license + "' };\n",
 		// Cut: kebab-case content slugs in seed data. Assembled, so this file is not itself flagged.
-		"src/seeds/data/csr-events.data.ts": "  { key: '" + "2024-" + "christmas-desa-putera" + "' },\n" +
-			"  { key: '" + "2023-" + "live-trading-jendela" + "' },\n",
+		"src/seeds/data/events.data.ts": "  { key: '" + "2024-" + "xmas-jumble-fiesta" + "' },\n" +
+			"  { key: '" + "2023-" + "kickoff-zumba-jamboree" + "' },\n",
 		// Keep: a genuine application JWT, and a real generic key that is not a slug.
 		"src/auth.ts": "const session = '" + realJWT + "'\n",
 		"src/cfg.ts":  "const apiKey = '" + fakeSecret("realkey", 32) + "'\n",

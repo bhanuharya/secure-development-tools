@@ -1,8 +1,6 @@
 package scanner
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -87,8 +85,10 @@ func TestGitleaksHistoryScanKeepsBothSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	git("init", "-q")
-	// Throwaway random values, generated per run: never real credentials.
-	first, second := randomHex(t), randomHex(t)
+	// Fake values assembled at run time, so the source holds no secret-looking literal. Not random: a
+	// random hex value is at or below gitleaks' entropy floor (3.5) about one time in five, and the
+	// test then failed for a missing secret, not for a merged one.
+	first, second := fakeSecret("history-first", 32), fakeSecret("history-second", 32)
 	write("module.exports = ({ env }) => ({\n  auth: {\n    secret: env('ADMIN_JWT_SECRET', '" + first + "'),\n  },\n});\n")
 	git("add", "admin.js")
 	git("commit", "-q", "-m", "first")
@@ -118,13 +118,4 @@ func TestGitleaksHistoryScanKeepsBothSecrets(t *testing.T) {
 	if len(fingerprints) != 2 {
 		t.Fatalf("want 2 distinct secrets in admin.js, got %d findings with %d identities", len(pr.Findings), len(fingerprints))
 	}
-}
-
-func randomHex(t *testing.T) string {
-	t.Helper()
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		t.Fatal(err)
-	}
-	return hex.EncodeToString(b)
 }
