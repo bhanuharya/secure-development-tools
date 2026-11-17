@@ -2,6 +2,10 @@
 
 ## 2026-11-17
 
+- A repository name typed with a trailing slash or `.git` (`web-portal/`, `web-portal.git`) is scanned as `web-portal`.
+  The slash used to get through: the clone and scan ran, then SonarQube refused the project key and the report was
+  written into a folder the build does not keep, so the build failed with no report. A name that is still not a slug
+  (a space, `workspace/repo`) now stops the build at once, saying what to enter.
 - The AI review sees the variable in a query built around a password column. Redaction read the text between the
   quotes after `PASSWORD=` in `"... PASSWORD='" + pwd + "'"` as a secret value and sent `PASSWORD='[REDACTED]'`,
   and then also removed `" + pwd + "` from every other line of the excerpt. The review saw a fixed query and
