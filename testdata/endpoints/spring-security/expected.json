@@ -1,0 +1,202 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/api/admin/users",
+      "handler": "AdminController.list",
+      "file": "AdminController.java",
+      "line": 10,
+      "protection": "role",
+      "roles": [
+        "admin:write"
+      ],
+      "evidence": [
+        "SecurityConfig.java:10 .antMatchers(\"/api/admin/**\").hasAuthority(\"admin:write\")"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/api/admin/users/{id}/reset",
+      "handler": "AdminController.reset",
+      "file": "AdminController.java",
+      "line": 13,
+      "protection": "role",
+      "roles": [
+        "admin:write"
+      ],
+      "evidence": [
+        "SecurityConfig.java:10 .antMatchers(\"/api/admin/**\").hasAuthority(\"admin:write\")"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/api/catalog/featured",
+      "handler": "PublicController.featured",
+      "file": "PublicController.java",
+      "line": 16,
+      "protection": "public",
+      "evidence": [
+        "SecurityConfig.java:13 .antMatchers(\"/api/catalog/**\").permitAll()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/api/orders",
+      "handler": "OrdersController.list",
+      "file": "OrdersController.java",
+      "line": 11,
+      "protection": "authenticated",
+      "evidence": [
+        "SecurityConfig.java:14 .antMatchers(\"/api/**\").authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/api/orders",
+      "handler": "OrdersController.create",
+      "file": "OrdersController.java",
+      "line": 17,
+      "protection": "authenticated",
+      "evidence": [
+        "SecurityConfig.java:14 .antMatchers(\"/api/**\").authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "DELETE",
+      "path": "/api/orders/{id}",
+      "handler": "OrdersController.cancel",
+      "file": "OrdersController.java",
+      "line": 20,
+      "protection": "role",
+      "roles": [
+        "ADMIN"
+      ],
+      "evidence": [
+        "OrdersController.java:21 @PreAuthorize(\"hasRole('ADMIN')\") on cancel"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "handler": "OrdersController.get",
+      "file": "OrdersController.java",
+      "line": 14,
+      "protection": "authenticated",
+      "evidence": [
+        "SecurityConfig.java:14 .antMatchers(\"/api/**\").authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/api/register",
+      "handler": "PublicController.registerForm",
+      "file": "PublicController.java",
+      "line": 13,
+      "protection": "authenticated",
+      "evidence": [
+        "SecurityConfig.java:14 .antMatchers(\"/api/**\").authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/api/register",
+      "handler": "PublicController.register",
+      "file": "PublicController.java",
+      "line": 10,
+      "protection": "public",
+      "evidence": [
+        "SecurityConfig.java:11 .antMatchers(HttpMethod.POST, \"/api/register\").permitAll()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/api/status",
+      "handler": "PublicController.status",
+      "file": "PublicController.java",
+      "line": 19,
+      "protection": "authenticated",
+      "evidence": [
+        "SecurityConfig.java:14 .antMatchers(\"/api/**\").authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/legacy/report",
+      "handler": "LegacyController.report",
+      "file": "LegacyController.java",
+      "line": 8,
+      "protection": "authenticated",
+      "evidence": [
+        "SecurityConfig.java:15 .anyRequest().authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/management/health",
+      "handler": "HealthController.health",
+      "file": "HealthController.java",
+      "line": 8,
+      "protection": "public",
+      "evidence": [
+        "SecurityConfig.java:12 .antMatchers(\"/management/health\").permitAll()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/management/info",
+      "handler": "HealthController.info",
+      "file": "HealthController.java",
+      "line": 11,
+      "protection": "public",
+      "evidence": [
+        "SecurityConfig.java:12 .antMatchers(\"/management/info\").permitAll()"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 6,
+    "public": 4,
+    "role": 3
+  }
+}

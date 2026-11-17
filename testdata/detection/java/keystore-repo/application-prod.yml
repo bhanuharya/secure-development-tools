@@ -1,0 +1,6 @@
+# The token-signing key store ships inside the application package.
+uaa:
+  key-store:
+    name: config/tls/signing.p12
+    password: ${UAA_KEYSTORE_PASSWORD}
+    alias: signing

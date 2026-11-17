@@ -1,0 +1,10 @@
+# Names, headers, hints and placeholders, not secrets.
+CLIENT_SECRET = "client_secret"
+API_KEY = "X-Api-Key"
+JWT_SECRET = "/oauth/token"
+PASSWORD = "changeme"
+DB_PASSWORD = "At least eight characters"
+ENCRYPTION_KEY = ""
+ACCESS_TOKEN = ""
+PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----"
+TOKEN = "abc123456789"

@@ -11,23 +11,28 @@ SONAR_TOKEN=... python3 tools/sdt_to_docx.py \
   --findings out/findings.json --src-root source \
   --repository example/app --commit 2d50829cc3b8 \
   --scope-url https://bitbucket.org/example/app/branch/release/1.0 \
-  --triage triage.json --previous-findings history/findings.json --coverage coverage.txt \
+  --triage triage.json --coverage coverage.txt \
+  --previous-state history/report-state.json --state-out out/report-state.json \
   --out "SAST Report - app.docx"
 ```
 
 Either source alone works: `--sonar-url` (code findings with their review status and assignee) or
 `--findings` (SDT canonical findings). With both, code comes from SonarQube and secrets, dependencies and
-configuration come from SDT, which knows commits, versions and reachability.
+configuration come from SDT, which knows commits, versions and reachability; each takes the review status
+SonarQube holds for it (Safe, Accepted, False positive, ...), so a decision made there shows in the report and
+leaves Needs a Decision, Fix First and the Review Notes.
 
 ## What is in it
 
 | Page | Content |
 |---|---|
 | Cover | Logo (when supplied), scope link, metadata (scanners, totals, coverage gaps), Executive Summary, Findings Summary, Changes Since Previous Scan, contents (a Word TOC field with clickable entries) |
-| Fix First | Ordered to-do list: 1 confirmed real issues, 2 secrets still in the code, 3 other open Critical/High code vulnerabilities, 4 Critical/High packages that have a fix |
-| 1. Code Security | Per rule: severity, type, status, assignee, risk, recommendation, then the findings (see layout below) |
+| Fix First | The open findings at priority P1 and P2, most urgent first, each with what moved its priority (Why) and what to do |
+| 1. Code Security | Per rule: severity, type, status, assignee, risk, then the findings with their assessment (see layout below), then the recommendation for the findings not assessed as false positives |
 | 2. Secret Leaks | Grouped by secret type and file (gitleaks and SonarQube reports of the same file collapse); still-in-code first, Firebase/Google client keys last ("restrict, don't rotate") |
 | 3. Dependencies & Configuration | One row per vulnerable package with all its advisories and one **Upgrade To** version (the lowest release that fixes all of them), reachability; Trivy configuration checks |
+| Resolved in SonarQube | Findings already decided there (Safe, False positive, Accepted, Fixed): one compact row each (category, finding, where, status). Kept for the audit trail, but out of the sections above, out of the Total/Needs-a-Decision counts, and not reported as fixed in Changes Since Previous Scan. The section and its contents entry appear only when there are any. |
+| How Priority Is Set | The repository's service exposure and criticality as used, and the rules (see Priority below) |
 | Review Notes | Factual notes, then **Coverage**: what the scan could not cover (e.g. Dart lint skipped) and scanners that did not complete |
 
 Every page after the cover has a header (logo when supplied, project, scope) and a footer with "Page X of Y"; table
@@ -42,6 +47,11 @@ table headers use navy (`#003F7E`).
   finding listed (line, status, assessment, evidence). Nearby lines share one excerpt, so nothing repeats and
   nothing is dropped.
 * Excerpts mark flagged lines with `>` and lines the advisory cites as evidence ("at line 92") with `*`.
+* The rule's **Recommendation** (how to fix) comes after its findings, once each one has been assessed, and says
+  which findings it is for: those not assessed as false positives. When every finding is a likely false positive,
+  it says so and gives the fix only for a finding whose check shows it is real. A finding assessed as a false
+  positive is headed "Likely false positive. The rule says: ...", so the scanner's own instruction (such as
+  "Revoke and change this password") is not read as the verdict.
 
 ### Links
 
@@ -57,6 +67,35 @@ Every piece of text written to the report, code excerpts included, passes throug
 `password|secret|token|api_key = "..."` assignments). A test builds a full report around a planted key and
 checks it appears nowhere in the file.
 
+## Priority
+
+Every finding gets a priority from **P1** (act now) to **P4** (fix when the code is touched), shown next to its
+severity in every table; each section lists its most urgent findings first. Priority starts from the severity and
+moves one step for each fact known about the finding and the service: a review that judged it real, a test or
+example file, a package no source file imports, a secret named as a signing key or password, a service that is
+only reachable from an internal network. The rules and their guardrails are in
+[ADR 0009](adr/0009-finding-priority.md); the report states them in How Priority Is Set.
+
+What the report knows about the service comes from a repository inventory, a tab-separated file kept outside this
+repository because it names internal services:
+
+```text
+# columns are separated by tabs; lines starting with # are comments
+repository	exposure	criticality	visibility	note
+example/web-cms	internet	high		public CMS behind the CDN
+batch-jobs	internal
+```
+
+* `repository`: `workspace/slug` or the slug alone, matched against `--repository`, case-insensitive.
+* `exposure`: `internet`, `internal` (an internal network or VPN only), `none` (not deployed as a service) or
+  `unknown`. A repository that is missing, or has no exposure, counts as reachable from the internet.
+* `criticality`: `high` (money, personal data, sign-in), `normal` or `low`.
+* `visibility`: `private` or `public`.
+
+`--inventory` (or `SDT_INVENTORY`) points at the file. `--exposure`, `--criticality` and `--visibility` set the
+values for one report and win over the inventory. A value outside its list is reported on stderr and ignored, and
+an inventory that cannot be read is reported and the report is written without it: neither lowers a priority.
+
 ## The advisory
 
 Every code finding carries an **Advisory** (purple heading and labels) with fixed wording:
@@ -64,8 +103,8 @@ Every code finding carries an **Advisory** (purple heading and labels) with fixe
 | Assessment | Then |
 |---|---|
 | False positive - can be marked Safe | Evidence; Before marking Safe, confirm; Record in SonarQube |
-| Real issue - fix required | Evidence; Confirm impact; Fix |
-| Manual check required | Evidence; Check; Then |
+| Real issue - fix required | Impact; Evidence; Confirm impact; Fix; Fix steps (numbered); Example (code); Verify the fix |
+| Manual check required | Evidence; Check; Then; Fix steps when present |
 
 It never changes a SonarQube status or an SDT verdict.
 
@@ -73,24 +112,48 @@ It never changes a SonarQube status or an SDT verdict.
 what to fix, what to record when Safe), and a conclusion only on strong signals in the flagged line: test or
 example code, a log of static text, an XML namespace URL, random values used for UI/notification ids (false
 positives), or a PIN/password/token variable interpolated into a log (real issue). Same input, same report.
-A generic rule-based check is printed once per rule in the grouped layout.
+A generic rule-based check is printed once per rule in the grouped layout. For Vue/JS HTML-injection hotspots (`S6299`, `v-html`/`innerHTML`/`:href`) it reads the binding and calls it a false positive when the bound value is a constant, an i18n string, named as sanitised/validated (`safe*`/`validated*`), or produced by a sanitiser or validator - matched generically (`sanitize`, `DOMPurify`, `escapeHtml`, allow-list, ...) or by the helper names a project lists in `SDT_SANITISERS` (comma-separated). A bare binding to raw CMS/API data or an unguarded `:href` stays a manual check.
 
 **Optional model review** (`tools/sdt_triage_codex.py`): when the `codex` CLI is installed and logged in, the
 code findings are sent, rule by rule, to Codex (`SDT_CODEX_MODEL`, default `gpt-6-luna`) with the enclosing
 function as context, followed by the lines elsewhere in the same file that use the same names (where the flagged
-value is built or sanitised). The prompt's main job is ruling out false positives against a six-point checklist; the
-answer is an enforced JSON schema (verdict, confidence, evidence, check, fix). Guardrails:
+value is built or sanitised). When a matching finding's `metadata.evidence` cites `file:line` locations,
+the prompt also includes **Evidence the scanner used**: each cited line with three lines around it,
+redacted. This includes endpoint protection checks in a separate security configuration file, and works
+with `--findings` alongside SonarQube. The prompt's main job is ruling out false positives against a
+six-point checklist; the answer is an enforced JSON schema. Alongside verdict, confidence, `reason`
+(evidence), `check` and the one-line `suggested_fix` summary, every new answer includes:
+
+* `impact`: one sentence describing what an attacker or user can do, naming the route, value or call;
+* `fix_steps`: an array of 2-5 short ordered steps naming the file and line or identifier to change;
+* `fix_example`: a before/after snippet of at most 12 lines in the occurrence's language, using its
+  identifiers; empty when a snippet does not help. For secrets, the before part names the file, line
+  and key with `[REDACTED]` as the value, and the after part uses an environment or secret-store reference;
+* `verify_fix`: the test, refused request or setting that proves the fix works.
+
+A real issue requires impact, steps and verification; its example is optional. For a manual check, steps
+describe what to do if the check confirms the issue. False positives keep the new text fields empty and
+steps as `[]`. Older saved advice still renders with its original fields. Fix First and compact summaries
+use the one-line fix; full advice appears beside each occurrence, including in the grouped layout.
+All new text, each step and the example pass through redaction before triage and memory are written;
+redaction replaces secret values in place so the example's lines, keys and surrounding code remain useful.
+
+Guardrails:
 
 * only code findings are sent, never secret findings, and likely secret values are redacted first;
 * read-only sandbox, empty working directory, ephemeral session;
+* at most six occurrences per model call, including second opinions (default six per rule);
 * per-call timeout (`SDT_CODEX_TIMEOUT`, 120 s), whole-run budget (`SDT_CODEX_BUDGET`, 600 s), and a stop after
   two consecutive failed calls;
+* rules are reviewed four at a time (`SDT_CODEX_PARALLEL`; `1` asks one call at a time). The report lists them
+  in the same order either way;
 * without Codex (or with `SDT_AI_TRIAGE=0`) the step is a no-op and the deterministic advisory is used.
 
 A verdict is remembered per question (model, rule, file and the code shown) in `SDT_TRIAGE_MEMORY` (default
 `~/.cache/sdt/triage/<project>.json`). A rescan of unchanged code repeats the earlier verdict instead of asking
 again, on any branch, so the advisory is stable between reports and costs nothing when nothing changed. Edited
-code is a new question. `--refresh` asks everything again.
+code, including scanner evidence code, is a new question. The prompt version is also part of the key,
+so verdicts remembered before detailed guidance are requested again. `--refresh` asks everything again.
 
 **Automatic Safe marking** (`tools/sdt_sonar_autoclose.py`, off unless `SDT_AI_AUTOCLOSE=1`): a security hotspot
 is marked Safe in SonarQube without a person only when the model review says false positive with high confidence
@@ -107,13 +170,21 @@ validation removed, a secret logged, a setting weakened. The result is `ai-chang
 to the report. Every item points at a line the change added and says what to verify; it never blocks the build
 and never enters SonarQube. Tests, lock files and non-code files are not sent, secret values are redacted, and
 files beyond the per-review limit are named as unread rather than silently skipped.
+`SDT_AI_DIFF_REASONING` sets the change review's reasoning depth on its own (for example `low` for a
+faster, cheaper read of every pull request); unset, it uses `SDT_CODEX_REASONING` like the triage.
 
 Once reviewers decide findings in SonarQube, the cover shows "Advisory accuracy so far: agreed with X of Y".
 
 ## Trend and coverage
 
-* `--previous-findings`: the previous scan of the same branch; the report counts new, fixed and still-open
-  findings by SDT fingerprint.
+* `--state-out`: writes what this report lists (`report-state.json`): one digest per finding, no code and no
+  secret value. `--previous-state`: the file the previous report of the same branch wrote. The report then
+  counts new, fixed and still-present findings over everything it lists, SonarQube's own findings included.
+  A finding is the same one when it is the same rule on the same code line (also after the line moved), the
+  same secret (file, line, commit) or the same advisory of a package in its manifest. Fixed means the
+  previous report listed it and this one does not; a finding an exception now covers is not counted as
+  fixed. A hotspot marked Safe is still present. A previous report that read other sources (SonarQube
+  reachable then and not now) is not compared.
 * `--coverage`: a text file, one gap per line, written by the pipeline (for example when `flutter pub get`
   fails and Dart lint is skipped). Scanners that did not complete are read from `run-manifest.json`.
 

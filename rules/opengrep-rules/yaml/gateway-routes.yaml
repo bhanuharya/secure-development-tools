@@ -1,0 +1,157 @@
+# API gateway route exposure: Kong, Zuul, Spring Cloud Gateway and NGINX.
+# The weakness is the combination of a route path and the access policy around it,
+# not one YAML value, so the rules match the route block as text.
+rules:
+  - id: scp.yaml.kong.sensitive-path-routed
+    languages: [generic]
+    message: >-
+      A Kong route forwards a management, registry, internal or API-documentation path
+      (/management, /actuator, /eureka, /admin, /internal, /feign, /v1/kv, /swagger,
+      /v2/api-docs, /v3/api-docs). Whatever listens there becomes reachable from every
+      network the route is exposed to, and those endpoints often need no login or leak
+      configuration. Route only the public paths of the service; keep management and
+      registry paths on an internal listener.
+    severity: ERROR
+    metadata:
+      title: Kong route exposes a sensitive path
+      category: security
+      cwe: ["CWE-284"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: HIGH
+    paths:
+      include:
+        - "**/kong/**/*.yml"
+        - "**/kong/**/*.yaml"
+        - "*kong*.yml"
+        - "*kong*.yaml"
+        - "*deck*.yml"
+        - "*deck*.yaml"
+    pattern-regex: |-
+      (?m)^[ \t]*paths[ \t]*:[ \t]*(?:\[[^\]\n]*["']?/(?:management|actuator|jhipster-registry|eureka|admin|internal|feign|v1/kv|swagger|v2/api-docs|v3/api-docs)(?!/health(?:/|["'\s,\]]|$))(?=/|["'\s,\]]|$)|(?:#[^\n]*)?\n(?:(?![ \t]*paths[ \t]*:)[^\n]*\n){0,20}?[ \t]*-[ \t]*["']?/(?:management|actuator|jhipster-registry|eureka|admin|internal|feign|v1/kv|swagger|v2/api-docs|v3/api-docs)(?!/health(?:/|["'\s,\]]|$))(?=/|["'\s,\]]|$))
+
+  - id: scp.yaml.kong.catch-all-route
+    languages: [generic]
+    message: >-
+      A Kong route forwards every path (paths: /). Every handler the service exposes
+      becomes reachable from the route's listeners, including management endpoints,
+      health checks and debug handlers. This rule reports the catch-all path alone and
+      does not resolve which service the route points at, so check strip_path and
+      whether that service is a gateway or the registry before treating it as safe.
+      Prefer explicit paths per service.
+    severity: WARNING
+    metadata:
+      title: Kong route forwards every path
+      category: security
+      cwe: ["CWE-284"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    paths:
+      include:
+        - "**/kong/**/*.yml"
+        - "**/kong/**/*.yaml"
+        - "*kong*.yml"
+        - "*kong*.yaml"
+        - "*deck*.yml"
+        - "*deck*.yaml"
+    pattern-either:
+      - pattern-regex: |-
+          (?m)^[ \t]*paths[ \t]*:[ \t]*\[[ \t]*["']?/[ \t]*["']?[ \t]*\]
+      - pattern-regex: |-
+          (?m)^[ \t]*paths[ \t]*:[ \t]*["']?/[ \t]*["']?[ \t]*(?:#[^\n]*)?$
+      - pattern-regex: |-
+          (?m)^[ \t]*paths[ \t]*:[^\n]*\n(?:(?![ \t]*paths[ \t]*:)[^\n]*\n){0,10}?[ \t]*-[ \t]*["']?/[ \t]*["']?[ \t]*(?:#[^\n]*)?$
+
+  - id: scp.yaml.zuul.all-services-routed
+    languages: [generic]
+    message: >-
+      A Zuul gateway defines routes but does not set ignored-services: "*". Zuul then
+      creates a route for every service registered in discovery, so any internal or
+      administrative service that registers is reachable through the public gateway at
+      its service id, including the registry and management APIs. Set
+      ignored-services: "*" and list the services that are meant to be public
+      explicitly.
+    severity: WARNING
+    metadata:
+      title: Zuul routes every service without a policy
+      category: security
+      cwe: ["CWE-441"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    paths:
+      include:
+        - "application*.yml"
+        - "application*.yaml"
+        - "bootstrap*.yml"
+        - "bootstrap*.yaml"
+        - "zuul*.yml"
+        - "zuul*.yaml"
+      exclude: ["**/src/test/**"]
+    pattern-regex: |-
+      (?m)^[ \t]*zuul[ \t]*:[ \t]*(?:#[^\n]*)?\n(?!(?:(?:[ \t]+[^\n]*|[ \t]*#[^\n]*|[ \t]*)\n){0,80}?[ \t]*ignored-services[ \t]*:[ \t]*["']?\*["']?[ \t]*(?:#[^\n]*)?$)(?=(?:(?:[ \t]+[^\n]*|[ \t]*#[^\n]*|[ \t]*)\n){0,80}?[ \t]+routes[ \t]*:)
+
+  - id: scp.yaml.gateway.sensitive-path-routed
+    languages: [generic]
+    message: >-
+      A Spring Cloud Gateway predicate or a Zuul route forwards a management, registry,
+      internal or API-documentation path. The gateway exposes those endpoints to every
+      client that can reach the route, and actuator and registry endpoints often need no
+      authentication or reveal configuration and service addresses. Route only public
+      service paths through the gateway and keep the management port on an internal
+      listener.
+    severity: ERROR
+    metadata:
+      title: Gateway exposes a sensitive path
+      category: security
+      cwe: ["CWE-284"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: HIGH
+    paths:
+      include:
+        - "application*.yml"
+        - "application*.yaml"
+        - "bootstrap*.yml"
+        - "bootstrap*.yaml"
+        - "gateway*.yml"
+        - "gateway*.yaml"
+      exclude: ["**/src/test/**"]
+    pattern-either:
+      - pattern-regex: |-
+          (?m)^[ \t]*(?:-[ \t]*)?Path[ \t]*=[ \t]*["']?/(?:management|actuator|jhipster-registry|eureka|admin|internal|feign|v1/kv|swagger|v2/api-docs|v3/api-docs)(?!/health(?:/|\*|["'\s,]|$))(?=/|\*|["'\s,]|$)
+      - pattern-regex: |-
+          (?m)^[ \t]*path[ \t]*:[ \t]*["']?/(?:management|actuator|jhipster-registry|eureka|admin|internal|feign|v1/kv|swagger|v2/api-docs|v3/api-docs)(?!/health(?:/|\*|["'\s,]|$))(?=/|\*|["'\s,]|$)
+
+  - id: scp.generic.nginx.sensitive-location-proxied
+    languages: [generic]
+    message: >-
+      An NGINX location proxies a management, registry, internal or API-documentation
+      path and the block has neither an internal directive nor a deny all that comes
+      before every allow all. Access rules use the first match, so allow all followed by
+      deny all still admits everyone, and an allow directive alone still admits other
+      clients. The reverse proxy publishes those endpoints to every client that reaches
+      this server, including the actuator, registry and API documentation of the services
+      behind it. Restrict the location to an internal range (deny all plus allow for the
+      management network), mark it internal, or stop proxying it.
+    severity: ERROR
+    metadata:
+      title: NGINX proxies a sensitive path
+      category: security
+      cwe: ["CWE-284"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: HIGH
+    paths:
+      include:
+        - "*.conf"
+        - "nginx.conf"
+        - "**/nginx/**"
+        - "**/conf.d/**"
+        - "**/sites-enabled/**"
+        - "**/sites-available/**"
+    # Skip comments and stop at braces so another location cannot supply the protection.
+    # Access rules use the first match: a deny all only counts while no allow all came
+    # before it, so allow all before deny all still leaves the location public. An
+    # unrestricted CIDR (0.0.0.0/0 or ::/0) is allow all for that address family.
+    pattern-regex: |-
+      (?mxi)^[ \t]*location[ \t]+(?:=[ \t]*|~\*?[ \t]*\^?|\^~[ \t]*)?["']?/(?:management|actuator|jhipster-registry|eureka|admin|internal|feign|v1/kv|swagger|v2/api-docs|v3/api-docs)(?!/health(?:/|["'\s{]|$))(?=/|["'\s{]|$)[^\n{]*\{
+      (?!(?:[^{}\#]|\#[^\n]*(?:\n|$))*?(?:^[ \t]*|(?<=[;{])[ \t]*)internal[ \t]*;)
+      (?!(?:(?!(?:^[ \t]*|(?<=[;{])[ \t]*)allow[ \t]+(?:all|0\.0\.0\.0/0|::/0)[ \t]*;)[^{}\#]|\#[^\n]*(?:\n|$))*?(?:^[ \t]*|(?<=[;{])[ \t]*)deny[ \t]+all[ \t]*;)
+      (?:[^{}\#]|\#[^\n]*(?:\n|$))*?(?:^[ \t]*|(?<=[;{])[ \t]*)proxy_pass\b

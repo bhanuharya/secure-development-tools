@@ -1,0 +1,17 @@
+{
+  "results": [{
+    "id": "o1",
+    "verdict": "likely_true_positive",
+    "confidence": "high",
+    "reason": "SecurityConfiguration.java line 5 permits anonymous calls to updateOrder at OrdersController.java line 3.",
+    "check": "Confirm POST /api/v1/feign/orders reaches orders.save without a session.",
+    "suggested_fix": "Require the ORDERS_WRITE role for order updates.",
+    "impact": "An anonymous caller can change orders through POST /api/v1/feign/orders.",
+    "fix_steps": [
+      "In config/SecurityConfiguration.java line 5, replace permitAll() with hasRole(\"ORDERS_WRITE\").",
+      "Add an authorization test for OrdersController.updateOrder covering anonymous callers and callers without ORDERS_WRITE."
+    ],
+    "fix_example": "// Before: config/SecurityConfiguration.java:5\n.antMatchers(\"/api/v1/feign/**\").permitAll()\n// After\n.antMatchers(\"/api/v1/feign/**\").hasRole(\"ORDERS_WRITE\")",
+    "verify_fix": "POST /api/v1/feign/orders must refuse anonymous callers and callers without ORDERS_WRITE; an authorized writer succeeds."
+  }]
+}

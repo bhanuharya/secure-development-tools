@@ -47,8 +47,9 @@ neither.
   characters or 250 characters per line on average) is left out. The run manifest
   lists these files per task (`skippedFiles`); Gitleaks and Trivy still read them.
   `SDT_SCAN_GENERATED_FILES=1` scans them after all.
-- **OpenGrep runs on at most four cores.** With more it took as long or longer
-  and used up to twice the CPU. `SDT_SCAN_THREADS` sets another number.
+- **OpenGrep runs on at most two cores.** Each worker past the first costs more
+  CPU than it saves time: 4 workers took 11% less time than 2 for 37% more CPU,
+  and more than 4 took as long or longer. `SDT_SCAN_THREADS` sets another number.
 - **OpenGrep is given the rules as one merged file.** Its command line loads rule
   files one by one, 18 s for a typical scan against 2.5 s for one file with the
   same rules. The plan lists every rule file (`args`) next to the command line

@@ -1,0 +1,24 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/transfer",
+      "handler": "handle",
+      "file": "main.go",
+      "line": 7,
+      "protection": "public",
+      "evidence": [
+        "main.go:7 no gate middleware on the route",
+        "main.go:7 middleware Logger (does not match the gate list)"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "public": 1
+  }
+}

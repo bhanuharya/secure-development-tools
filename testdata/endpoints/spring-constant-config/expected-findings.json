@@ -1,0 +1,8 @@
+[
+  {
+    "rule": "scp.endpoints.sensitive-route-without-role",
+    "file": "Controller.java",
+    "line": 5,
+    "endpoint": "POST /internal/transfer"
+  }
+]

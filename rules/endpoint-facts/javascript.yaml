@@ -1,0 +1,305 @@
+# Fact rules for Express and NestJS.
+#
+# Fact rules are ordinary Opengrep rules whose id starts with "fact." and whose
+# metadata.fact names the kind. They are NOT part of the scan rule pack: they
+# live here so they never become scan findings and rules/manifest.yaml stays
+# untouched. `sdt endpoints` runs only this directory.
+#
+# Express route/use rules match any receiver ($R): the router variable may be
+# called router, api, publicRouter, ... . The resolver keeps a route only when
+# the receiver is a same-file engine/router, the file imports express, or the
+# name looks like a server (app, router, routes, api, server, ...Router); HTTP
+# clients (axios, http, request(...), ...) stay out. Route calls carry one rule
+# per arity because Opengrep binds a metavariable once per call. $PATH is any
+# expression so template literals reach the resolver unparsed by constant
+# propagation.
+#
+# NestJS decorators may be stacked in any order; Opengrep matches a decorator
+# pattern anywhere in the list, so @Get is found above @Roles and @UseGuards.
+rules:
+  # File-level markers: an express import keeps routers that another module
+  # built; a frontend import means the file is not a server at all.
+  - id: fact.js.express_import
+    languages: [javascript, typescript]
+    severity: INFO
+    message: Express module import
+    metadata:
+      fact: express_import
+    pattern-regex: |-
+      (from\s+['"]express['"]|require\(['"]express['"]\))
+
+  - id: fact.js.frontend_import
+    languages: [javascript, typescript]
+    severity: INFO
+    message: React, Vue or Angular module import
+    metadata:
+      fact: frontend_import
+    pattern-regex: |-
+      (from\s+['"](react|vue|@angular/)|require\(['"](react|vue|@angular/))
+
+  # express() creates the application; express.Router() creates a sub-router
+  # that another file may mount (the resolver then reports it as unknown).
+  - id: fact.js.engine
+    languages: [javascript, typescript]
+    severity: INFO
+    message: Express application constructor
+    metadata:
+      fact: engine
+    pattern-either:
+      - pattern: $R = express()
+      - pattern: $R = express($...ARGS)
+
+  - id: fact.js.router
+    languages: [javascript, typescript]
+    severity: INFO
+    message: Express router constructor
+    metadata:
+      fact: router
+    pattern-either:
+      - pattern: $R = express.Router($...ARGS)
+      - pattern: $R = require('express').Router($...ARGS)
+
+  # Router() is only express when the file imports it from express; the
+  # resolver applies that condition after reading the file's import fact.
+  - id: fact.js.router_fn
+    languages: [javascript, typescript]
+    severity: INFO
+    message: Router constructor call (gated on an express import)
+    metadata:
+      fact: router_fn
+    pattern: $R = Router($...ARGS)
+
+  - id: fact.js.route
+    languages: [javascript, typescript]
+    severity: INFO
+    message: Express route registration ($R.method(path, handler...))
+    metadata:
+      fact: route
+    patterns:
+      - pattern: $R.$METHOD($PATH, $A1, $...ARGS)
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: ^(get|post|put|patch|delete|all)$
+
+  # use() covers three things the resolver tells apart by the receiver and the
+  # arguments: router.use(mw) middleware order, app.use(mw) global middleware,
+  # and app.use("/prefix", mw..., router) which mounts a same-file router.
+  - id: fact.js.use1
+    languages: [javascript, typescript]
+    severity: INFO
+    message: Express middleware registration
+    metadata:
+      fact: use
+    pattern: $R.use($A1)
+
+  - id: fact.js.use2
+    languages: [javascript, typescript]
+    severity: INFO
+    message: Express middleware registration (two arguments)
+    metadata:
+      fact: use
+    pattern: $R.use($A1, $A2)
+
+  - id: fact.js.use3
+    languages: [javascript, typescript]
+    severity: INFO
+    message: Express middleware registration (three arguments)
+    metadata:
+      fact: use
+    pattern: $R.use($A1, $A2, $A3)
+
+  - id: fact.js.use4
+    languages: [javascript, typescript]
+    severity: INFO
+    message: Express middleware registration (four arguments)
+    metadata:
+      fact: use
+    pattern: $R.use($A1, $A2, $A3, $A4)
+
+  # NestJS: the class decorator carries the route prefix, the method decorator
+  # the rest of the path. Only @Controller/@Get/... make a file a controller.
+  - id: fact.nest.controller
+    languages: [typescript]
+    severity: INFO
+    message: NestJS controller and its prefix
+    metadata:
+      fact: controller
+    patterns:
+      - pattern-either:
+          - pattern: |
+              @Controller("$PREFIX")
+              class $C { ... }
+          - pattern: |
+              @Controller("$PREFIX")
+              export class $C { ... }
+          - pattern: |
+              @Controller()
+              class $C { ... }
+          - pattern: |
+              @Controller()
+              export class $C { ... }
+      - focus-metavariable: $C
+
+  - id: fact.nest.route
+    languages: [typescript]
+    severity: INFO
+    message: NestJS route decorator on a controller method
+    metadata:
+      fact: route
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              class $C { ... }
+          - pattern-inside: |
+              export class $C { ... }
+      - pattern-either:
+          - pattern: |
+              @$VERB("$PATH")
+              $M(...) { ... }
+          - pattern: |
+              @$VERB()
+              $M(...) { ... }
+      - metavariable-regex:
+          metavariable: $VERB
+          regex: ^(Get|Post|Put|Patch|Delete)$
+      - focus-metavariable: $VERB
+
+  # Guards, roles and @Public live on the class or on a method. The pattern
+  # keeps the two levels apart by what follows the decorator: a class or a
+  # method body.
+  - id: fact.nest.class_guard
+    languages: [typescript]
+    severity: INFO
+    message: NestJS class-level guard
+    metadata:
+      fact: class_guard
+    patterns:
+      - pattern-either:
+          - pattern: |
+              @UseGuards($G1)
+              class $C { ... }
+          - pattern: |
+              @UseGuards($G1)
+              export class $C { ... }
+          - pattern: |
+              @UseGuards($G1, $G2)
+              class $C { ... }
+          - pattern: |
+              @UseGuards($G1, $G2)
+              export class $C { ... }
+      - focus-metavariable: $G1
+
+  - id: fact.nest.method_guard
+    languages: [typescript]
+    severity: INFO
+    message: NestJS method-level guard
+    metadata:
+      fact: method_guard
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              class $C { ... }
+          - pattern-inside: |
+              export class $C { ... }
+      - pattern-either:
+          - pattern: |
+              @UseGuards($G1)
+              $M(...) { ... }
+          - pattern: |
+              @UseGuards($G1, $G2)
+              $M(...) { ... }
+      - focus-metavariable: $G1
+
+  - id: fact.nest.class_roles
+    languages: [typescript]
+    severity: INFO
+    message: NestJS class-level roles
+    metadata:
+      fact: class_roles
+    patterns:
+      - pattern-either:
+          - pattern: |
+              @Roles("$R1")
+              class $C { ... }
+          - pattern: |
+              @Roles("$R1")
+              export class $C { ... }
+          - pattern: |
+              @Roles("$R1", "$R2")
+              class $C { ... }
+          - pattern: |
+              @Roles("$R1", "$R2")
+              export class $C { ... }
+      - focus-metavariable: $R1
+
+  - id: fact.nest.method_roles
+    languages: [typescript]
+    severity: INFO
+    message: NestJS method-level roles
+    metadata:
+      fact: method_roles
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              class $C { ... }
+          - pattern-inside: |
+              export class $C { ... }
+      - pattern-either:
+          - pattern: |
+              @Roles("$R1")
+              $M(...) { ... }
+          - pattern: |
+              @Roles("$R1", "$R2")
+              $M(...) { ... }
+      - focus-metavariable: $R1
+
+  - id: fact.nest.class_public
+    languages: [typescript]
+    severity: INFO
+    message: NestJS class-level public marker
+    metadata:
+      fact: class_public
+    patterns:
+      - pattern-either:
+          - pattern: |
+              @$PUB()
+              class $C { ... }
+          - pattern: |
+              @$PUB()
+              export class $C { ... }
+      - metavariable-regex:
+          metavariable: $PUB
+          regex: ^Public$
+      - focus-metavariable: $PUB
+
+  - id: fact.nest.method_public
+    languages: [typescript]
+    severity: INFO
+    message: NestJS method-level public marker
+    metadata:
+      fact: method_public
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              class $C { ... }
+          - pattern-inside: |
+              export class $C { ... }
+      - pattern: |
+          @$PUB()
+          $M(...) { ... }
+      - metavariable-regex:
+          metavariable: $PUB
+          regex: ^Public$
+      - focus-metavariable: $PUB
+
+  # A global guard changes every route of the service, so its presence alone
+  # is a fact (SPEC §5: no guard means public only without one).
+  - id: fact.nest.app_guard
+    languages: [typescript]
+    severity: INFO
+    message: NestJS global guard registration
+    metadata:
+      fact: app_guard
+    pattern-either:
+      - pattern: APP_GUARD
+      - pattern: $APP.useGlobalGuards($...G)

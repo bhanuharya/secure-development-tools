@@ -4,6 +4,7 @@ rules:
     message: Security group allows ingress from 0.0.0.0/0, exposing the resource to the internet.
     severity: ERROR
     metadata:
+      title: Security group opens ingress to the internet
       category: security
       cwe: ["CWE-284"]
     pattern-regex: 'cidr_blocks\s*=\s*\[\s*"0\.0\.0\.0/0"'

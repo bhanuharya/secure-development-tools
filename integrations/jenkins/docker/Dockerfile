@@ -75,9 +75,10 @@ ENV PATH="/opt/sdt/venv/bin:${PATH}" SDT_HOME=/opt/sdt
 ENV SDT_STATE_DIR=/var/lib/sdt CODEX_HOME=/var/lib/sdt/codex TRIVY_CACHE_DIR=/var/lib/sdt/trivy
 
 # Private Bitbucket packages (git dependencies in pubspec.yaml) resolve over SSH with the
-# credential Jenkins mounts; trust bitbucket.org's published host keys up front.
+# credential Jenkins mounts; trust Bitbucket's host keys up front (git over SSH is served at
+# ssh.bitbucket.org; bitbucket.org is kept for older clones).
 RUN useradd --create-home --uid 1000 scanner && mkdir -p /var/lib/sdt && chown scanner:scanner /var/lib/sdt \
-    && mkdir -p /home/scanner/.ssh && ssh-keyscan -t rsa,ecdsa,ed25519 bitbucket.org > /home/scanner/.ssh/known_hosts 2>/dev/null \
+    && mkdir -p /home/scanner/.ssh && ssh-keyscan -t rsa,ecdsa,ed25519 ssh.bitbucket.org bitbucket.org > /home/scanner/.ssh/known_hosts 2>/dev/null \
     && chown -R scanner:scanner /home/scanner /opt/flutter 2>/dev/null || true
 USER scanner
 RUN git config --global --add safe.directory '*' \

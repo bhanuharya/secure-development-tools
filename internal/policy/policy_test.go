@@ -129,3 +129,53 @@ func TestDefaultPolicyBlocksCriticalDependencyRegardlessOfReachability(t *testin
 		}
 	}
 }
+
+func withConfidence(f *finding.Finding, confidence string) *finding.Finding {
+	f.Confidence = confidence
+	return f
+}
+
+// The example policy gates only certain SAST findings: high confidence blocks,
+// medium and low confidence keep reporting instead of failing the build.
+func TestExamplePolicyBlocksOnlyHighConfidenceSast(t *testing.T) {
+	cfg, _, err := config.LoadFile("../../examples/policy-block-high-confidence.yaml")
+	if err != nil {
+		t.Fatalf("load example policy: %v", err)
+	}
+	if out := Evaluate(cfg, []*finding.Finding{withConfidence(mk("sast", "critical", "new"), "high")}); out.Status != "policy_failed" {
+		t.Fatalf("high/high must block, got %s", out.Status)
+	}
+	for _, confidence := range []string{"medium", "low", ""} {
+		out := Evaluate(cfg, []*finding.Finding{withConfidence(mk("sast", "high", "new"), confidence)})
+		if out.Status != "passed" || len(out.Blockers) != 0 {
+			t.Fatalf("high/%q must report, not block: %s blockers=%d", confidence, out.Status, len(out.Blockers))
+		}
+	}
+}
+
+// A finding without confidence counts as medium, so a confidence match can
+// never silently skip data a scanner did not label.
+func TestMissingConfidenceCountsAsMedium(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Policy.Rules = []config.PolicyRule{{
+		ID:     "block-medium-confidence",
+		Match:  config.PolicyMatch{Confidence: []string{"medium"}},
+		Action: "fail",
+	}}
+	cfg.Policy.DefaultAction = "report"
+	if out := Evaluate(cfg, []*finding.Finding{mk("sast", "high", "new")}); out.Status != "policy_failed" {
+		t.Fatalf("unset confidence must match medium, got %s", out.Status)
+	}
+	if out := Evaluate(cfg, []*finding.Finding{withConfidence(mk("sast", "high", "new"), "low")}); out.Status != "passed" {
+		t.Fatalf("low confidence must not match medium, got %s", out.Status)
+	}
+}
+
+// The built-in policy does not match on confidence, so its behaviour is
+// unchanged: a low-confidence new SAST finding still blocks.
+func TestDefaultPolicyIgnoresConfidence(t *testing.T) {
+	cfg := config.Defaults()
+	if out := Evaluate(cfg, []*finding.Finding{withConfidence(mk("sast", "high", "new"), "low")}); out.Status != "policy_failed" {
+		t.Fatalf("default policy must still block new high SAST, got %s", out.Status)
+	}
+}

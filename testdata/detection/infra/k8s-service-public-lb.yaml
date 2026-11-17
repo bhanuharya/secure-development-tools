@@ -1,0 +1,15 @@
+# An internal service registry published through a public load balancer.
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-registry
+  labels:
+    app: registry
+spec:
+  type: LoadBalancer
+  selector:
+    app: registry
+  ports:
+    - name: http
+      port: 8761
+      targetPort: 8761

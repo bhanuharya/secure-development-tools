@@ -13,8 +13,9 @@ does not write to Bitbucket or to the separate production SonarQube instance.
    - `--transport ssh` (recommended when no workspace token is available):
      a personal SSH key registered under Personal settings → SSH keys, passed
      via `--ssh-key` (default `~/.ssh/bitbucket_sdt`). The key must
-     be mode 0600, and the `bitbucket.org` host key must be pinned in
-     `~/.ssh/known_hosts` (`ssh-keyscan bitbucket.org >> ~/.ssh/known_hosts`).
+     be mode 0600, and Bitbucket's SSH host key must be pinned in `~/.ssh/known_hosts`
+     for `ssh.bitbucket.org`, where Bitbucket Cloud serves git over SSH (check the keys against
+     `https://bitbucket.org/site/ssh`). `SDT_BITBUCKET_SSH_HOST` overrides the host.
      A repository list file supplies the slugs; no API inventory runs.
    - `--transport token` (default): a read-only workspace access token from the
      workspace administrator. Store the token outside the repo.

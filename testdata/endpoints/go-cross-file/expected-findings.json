@@ -1,0 +1,14 @@
+[
+  {
+    "rule": "scp.endpoints.sensitive-route-public",
+    "file": "internal/catalog/catalog.go",
+    "line": 7,
+    "endpoint": "POST /public/admin/import"
+  },
+  {
+    "rule": "scp.endpoints.sensitive-route-public",
+    "file": "routes.go",
+    "line": 17,
+    "endpoint": "POST /admin/settings"
+  }
+]

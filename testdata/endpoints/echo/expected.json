@@ -1,0 +1,72 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "echo",
+      "method": "DELETE",
+      "path": "/api/admin/users/{id}",
+      "handler": "deleteUser",
+      "file": "main.go",
+      "line": 12,
+      "protection": "role",
+      "roles": [
+        "admin"
+      ],
+      "evidence": [
+        "main.go:11 middleware RequireRole(...) on group /admin",
+        "main.go:8 middleware JwtMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "echo",
+      "method": "GET",
+      "path": "/api/orders",
+      "handler": "listOrders",
+      "file": "main.go",
+      "line": 9,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:8 middleware JwtMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "echo",
+      "method": "POST",
+      "path": "/api/orders",
+      "handler": "createOrder",
+      "file": "main.go",
+      "line": 10,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:8 middleware JwtMiddleware on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "echo",
+      "method": "GET",
+      "path": "/health",
+      "handler": "health",
+      "file": "main.go",
+      "line": 13,
+      "protection": "public",
+      "evidence": [
+        "main.go:13 no gate middleware on the route",
+        "main.go:7 middleware RequestLogger on router (does not match the gate list)"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 2,
+    "public": 1,
+    "role": 1
+  }
+}

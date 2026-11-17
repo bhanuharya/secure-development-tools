@@ -1,0 +1,23 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/internal/{operation}",
+      "handler": "Controller.operation",
+      "file": "Controller.java",
+      "line": 3,
+      "protection": "public",
+      "evidence": [
+        "Security.java:6 .requestMatchers(\"/internal/export\").permitAll() (path /internal/export)"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "public": 1
+  }
+}

@@ -2,6 +2,7 @@
 package plan
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"github.com/bhanuharya/secure-development-tools/internal/config"
 	sdtctx "github.com/bhanuharya/secure-development-tools/internal/context"
 	"github.com/bhanuharya/secure-development-tools/internal/policy"
+	"github.com/bhanuharya/secure-development-tools/internal/usage"
 )
 
 const SchemaVersion = "secure-dev/plan/v1alpha1"
@@ -35,6 +37,9 @@ type Task struct {
 	UpdateMode        string   `json:"updateMode,omitempty"`
 	Note              string   `json:"note,omitempty"`
 	ExecArgs          []string `json:"execArgs,omitempty"`
+	// Run is an in-process adapter's work, done at execution time. It is not
+	// serialized: the plan describes the invocation, and planning does no scanning.
+	Run func(ctx context.Context) ([]byte, usage.Usage, error) `json:"-"`
 }
 
 // Skip records a capability-based skip with reason.

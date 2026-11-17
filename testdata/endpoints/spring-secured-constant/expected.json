@@ -1,0 +1,38 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/admin/roles",
+      "handler": "Controller.roles",
+      "file": "Controller.java",
+      "line": 5,
+      "protection": "role",
+      "evidence": [
+        "Controller.java:5 @Secured(AuthoritiesConstants.ADMIN) on roles"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/internal/transfer",
+      "handler": "Controller.transfer",
+      "file": "Controller.java",
+      "line": 9,
+      "protection": "authenticated",
+      "evidence": [
+        "Controller.java:9 @PreAuthorize(\"isAuthenticated()\") on transfer"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 1,
+    "role": 1
+  }
+}

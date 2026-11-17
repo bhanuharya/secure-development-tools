@@ -84,6 +84,8 @@ and set `SDT_HOME` (and `FLUTTER_HOME`) in the agent's environment.
    | `SDT_IMAGE` | `<registry>/appsec/sdt-scanner:<version>` |
    | `SDT_AGENT_LABEL` | `docker` (or empty) |
    | `SDT_FLEET_DATABASE` | `postgresql+psycopg://sdt@db/sdt` (optional: review history) |
+   | `SDT_BITBUCKET_SSH_HOST` | `ssh.bitbucket.org` (the default; the agent's `known_hosts` must hold its key, see `https://bitbucket.org/site/ssh`) |
+   | `SDT_CLONE_CACHE` | `/var/cache/sdt-clones` (optional: a folder on the agent with a mirror of each scanned repository, so a scan fetches only what changed; needs disk for every repository's history, and the agent user's `known_hosts` must hold the Bitbucket SSH host key) |
 4. Global Pipeline Libraries: name `sdt-pipeline`, the secure-development-tools repository,
    **Library Path** `integrations/jenkins/`, default version a tag (for example `v1.0.0`).
 5. Jobs: *Pipeline script from SCM* → the secure-development-tools repository → script path:
@@ -172,7 +174,12 @@ if developers must not see each other's findings.
 Every scan attaches `SAST Report - <repo>.docx` to the build (full description in SDT's `docs/sast-report.md`):
 
 * **Cover**: logo (optional, supplied locally), scanners, totals, coverage gaps, executive summary, changes since the previous scan, contents.
-* **Fix First**: confirmed real issues, secrets still in the code, open Critical/High vulnerabilities, fixable packages.
+* **Fix First**: the open findings at priority P1 and P2, each with why it has that priority and what to do.
+  Priority (P1 to P4) starts from severity and moves with what is known about the service: set
+  `SDT_INVENTORY` to a tab-separated inventory that records each repository's exposure (internet, internal,
+  none) and business criticality, or put it at `$SDT_STATE_DIR/inventory.tsv` (with an image: in the state
+  volume). A repository it does not list counts as reachable from the internet.
+  Format and rules: SDT's `docs/sast-report.md` (Priority) and `docs/adr/0009-finding-priority.md`.
 * **1. Code Security** first: per rule, every finding with file, line, redacted code excerpt and an **Advisory**
   (assessment, evidence, what to check, what to do). Rules with more than 10 findings are laid out file by file.
 * **2. Secret Leaks** grouped by type and file; **3. Dependencies & Configuration** with one upgrade target per package.
@@ -191,21 +198,26 @@ status or an SDT verdict, and secret findings and secret-looking values are neve
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `SDT_CODEX_MODEL` | `gpt-6-luna` | model Codex uses |
+| `SDT_CODEX_MODEL` | `gpt-6.1-sol` | model Codex uses |
+| `SDT_SANITISERS` | _(none)_ | comma-separated helper names that sanitise/validate HTML or URLs (e.g. your `toTrustedMarkup`, `validateUrl`); S6299 bindings they produce are advised false positive |
+| `SDT_CODEX_REASONING` | `medium` | `minimal`/`low`/`medium`/`high`/`max`: reasoning depth. `medium` is the default so a single call stays under the per-call timeout; `inherit` falls back to the agent's codex config |
 | `SDT_CODEX_TIMEOUT` | `120` | seconds per call |
-| `SDT_CODEX_BUDGET` | `600` | seconds for the whole review; the step is also wrapped in `timeout` |
+| `SDT_CODEX_BUDGET` | `600` | seconds for the whole review; the step is also wrapped in `timeout`. Raise it when running a deeper model or more reasoning |
+| `SDT_CODEX_PARALLEL` | `4` | rules reviewed at a time. Each is one Codex process and one model call; lower it if the account is rate-limited, `1` for one call at a time |
 | `SDT_AI_TRIAGE` | `1` | `0` turns the review off |
 | `SDT_TRIAGE_MEMORY` | `~/.cache/sdt/triage/<project>.json` | remembered verdicts: unchanged code is not asked again |
 | `SDT_AI_AUTOCLOSE` | `0` | `1` marks the clearest false positives Safe in SonarQube (see SDT's `docs/sast-report.md`) |
 | `SDT_AI_DIFF_REVIEW` | `0` | `1` adds an AI read of each pull request's changed lines (`ai-change-review.md`), advisory only |
+| `SDT_AI_DIFF_REASONING` | (unset) | reasoning depth for that change review only (`minimal`/`low`/`medium`/`high`/`max`); unset uses `SDT_CODEX_REASONING`, so the finding triage keeps its own depth |
 
 Without Codex every code finding still gets a **deterministic** advisory: fixed per-rule checks (what to confirm
 before marking Safe, what to fix), and a conclusion only on strong signals in the flagged line (test code, a log
 of static text, an XML namespace URL, a PIN/password/token variable in a log). Same input, same report.
 
-Set `SDT_HISTORY_DIR` to a persistent directory to add "Changes Since Previous Scan" (new / fixed / still open). A
-branch scanned for the first time is compared with the most recently scanned other branch of the repository, so a
-new release branch shows what changed since the previous release.
+Set `SDT_HISTORY_DIR` to a persistent directory to add "Changes Since Previous Scan" (new / fixed / still present),
+over everything the report lists, SonarQube's own findings included. A branch scanned for the first time is
+compared with the most recently scanned other branch of the repository, so a new release branch shows what changed
+since the previous release.
 
 It stops after two consecutive failed calls (wrong model, auth, outage) instead of spending more. Without Codex,
 the report is produced exactly as before. Check with your data policy that sending code to Codex is allowed.
@@ -249,14 +261,17 @@ the report is produced exactly as before. Check with your data policy that sendi
 - **A scanner's time limit stops everything the scanner started.** A scanner that runs out of time is stopped
   together with its child processes, the scan reports it as `timeout`, and the build goes on. Limits are set in
   the scan configuration (`scanners.<name>.timeout`).
-- **Two scans on a small agent.** The code scanner uses up to four cores (more made it slower, not faster); the
-  other scanners use all of them. `SDT_SCAN_THREADS` caps one scan (code scanner, secret scanner, dependency
+- **Two scans on a small agent.** The code scanner uses up to two cores (each core past the second cost more CPU
+  than it saved time); the other scanners use all of them. `SDT_SCAN_THREADS` caps one scan (code scanner, secret scanner, dependency
   scanner and sonar-scanner's JVM), and `SDT_SCAN_NICE` (0 to 19) lowers the priority of everything a scan
   starts, so other work on the machine goes first. On 4 cores use two executors and `SDT_SCAN_THREADS=2`: two
   large repositories were scanned in 161 s side by side that way, against 239 s one after the other.
 - **Where a scan spent its time:** `out/timings.tsv`, archived with the build, has the seconds per step (waiting
   for an agent, clone, each scanner, SonarQube analysis and import, AI review, report, fleet store). The last line
-  of the reports stage prints the same.
+  of the reports stage prints the same. For each scanner it also has the CPU seconds (`cpu:opengrep`, all of the
+  scanner's processes) and peak memory in MiB (`mem:opengrep`, its largest process), from `run-manifest.json`
+  (`cpuMs`, `maxRssKb`). Compare those between builds, not wall time: wall time grows when other builds share
+  the agent.
 - **Secrets in git history** show as project-level Vulnerabilities (`sdt:secret-in-history`). Rotate the credential,
   then mark the issue *Accepted* with the rotation reference as comment.
 - **Noisy rules:** `python3 tools/sdt_rule_precision.py --database $SDT_FLEET_DATABASE` in SDT lists precision per

@@ -2,6 +2,7 @@
 
 Standard library only.
 """
+import glob
 import json
 import os
 import subprocess
@@ -75,3 +76,10 @@ def scanned_commit(src):
                               timeout=20, check=True).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return ""
+
+
+def report_docx(out, repo):
+    """This build's Word report. reports.sh names it 'SAST Report - <repo>[ - PR <id>] - <ddmmyy-hhmm>.docx';
+    the plain 'SAST Report - <repo>.docx' of older builds is found too (newest wins)."""
+    found = glob.glob(os.path.join(glob.escape(out), f"SAST Report - {glob.escape(repo)}*.docx"))
+    return max(found, key=os.path.getmtime) if found else os.path.join(out, f"SAST Report - {repo}.docx")

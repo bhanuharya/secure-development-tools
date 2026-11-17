@@ -11,6 +11,10 @@
 # across engine versions.
 #   rules/opengrep-rules/vendor/semgrep/<lang>/...   (upstream layout,
 #   hashed + pinned, alongside the existing vendor/aikido source)
+# Readable titles live in rules/opengrep-rules/vendor/titles.yaml, keyed by
+# the id the engine reports. This script never writes or deletes that file
+# (it is outside DEST). New upstream rules need a line in titles.yaml;
+# `sdt rules verify` names the vendored rules that have no title.
 # Scan targets exclude rules/opengrep-rules/vendor/** (pinned third-party
 # content is verified by hash, not scanned as first-party code).
 # License: Semgrep Rules License v1.0 (internal business use permitted;
@@ -60,6 +64,15 @@ SPECS="${SPECS:-$WAVE12 $WAVE3}"
 #   express-check-csurf-...        reports every Express file once
 #   no-direct-write-to-response... reports every w.Write in a Go handler
 #   django ... query-set-extra     reports a query built from a constant, against its own test
+#   java spring-actuator-*         four rules that flag every exposed endpoint except health,
+#                                  at medium; yaml/spring-config.yaml actuator-sensitive-endpoints
+#                                  reports only env, logfile, heapdump and the like, at high
+#   java tainted-file-path         flags building a File or Paths.get() from request data wherever it
+#                                  is used (a download header included); java/boundary.yaml
+#                                  request-path-to-file-operation follows it to the write, read or delete
+#   java spring-sqli               treats every String parameter of every public method as tainted, so
+#                                  generic helpers with bind parameters are reported; java/boundary.yaml
+#                                  sql-string-from-request follows request data to the SQL text
 SKIP_DEFAULT="javascript/lang/security/detect-eval-with-expression.yaml"
 for name in detect-non-literal-regexp detect-non-literal-require detect-non-literal-fs-filename detect-redos \
             incomplete-sanitization unknown-value-with-script-tag unsafe-dynamic-method unsafe-formatstring \
@@ -70,6 +83,12 @@ SKIP_DEFAULT="$SKIP_DEFAULT javascript/express/security/injection/raw-html-forma
 SKIP_DEFAULT="$SKIP_DEFAULT javascript/express/security/audit/express-check-csurf-middleware-usage.yaml"
 SKIP_DEFAULT="$SKIP_DEFAULT go/lang/security/audit/xss/no-direct-write-to-responsewriter.yaml"
 SKIP_DEFAULT="$SKIP_DEFAULT python/django/security/audit/query-set-extra.yaml"
+for name in spring-actuator-fully-enabled spring-actuator-fully-enabled-yaml \
+            spring-actuator-non-health-enabled spring-actuator-non-health-enabled-yaml; do
+  SKIP_DEFAULT="$SKIP_DEFAULT java/spring/security/audit/$name.yaml"
+done
+SKIP_DEFAULT="$SKIP_DEFAULT java/spring/security/injection/tainted-file-path.yaml"
+SKIP_DEFAULT="$SKIP_DEFAULT java/spring/security/audit/spring-sqli.yaml"
 SKIP="${SKIP:-$SKIP_DEFAULT}"
 
 echo "vendoring from $SRC @ $REV"

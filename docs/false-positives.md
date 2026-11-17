@@ -59,9 +59,28 @@ binary; its digest is recorded in the scan plan.
 |---|---|
 | `generic-api-key` in dependency lock files (`Podfile.lock`, `pubspec.lock`, `Gemfile.lock`, `composer.lock`, `Cargo.lock`, `Package.resolved`, `packages.lock.json`, `flake.lock`, `gradle.lockfile`) | Package checksums next to a package name containing `auth`, `key` or `token`. |
 | A Google API key (`AIza…`) in `google-services.json`, `GoogleService-Info.plist` or `firebase_options.dart` | Firebase client configuration. The key identifies the app and ships inside it; it cannot be kept out of the build. Restrict it in the Google Cloud console (application and API restrictions) instead. |
+| A CKEditor 5 license key (an ES256 JWT naming `proxy-event.ckeditor.com`) anywhere, including a Strapi content-type `schema.json` and the generated `types/generated/*.d.ts` | A public product key that ships in the client by design, not a credential. The `jwt` match carries the base64url of `ckeditor`; a genuine JWT without that marker is still reported. |
+| JHipster's published default secrets (`my-secret-token-to-change-in-production…`, `my-secret-key-which-should-be-changed-in-production…`, plain or base64) reported as `generic-api-key`, e.g. the `client_secret` in JHipster's generated Gatling tests | Public placeholders from JHipster's templates, not credentials. A Spring configuration that still uses one is reported by `scp.yaml.spring.known-default-secret`, which states the actual risk: anyone can sign tokens with a published value. |
+| A kebab-case slug reported as `generic-api-key` (lowercase words joined by hyphens, e.g. a content key `2024-year-end-event`) | An identifier or slug, not a credential. Scoped to `generic-api-key`, so dedicated token rules (AWS, Slack, GitHub, …) still fire; a mixed-case or high-entropy value is still reported. |
 
 The Firebase exception is narrow on purpose: the same key in any other file is
 still reported, and any other secret in those three files is still reported.
+
+**One finding per secret.** A code rule for hard-coded credentials (CWE-798: a
+private key block, an AWS key id, a literal password in a production profile)
+often matches the line the secret scanner reports. The scan keeps the secret
+scanner's finding, which carries the commit history and the secret handling,
+and drops the code rule's copy on that line; the run's diagnostics say how many.
+A code-rule finding on a line the secret scanner does not report is kept.
+
+**One finding per taint flow.** A taint rule reports every sink a value
+reaches: an upload's file name written to disk and then deleted in two cleanup
+branches is one flaw at three lines. The code scanner records where each
+finding's value came from (`--dataflow-traces`); the sinks of one source are
+reported once, at the first, and its message ends with the other lines ("The
+same value also reaches lines 195, 201."). Its fingerprint is the one it had,
+so baselines and review decisions still match it. Sinks of different sources,
+and a source reached through a call into another function, stay separate.
 
 **Added**
 

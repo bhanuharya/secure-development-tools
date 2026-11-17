@@ -1,0 +1,23 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "fastapi",
+      "method": "POST",
+      "path": "/orders",
+      "handler": "orders",
+      "file": "main.py",
+      "line": 13,
+      "protection": "public",
+      "evidence": [
+        "main.py:13 no gate decorator or dependency on the route"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "public": 1
+  }
+}

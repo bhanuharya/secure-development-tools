@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import sdt_fleet  # noqa: E402
 import sdt_fleet_report  # noqa: E402
 import sdt_repo_manifest  # noqa: E402
+import sdt_priority  # noqa: E402
 import sdt_to_docx  # noqa: E402
 import sdt_sonar_sync  # noqa: E402
 import sdt_rule_precision  # noqa: E402
@@ -50,6 +51,22 @@ def test_sonar_rule_identity_and_path_safety():
     assert len(report["issues"]) == 2
     assert skipped == 1
     assert report["rules"][0]["id"] != report["rules"][1]["id"]
+
+
+def test_sonar_rule_name_prefers_the_readable_title():
+    def finding(rule):
+        return {"scanner": {"adapter": "opengrep"}, "category": "sast", "rule": rule,
+                "severity": {"canonical": "high"}, "location": {"path": "src/a.py", "startLine": 1},
+                "message": "review"}
+
+    titled = finding({"id": "scp.java.authz.permitall-wildcard-prefix",
+                      "name": "permitAll() opens a whole path prefix"})
+    report, _ = sdt_to_sonar.convert({"findings": [titled]})
+    assert report["rules"][0]["name"] == "permitAll() opens a whole path prefix"
+    # Older reports have no name: keep the historical last-segment fallback.
+    untitled = finding({"id": "scp.java.authz.permitall-wildcard-prefix"})
+    report, _ = sdt_to_sonar.convert({"findings": [untitled]})
+    assert report["rules"][0]["name"] == "permitall-wildcard-prefix"
 
 
 def test_sonar_only_imports_files_in_checkout(tmp_path):
@@ -426,15 +443,22 @@ def test_repo_list_skips_comments_and_rejects_bad_slugs(tmp_path):
     reject("../../etc/passwd\n")
 
 
+def test_ssh_host_can_be_overridden(monkeypatch):
+    monkeypatch.setenv("SDT_BITBUCKET_SSH_HOST", "git.example.com")
+    assert sdt_fleet.repository_url("ssh", "example", "app") == "git@git.example.com:example/app.git"
+    monkeypatch.delenv("SDT_BITBUCKET_SSH_HOST")
+    assert sdt_fleet.repository_url("ssh", "example", "app") == "git@ssh.bitbucket.org:example/app.git"
+
+
 def test_clone_request_differs_by_transport():
     assert sdt_fleet.repository_url("token", "example", "app") == "https://bitbucket.org/example/app.git"
-    assert sdt_fleet.repository_url("ssh", "example", "app") == "git@bitbucket.org:example/app.git"
+    assert sdt_fleet.repository_url("ssh", "example", "app") == "git@ssh.bitbucket.org:example/app.git"
     pinned = sdt_fleet.clone_arguments("token", "example", "app", "main", Path("/tmp/source"))
     assert pinned[pinned.index("--branch") + 1] == "main"
     assert pinned[-2:] == ["https://bitbucket.org/example/app.git", "/tmp/source"]
     default_branch = sdt_fleet.clone_arguments("ssh", "example", "app", "", Path("/tmp/source"))
     assert "--branch" not in default_branch
-    assert default_branch[-2:] == ["git@bitbucket.org:example/app.git", "/tmp/source"]
+    assert default_branch[-2:] == ["git@ssh.bitbucket.org:example/app.git", "/tmp/source"]
 
 
 def test_ssh_environment_never_carries_the_token(tmp_path, monkeypatch):
@@ -584,7 +608,7 @@ def test_repo_list_scan_follows_and_records_the_remote_default_branch(tmp_path, 
     assert record["branch"] == "main"
     assert record["commit"] == "abc123"
     clone, clone_env = calls[0]
-    assert "--branch" not in clone and clone[-2] == "git@bitbucket.org:example/app.git"
+    assert "--branch" not in clone and clone[-2] == "git@ssh.bitbucket.org:example/app.git"
     assert clone_env["GIT_SSH_COMMAND"] == f"ssh -i {key} -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
     resolved = [command for command, _ in calls if command[:3] == ["git", "rev-parse", "--abbrev-ref"]]
     assert resolved and resolved[0][-1] == "HEAD"
@@ -981,6 +1005,19 @@ def test_docx_report_leads_with_code_security_then_secrets_then_dependencies(tmp
     assert "in test code" in text
 
 
+def test_docx_code_heading_uses_the_rule_title(tmp_path):
+    findings = {"findings": [{
+        "scanner": {"adapter": "opengrep"}, "category": "sast",
+        "rule": {"id": "vendor.semgrep.java.lang.correctness.no-string-eqeq",
+                 "name": "Strings compared with == instead of equals()"},
+        "severity": {"canonical": "high"}, "message": "reference comparison",
+        "location": {"path": "src/S.java", "startLine": 3}}]}
+    found = sdt_to_docx.merge(sdt_to_docx.from_findings(findings), None)
+    text, _, _, _ = _write_report(tmp_path, found)
+    assert "Strings compared with == instead of equals() [no-string-eqeq]" in text
+    assert "vendor.semgrep.java.lang.correctness.no-string-eqeq" in text
+
+
 def test_docx_many_findings_are_grouped_by_file_without_losing_any(tmp_path):
     root = _checkout(tmp_path)
     for i in range(25):
@@ -1195,12 +1232,153 @@ def test_triage_respects_the_time_budget(tmp_path):
     assert report["stopped"] == "time budget spent" and report["calls"] < 5
 
 
+def _shuffled_answers(codex, model, prompt, timeout):
+    """A fake reviewer whose calls finish out of order: later rules answer sooner."""
+    import time as _time
+    rule = re.search(r"^Rule: r(\d+)", prompt, re.M).group(1)
+    _time.sleep(0.02 * (5 - int(rule)))
+    ids = re.findall(r"^### (o\d+):", prompt, re.M)
+    return {"results": [{"id": item, "verdict": "likely_true_positive", "confidence": "medium",
+                         "reason": f"rule r{rule} item {item}", "suggested_fix": ""} for item in ids]}
+
+
+def test_triage_side_by_side_gives_the_same_report_and_memory(tmp_path):
+    root, groups = _triage_groups(tmp_path)
+    many = [sdt_to_docx.Group(f"r{i}", "n", "Finding", "High", occurrences=list(groups[0].occurrences))
+            for i in range(5)]
+    one_memory, side_memory = {}, {}
+    one = _run_triage(root, many, _shuffled_answers, memory=one_memory)
+    side = _run_triage(root, many, _shuffled_answers, memory=side_memory, parallel=4)
+    assert one["calls"] == side["calls"] == 5 and side["stopped"] == ""
+    assert side["results"] == one["results"] and side["results"][0]["rule"] == "r0"
+    assert side_memory == one_memory and len(side_memory) == len(side["results"])
+    again = _run_triage(root, many, lambda *a: pytest.fail("all remembered"), memory=side_memory, parallel=4)
+    assert again["remembered"] == len(side["results"]) and again["calls"] == 0
+
+
+def test_triage_side_by_side_still_stops_after_consecutive_failures(tmp_path):
+    root, groups = _triage_groups(tmp_path)
+    many = [sdt_to_docx.Group(f"r{i}", "n", "Finding", "High", occurrences=list(groups[0].occurrences))
+            for i in range(12)]
+    calls = []
+
+    def call(codex, model, prompt, timeout):
+        calls.append(timeout)
+        raise RuntimeError("codex exited 1: unauthorized")
+
+    report = _run_triage(root, many, call, max_failures=2, parallel=3)
+    # Calls already under way when the second failure lands may still finish; nothing new starts.
+    assert 2 <= len(calls) <= 4 and report["failed_calls"] == len(calls) and report["results"] == []
+    assert report["stopped"].startswith("2 consecutive failed calls")
+
+
+def test_triage_parallel_comes_from_the_environment(monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setattr(sdt_triage_codex, "find_codex", lambda explicit: "codex")
+    monkeypatch.setattr(sdt_triage_codex, "triage", lambda *a, **k: seen.update(k) or {
+        "results": [], "calls": 0, "failed_calls": 0, "remembered": 0, "stopped": ""})
+    findings = tmp_path / "findings.json"
+    findings.write_text(json.dumps({"findings": []}))
+    argv = ["sdt_triage_codex.py", "--out", str(tmp_path / "t.json"), "--src-root", str(tmp_path),
+            "--findings", str(findings), "--memory", str(tmp_path / "m.json")]
+    monkeypatch.setattr(sys, "argv", argv)
+    monkeypatch.delenv("SDT_CODEX_PARALLEL", raising=False)
+    sdt_triage_codex.main()
+    assert seen["parallel"] == sdt_triage_codex.DEFAULT_PARALLEL
+    monkeypatch.setenv("SDT_CODEX_PARALLEL", "1")
+    sdt_triage_codex.main()
+    assert seen["parallel"] == 1
+
+
 def test_triage_never_sends_secret_values(tmp_path):
     stripe = "sk_" + "live_" + "0123456789abcdefghij"  # built at runtime: no key-shaped literal in the source
     code = f'const apiKey = "{stripe}";\nfinal google = "AIza' + "B" * 35 + '";\npassword: "hunter22x"'
     redacted = sdt_triage_codex.redact(code)
     assert stripe not in redacted and "AIzaB" not in redacted and "hunter22x" not in redacted
     assert redacted.count("[REDACTED]") == 3
+
+
+def test_the_shared_redactor_covers_every_secret_name_the_rules_report():
+    value = "S3cret" + "Value42"  # built at runtime: no key-shaped literal in the source
+    names = ("SIGNING_KEY", "signing.key", "CLIENT_SECRET", "SECRET_KEY", "ENCRYPTION_KEY", "AES_KEY",
+             "HMAC_KEY", "PRIVATE_KEY", "JWT_SECRET", "API_KEY", "ACCESS_KEY", "MASTER_KEY", "DB_PASSWORD")
+    for name in names:
+        line = f'  static final String {name} = "{value}";'
+        assert value not in sdt_advisory.redact(line), name
+    # A role and a middleware name are not credentials: evidence keeps them readable.
+    assert sdt_advisory.redact('RequireRole("admin")') == 'RequireRole("admin")'
+
+
+def test_the_shared_redactor_removes_middleware_credentials():
+    value = "S3cret" + "Value42"  # built at runtime: no key-shaped literal in the source
+    lines = (
+        f'gin.Accounts{{"operator": "{value}"}}',
+        f'gin.BasicAuth(gin.Accounts{{"operator": "{value}"}})',
+        f'BasicAuth("operator", "{value}")',
+        f'Credentials("operator", "{value}")',
+    )
+    for line in lines:
+        out = sdt_advisory.redact(line)
+        assert value not in out, line
+        assert "[REDACTED]" in out, line
+    assert sdt_advisory.redact('RequireRole("admin")') == 'RequireRole("admin")'
+
+
+def test_the_prompt_redacts_middleware_credentials_in_scanner_messages():
+    value = "S3cret" + "Value42"  # built at runtime: no key-shaped literal in the source
+    container = f'gin.Accounts{{"operator": "{value}"}}'
+    group = sdt_to_docx.Group("scp.endpoints.unprotected-among-protected", "Route is public",
+                              "Finding", "Medium", risk=[f"the peers use gin.BasicAuth({container})"])
+    occurrence = sdt_to_docx.Occurrence("main.go", 1, f"peers use {container}", "Open", "")
+    prompt = sdt_triage_codex.build_prompt(
+        group, [("o1", occurrence, f'api := r.Group("/api", gin.BasicAuth({container}))')])
+    assert value not in prompt
+    assert "[REDACTED]" in prompt
+
+
+def test_a_signing_key_literal_never_reaches_prompt_answer_memory_or_report(tmp_path):
+    secret = "review_" + "signing_7Jx9!"  # built at runtime: no key-shaped literal in the source
+    (tmp_path / "Security.java").write_text(
+        f'class Security {{\n  static final String SIGNING_KEY = "{secret}";\n'
+        f'  void configure() {{ }}\n}}\n')
+    (tmp_path / "Controller.java").write_text("class Controller { void transfer() {} }\n")
+    group = sdt_to_docx.Group("endpoints:scp.endpoints.sensitive-route-public", "Sensitive route is public",
+                              "Finding", "High", risk=[f'Security.java sets SIGNING_KEY = "{secret}"'],
+                              fixes=["require authentication"])
+    occurrence = sdt_to_docx.Occurrence("Controller.java", 1, f'public endpoint with SIGNING_KEY = "{secret}"',
+                                        "Open", "")
+    group.occurrences = [occurrence]
+    prompts = []
+
+    def call(codex, model, prompt, timeout):
+        prompts.append(prompt)
+        return {"results": [{
+            "id": "o1", "verdict": "likely_true_positive", "confidence": "high",
+            "reason": "Controller.transfer is public", "check": "confirm the chain at line 3",
+            "suggested_fix": "require authentication", "impact": "Anyone can reach /transfer",
+            "fix_steps": ["rotate the SIGNING_KEY in Security.java"],
+            "fix_example": f'// Before\nString k = "{secret}";\n// After\nString k = System.getenv("SIGNING_KEY");',
+            "verify_fix": f"assert the old value {secret} is rejected"}]}
+
+    findings = {"findings": [{
+        "scanner": {"adapter": "endpoints"}, "category": "sast",
+        "rule": {"id": "scp.endpoints.sensitive-route-public"},
+        "location": {"path": "Controller.java", "startLine": 1},
+        "message": f'public endpoint with SIGNING_KEY = "{secret}"',
+        "metadata": {"evidence": ["Security.java:2 .permitAll()"]}}]}
+    memory = {}
+    report = sdt_triage_codex.triage([group], tmp_path, "fake", "test", per_call_timeout=20, budget=100,
+                                     max_rules=2, max_per_rule=6, max_failures=2, call=call,
+                                     findings=findings, memory=memory)
+    assert secret not in prompts[0]
+    assert secret not in json.dumps(report)
+    store = tmp_path / "memory.json"
+    sdt_triage_codex.save_memory(store, memory)
+    assert secret not in store.read_text()
+    assert sdt_to_docx.apply_triage([group], report) == 1
+    text, document, *_ = _write_report(tmp_path, {"code": [group], "secret": [], "dependency": [], "config": []},
+                                       src_root=tmp_path)
+    assert secret not in document and "[REDACTED]" in text
 
 
 def test_without_codex_the_triage_step_is_a_no_op(tmp_path, monkeypatch):
@@ -1243,6 +1421,64 @@ def test_report_shows_review_recommendations_without_ai_wording(tmp_path):
     assert "Fix First" in text and "Remove the callback." in text  # a confirmed real issue is priority 1
     plain, *_ = _write_report(tmp_path, sdt_to_docx.merge(sdt_to_docx.from_findings(DOCX_FINDINGS, root), None))
     assert "Advisory review" not in plain
+
+
+def _rule_section(text):
+    """The text of the first rule's section, past the contents and Fix First."""
+    start = text.index("1.1 Credentials should not be hard-coded [S6437] - ")
+    return text[start:text.index("2. Secret Leaks", start)]
+
+
+def _assessed_group(root, verdicts):
+    """One rule with one finding per verdict on lib/api.dart, each with its review note."""
+    group = sdt_to_docx.Group("java:S6437", "Credentials should not be hard-coded", "Vulnerability", "Critical")
+    group.fixes = ["Revoke the secret."]
+    for line, verdict in enumerate(verdicts, 1):
+        note = {"verdict": verdict, "confidence": "high", "reason": f"Line {line} evidence.",
+                "check": f"Confirm line {line}.", "suggested_fix": f"Record line {line}."}
+        group.occurrences.append(sdt_to_docx.Occurrence("lib/api.dart", line, "Revoke and change this password.",
+                                                        "Open", "", ai=note))
+    return group
+
+
+def test_fix_advice_comes_after_the_false_positive_assessment(tmp_path):
+    root = _checkout(tmp_path)
+    group = _assessed_group(root, ["likely_true_positive", "likely_false_positive", "likely_true_positive"])
+    text, *_ = _write_report(tmp_path, {"code": [group], "secret": [], "dependency": [], "config": []}, src_root=root)
+    section = _rule_section(text)
+    # Every assessment is read before the rule's fix, and the fix says whom it is for.
+    assert section.rindex("Assessment: ") < section.index("Recommendation") < section.index("Revoke the secret.")
+    assert ("This applies to the 2 findings not assessed as false positives (#1, #3). The likely false positive (#2) "
+            "only needs the check in its advisory and a Safe decision with the reason.") in section
+    # The false positive's heading does not read as an instruction to rotate the password.
+    assert "#2 Likely false positive. The rule says: Revoke and change this password." in section
+    assert "#1 Revoke and change this password." in section
+
+
+def test_a_rule_whose_findings_are_all_false_positives_gives_its_fix_only_conditionally(tmp_path):
+    root = _checkout(tmp_path)
+    group = _assessed_group(root, ["likely_false_positive", "likely_false_positive"])
+    text, *_ = _write_report(tmp_path, {"code": [group], "secret": [], "dependency": [], "config": []}, src_root=root)
+    section = _rule_section(text)
+    assert section.rindex("Assessment: False positive") < section.index("Recommendation")
+    assert ("Every finding of this rule was assessed as a likely false positive: do the check in its advisory and "
+            "mark it Safe with the reason. Fix a finding as follows only if its check shows it is real:") in section
+
+
+def test_grouped_findings_also_get_the_fix_after_their_assessment(tmp_path):
+    root = _checkout(tmp_path)
+    for i in range(12):
+        (root / "lib" / f"g{i:02}.dart").write_text("a\nrisky()\n")
+    group = _assessed_group(root, [])
+    for i in range(12):
+        verdict = "likely_false_positive" if i < 4 else "needs_context"
+        group.occurrences.append(sdt_to_docx.Occurrence(f"lib/g{i:02}.dart", 2, "m", "Open", "", ai={
+            "verdict": verdict, "confidence": "high", "reason": "r", "check": "c", "suggested_fix": "s"}))
+    text, *_ = _write_report(tmp_path, {"code": [group], "secret": [], "dependency": [], "config": []}, src_root=root)
+    section = _rule_section(text)
+    assert section.index("1.1.12 lib/g") < section.index("Recommendation") < section.index("Revoke the secret.")
+    assert ("This applies to the 8 findings not assessed as false positives. The 4 likely false positives only need "
+            "the check in their advisory and a Safe decision with the reason.") in section
 
 
 def test_report_pages_have_header_page_numbers_logo_and_repeating_table_headers(tmp_path):
@@ -1318,6 +1554,58 @@ def test_rule_based_advisory_is_deterministic_and_only_concludes_on_strong_signa
     assert manual["confidence"] == "rule-based"
 
 
+def test_fallback_secrets_and_dev_servers_get_their_own_advice_not_the_constant_one(tmp_path):
+    literal = "fallback-" + "q" * 16  # built at runtime: no secret-shaped literal in the source
+    root = _src(tmp_path, "config/admin.js",
+                "module.exports = ({ env }) => ({\n  auth: { secret: env('ADMIN_JWT_SECRET', '" + literal + "') },\n});\n")
+    _src(tmp_path, "Dockerfile", 'CMD ["npm", "run", "develop"]\n')
+    assess = sdt_advisory.assess
+    secret = assess("external_opengrep:scp.javascript.secrets.env-fallback-literal", "config/admin.js", 2, root)
+    # The generic advice calls a constant a false positive; for a fallback the constant is the leak.
+    assert secret["verdict"] == "needs_context" and secret["check"] != sdt_advisory.GENERIC[0]
+    assert "sets the variable" in secret["check"] and "rotate the value" in secret["suggested_fix"]
+    assert literal not in json.dumps(secret)
+    spring = assess("external_opengrep:scp.common.secrets.placeholder-default-literal", "config/admin.js", 2, root)
+    assert spring["check"] == secret["check"]
+    dev = assess("external_opengrep:scp.common.deploy.dev-server-start", "Dockerfile", 1, root)
+    assert dev["verdict"] == "needs_context" and "production server" in dev["suggested_fix"]
+    start = assess("external_opengrep:scp.common.deploy.start-script-dev-server", "Dockerfile", 1, root)
+    assert start["check"] == dev["check"]
+
+
+def test_redaction_withholds_the_literal_default_of_a_secret_lookup():
+    # Built at runtime: no secret-shaped literal in the source.
+    a, b, c, d, e, f, g = (f"lit{n}" + "z" * 12 for n in range(7))
+    code = "\n".join([
+        f"auth: {{ secret: env('ADMIN_JWT_SECRET', '{a}') }},",
+        f"apiToken: {{ salt: env('API_TOKEN_SALT', \"{b}\") }},",
+        f"app: {{ keys: env.array('APP_KEYS', ['{c}', '{d}']) }},",
+        f"const jwt = process.env.JWT_SECRET || '{e}';",
+        f'DB_PASSWORD = os.getenv("DB_PASSWORD") or "{f}"',
+        f"jwt.secret=${{JWT_SECRET:{g}}}",
+        "host: env('DATABASE_HOST', 'db.internal'),",
+        "strict: env('ADMIN_JWT_SECRET', ''),",
+        "placeholder: env('ADMIN_JWT_SECRET', 'changeme'),",
+    ])
+    shown = sdt_advisory.redact(code)
+    assert not [v for v in (a, b, c, d, e, f, g) if v in shown]
+    assert "ADMIN_JWT_SECRET" in shown and "API_TOKEN_SALT" in shown  # names stay readable
+    assert "'db.internal'" in shown and "env('ADMIN_JWT_SECRET', '')" in shown and "'changeme'" in shown
+    # The same through an excerpt where the fallback is a neighbouring line, not the flagged one.
+    excerpt = sdt_advisory.redact_lines({1: code.splitlines()[1], 2: code.splitlines()[0]}, "config/admin.js", {1})
+    assert a not in excerpt[2] and b not in excerpt[1]
+
+
+def test_triage_prompt_does_not_clear_a_literal_fallback_because_the_variable_can_override_it():
+    group = sdt_to_docx.Group("external_opengrep:scp.javascript.secrets.env-fallback-literal", "n", "Finding", "High")
+    occurrence = sdt_to_docx.Occurrence("config/database.js", 9, "m", "OPEN", "")
+    code = "password: env('DATABASE_PASSWORD', '[REDACTED]'),"
+    for second in (False, True):
+        prompt = sdt_triage_codex.build_prompt(group, [("o1", occurrence, code)], second=second)
+        assert "Causes 2 and 4 never clear a hard-coded secret" in prompt
+        assert "${X:...}" in prompt and "not a reason to call the finding a false positive" in prompt
+
+
 def test_secrets_group_by_type_and_file_and_client_keys_are_restricted_not_rotated():
     Row = sdt_to_docx.SecretRow
     rows = [Row("gcp-api-key", "android/app/google-services.json", 23, "aaa", "Current code", "High"),
@@ -1335,12 +1623,51 @@ def test_secrets_group_by_type_and_file_and_client_keys_are_restricted_not_rotat
     assert groups[0].action.startswith("Rotate, then remove")
 
 
-def test_trend_counts_new_fixed_and_open_by_fingerprint():
-    def doc(*items):
-        return {"findings": [{"fingerprint": {"value": v}, "category": c} for v, c in items]}
-    now = doc(("a", "sast"), ("b", "sast"), ("s1", "secret"))
-    before = doc(("a", "sast"), ("c", "sast"), ("s1", "secret"), ("s2", "secret"))
-    assert sdt_to_docx.compare(now, before) == {"code": (1, 1, 1), "secret": (0, 1, 1), "dependency": (0, 0, 0)}
+def _listed(code=(), secrets=(), dependencies=(), source="SonarQube + OpenGrep + Gitleaks + Trivy"):
+    """A report that lists these findings: code as (rule, path, line, status), packages as (name, version, advisory)."""
+    groups = {}
+    for rule, path, line, status in code:
+        groups.setdefault(rule, sdt_to_docx.Group(rule, rule, "Security Hotspot", "Medium")).occurrences.append(
+            sdt_to_docx.Occurrence(path, line, "regex", status, ""))
+    packages = [sdt_to_docx.DependencyRow(name, version, "package-lock.json", advisories={advisory: "High"})
+                for name, version, advisory in dependencies]
+    return sdt_to_docx.Report("app", "ws/app", "branch dev", "", "abc", source, list(groups.values()), list(secrets),
+                              packages, [], sdt_to_docx.date(2026, 10, 19))
+
+
+def test_trend_counts_the_sonarqube_findings_the_report_lists(tmp_path):
+    # SonarQube's own hotspots were left out when only SDT findings were compared: a commit that fixed
+    # all of them showed 0 fixed, and a report listing them showed 0 still open.
+    (tmp_path / "a.ts").write_text("const x = s.replace(/\\/+$/, '');\nconst y = s.replace(/=+$/, '');\n")
+    secret = sdt_to_docx.SecretRow("generic-api-key", ".env", 7, "1a2b3c4d5e6f", "Git history only", "High")
+    before = sdt_to_docx.report_state(_listed(
+        code=[("typescript:S5852", "a.ts", 1, "Safe"), ("typescript:S5852", "a.ts", 2, "To review")], secrets=[secret],
+        dependencies=[("braces", "3.0.3", "CVE-2026-1"), ("source-map-js", "1.2.1", "CVE-2026-2")]), tmp_path)
+    after = sdt_to_docx.report_state(_listed(secrets=[secret]), tmp_path)
+    assert sdt_to_docx.compare(after, before) == {"code": (0, 2, 0), "secret": (0, 0, 1), "dependency": (0, 2, 0)}
+    # A hotspot marked Safe is still in the code: present, not fixed.
+    assert sdt_to_docx.compare(before, before) == {"code": (0, 0, 2), "secret": (0, 0, 1), "dependency": (0, 0, 2)}
+
+
+def test_trend_follows_a_moved_line_and_counts_identical_lines_apart(tmp_path):
+    old, new = tmp_path / "old", tmp_path / "new"
+    old.mkdir(), new.mkdir()
+    (old / "a.js").write_text("const a = /(x+)+$/;\nmd5(v)\nmd5(v)\nconst b = /y+$/;\n")
+    (new / "a.js").write_text("// header\n\nconst a = /(x+)+$/;\n  md5(v)\nconst b = /y+z$/;\n")
+    rule = "javascript:S5852"
+    before = sdt_to_docx.report_state(_listed(code=[(rule, "a.js", n, "To review") for n in (1, 2, 3, 4)]), old)
+    after = sdt_to_docx.report_state(_listed(code=[(rule, "a.js", n, "To review") for n in (3, 4, 5)]), new)
+    # Moved: still present. One of two identical lines removed: fixed. Edited line: fixed and new.
+    assert sdt_to_docx.compare(after, before)["code"] == (1, 2, 2)
+
+
+def test_report_state_holds_no_code_and_no_secret(tmp_path):
+    value = "-".join(("k3y", "v4lue", "0123456789"))  # assembled, so the repository's own secret scan stays quiet
+    (tmp_path / "app.py").write_text(f"token = '{value}'\nquery(request.args['q'])\n")
+    secret = sdt_to_docx.SecretRow("generic-api-key", "app.py", 1, "", "Current code", "High")
+    state = json.dumps(sdt_to_docx.report_state(_listed(code=[("python:S3649", "app.py", 2, "To review")],
+                                                        secrets=[secret]), tmp_path))
+    assert "k3y-v4lue" not in state and "request.args" not in state and "app.py" not in state
 
 
 def test_coverage_gaps_come_from_the_pipeline_and_the_run_manifest(tmp_path):
@@ -1548,10 +1875,195 @@ def test_docx_leaves_out_suppressed_findings(tmp_path):
     assert len(report["code"]) == 1
 
 
-def test_docx_trend_leaves_out_findings_an_exception_covers():
+def test_docx_trend_does_not_count_a_finding_an_exception_now_covers_as_fixed(tmp_path):
     kept, gone = _suppressed_pair()
-    before = {"findings": [kept, {k: v for k, v in gone.items() if k != "suppression"}]}
-    assert sdt_to_docx.compare({"findings": [kept, gone]}, before)["code"] == (0, 0, 1)
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("import db\n\ndb.query(q)\n")
+    # The previous report listed both under SonarQube's rule keys; now an exception covers one.
+    before = sdt_to_docx.report_state(_listed(code=[("opengrep-py:kept", "src/app.py", 3, "To review"),
+                                                    ("opengrep-py:gone", "src/app.py", 3, "To review"),
+                                                    ("opengrep-py:other", "src/app.py", 1, "To review")]), tmp_path)
+    after = sdt_to_docx.report_state(_listed(code=[("opengrep-py:kept", "src/app.py", 3, "To review")]), tmp_path)
+    excepted = sdt_to_docx.excepted_places({"findings": [kept, gone]}, tmp_path)
+    assert sdt_to_docx.compare(after, before, excepted)["code"] == (0, 1, 1)
+
+
+def test_docx_compares_with_the_state_the_previous_report_wrote(tmp_path, monkeypatch, capsys):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "app.py").write_text("import db\n\ndb.query(q)\n")
+    finding = {"scanner": {"adapter": "opengrep"}, "category": "sast", "severity": {"canonical": "high"},
+               "rule": {"id": "sqli"}, "location": {"path": "app.py", "startLine": 3}, "message": "tainted query",
+               "fingerprint": {"value": "sha256:" + "1" * 64}}
+
+    def report(name, findings, commit, *extra):
+        (tmp_path / f"{name}.json").write_text(json.dumps({"findings": findings}))
+        monkeypatch.setattr(sys, "argv", ["sdt_to_docx.py", "--findings", str(tmp_path / f"{name}.json"),
+                                          "--src-root", str(src), "--commit", commit, "--out", str(tmp_path / f"{name}.docx"),
+                                          "--state-out", str(tmp_path / f"{name}-state.json"), *extra])
+        assert sdt_to_docx.main() == 0
+        return _docx(tmp_path / f"{name}.docx")[0]
+
+    first = report("first", [finding], "aaa1111")
+    assert "Changes Since Previous Scan" not in first
+    second = report("second", [], "bbb2222", "--previous-state", str(tmp_path / "first-state.json"))
+    today = json.loads((tmp_path / "first-state.json").read_text())["generatedAt"][:10]
+    assert f"Since the previous scan ({today}, commit aaa1111): 0 new, 1 fixed" in second
+    assert "Still Present" in second
+    # A previous report from other sources (SonarQube reachable then, not now) is not compared.
+    state = json.loads((tmp_path / "first-state.json").read_text())
+    (tmp_path / "other-state.json").write_text(json.dumps({**state, "source": "SonarQube + OpenGrep + Gitleaks + Trivy"}))
+    third = report("third", [], "ccc3333", "--previous-state", str(tmp_path / "other-state.json"))
+    assert "Changes Since Previous Scan" not in third and "no comparison" in capsys.readouterr().err
+
+
+class _Sonar:
+    """SonarQube as from_sonar reads it: one project, these hotspots and issues."""
+    url = "http://sonar.example.com"
+
+    def __init__(self, hotspots, issues, names=None):
+        self.hotspots, self.issues, self.asked = hotspots, issues, []
+        self.names = names or {}  # rule key -> the name SonarQube shows for it
+
+    def get(self, path, **params):
+        if path == "/api/components/show":
+            return {"component": {"name": "app"}}
+        return {"rule": {"name": self.names.get(params["key"], params["key"])}}
+
+    def paged(self, path, key, **params):
+        self.asked.append(params)
+        return self.hotspots if key == "hotspots" else self.issues
+
+
+def test_docx_shows_the_decisions_made_in_sonarqube_on_packages_secrets_and_issues(tmp_path):
+    def issue(key, rule, component, status, message, line=None):
+        return {"key": key, "rule": rule, "component": "proj" + (":" + component if component else ""), "line": line,
+                "severity": "MAJOR", "issueStatus": status, "message": message}
+    # SonarQube files a package the code does not reach as a hotspot, the others as issues.
+    sonar = _Sonar([_hotspot("H1", "Dockerfile", 17, status="REVIEWED", resolution="SAFE"),
+                    _hotspot("H2", "go.mod", 9, status="REVIEWED", resolution="SAFE", ruleKey="sdt:vulnerable-dependency-unreachable",
+                             message="CVE-2026-0004 in example.com/yaml 1.0.0 (no fixed version published yet).")], [
+        issue("I1", "sdt:vulnerable-dependency", "go.mod", "ACCEPTED", "CVE-2026-0001 in example.com/jwt 3.2.2: upgrade to 3.2.3."),
+        issue("I2", "sdt:vulnerable-dependency", "package-lock.json", "ACCEPTED", "CVE-2026-0002 in lodash 4.17.20."),
+        issue("I3", "sdt:vulnerable-dependency", "package-lock.json", "OPEN", "CVE-2026-0003 in lodash 4.17.20."),
+        issue("I4", "sdt:secret", "", "FALSE_POSITIVE", "Secret (generic-api-key) in git history: .env:7 at commit 1a2b3c4d"),
+        issue("I5", "javascript:S2076", "a.js", "FALSE_POSITIVE", "Make sure this command is safe.", 3)])
+    name, found = sdt_to_docx.from_sonar(sonar, "proj", "staging", "")
+    # Decided issues are read too (an Accepted or False positive issue used to vanish from the report).
+    assert all(p.get("issueStatuses") == "OPEN,CONFIRMED,ACCEPTED,FALSE_POSITIVE" for p in sonar.asked[1:])
+
+    def package(name, version, advisory, target, fixed=""):
+        return {"scanner": {"adapter": "trivy-fs"}, "category": "dependency-vulnerability", "rule": {"id": advisory},
+                "severity": {"canonical": "high"}, "location": {"path": target},
+                "artifact": {"package": name, "installedVersion": version, "target": target, "fixedVersion": fixed}}
+    sdt = sdt_to_docx.from_findings({"findings": [
+        package("example.com/jwt", "3.2.2", "CVE-2026-0001", "go.mod", "3.2.3"),
+        package("example.com/yaml", "1.0.0", "CVE-2026-0004", "go.mod"),
+        package("lodash", "4.17.20", "CVE-2026-0002", "package-lock.json"),
+        package("lodash", "4.17.20", "CVE-2026-0003", "package-lock.json"),
+        {"scanner": {"adapter": "gitleaks"}, "category": "secret", "rule": {"id": "generic-api-key"},
+         "severity": {"canonical": "high"}, "location": {"path": ".env", "startLine": 7},
+         "metadata": {"commit": "1a2b3c4d5e6f"}}]}, tmp_path)
+    merged = sdt_to_docx.merge(found, sdt)
+    merged["dependency"] = sdt_to_docx.consolidate(merged["dependency"])
+    assert {r.package: r.status for r in merged["dependency"]} == {
+        "example.com/jwt": "Accepted", "example.com/yaml": "Safe", "lodash": "Open"}
+    assert [r.status for r in merged["secret"]] == ["False positive"]
+    assert sorted((o.path, o.status) for g in merged["code"] for o in g.occurrences) == [
+        ("Dockerfile", "Safe"), ("a.js", "False positive")]
+
+    report = sdt_to_docx.Report("app", "ws/app", "branch staging", "", "abc", "SonarQube + OpenGrep + Gitleaks + Trivy",
+                                merged["code"], merged["secret"], merged["dependency"], merged["config"],
+                                sdt_to_docx.date(2026, 10, 19))
+    counts = sdt_to_docx._counts(report)
+    assert (counts["code"][2], counts["secret"][2], counts["dependency"][2]) == (0, 0, 1)  # only lodash needs a decision
+    out = tmp_path / "decided.docx"
+    sdt_to_docx.write_docx(report, tmp_path, out)
+    text, *_ = _docx(out)
+    assert "Decided in SonarQube: False positive" in text
+    assert "Upgrade to 3.2.3" not in text  # an accepted package is not in Fix First
+    assert "Secrets only in git history" not in text
+    assert "package-lock.jsonOpen" in text and "go.modAccepted" in text  # the Status column
+
+
+def _sonar_issue(key, rule):
+    return {"key": key, "rule": rule, "component": "proj:src/A.java", "line": 1,
+            "severity": "MAJOR", "issueStatus": "OPEN", "message": "flagged"}
+
+
+def test_sonarqube_endpoint_rule_has_a_short_reference_throughout_the_report(tmp_path):
+    title = "Sensitive route is reachable without authentication"
+    external, skipped = sdt_to_sonar.convert({"findings": [{
+        "scanner": {"adapter": "endpoints"}, "category": "sast",
+        "rule": {"id": "sensitive-route-public", "name": title},
+        "severity": {"canonical": "high"}, "message": "Review the public admin route.",
+        "location": {"path": "src/A.java", "startLine": 1}}]})
+    assert skipped == 0
+    rule = external["rules"][0]
+    key = f"external_{rule['engineId']}:{rule['id']}"
+    sonar = _Sonar([], [_sonar_issue("i1", key)], names={key: title})
+    _, found = sdt_to_docx.from_sonar(sonar, "proj", "main", "")
+
+    text, *_ = _write_report(tmp_path, found)
+    assert f"1.1 {title} [sensitive-route-public] (1)" in text
+    assert f"1.1 {title} [sensitive-route-public] - 1 Finding" in text
+    assert f"[{rule['id']}]" not in text
+
+
+def test_sonarqube_mode_takes_opengrep_titles_from_the_findings_file(tmp_path):
+    sonar = _Sonar([], [_sonar_issue("i1", "external_opengrep:scp.java.x.some-rule"),
+                        _sonar_issue("i2", "external_opengrep:scp.java.x.other-rule"),
+                        _sonar_issue("i3", "java:S2068")],
+                   names={"external_opengrep:scp.java.x.some-rule": "opengrep:scp.java.x.some-rule",
+                          "java:S2068": "Hard-coded credentials should not be used"})
+    titles = sdt_to_docx.finding_titles({"findings": [
+        {"rule": {"id": "scp.java.x.some-rule", "name": "Some rule from the findings"}},
+        {"rule": {"id": "scp.java.x.other-rule"}}]})  # this finding's rule has no title
+    _, found = sdt_to_docx.from_sonar(sonar, "proj", "main", "", titles)
+    names = {g.rule: g.name for g in found["code"]}
+    assert names["external_opengrep:scp.java.x.some-rule"] == "Some rule from the findings"
+    assert names["external_opengrep:scp.java.x.other-rule"] == "Other rule"  # from the last id segment
+    assert names["java:S2068"] == "Hard-coded credentials should not be used"  # SonarQube's own name
+
+    report = sdt_to_docx.Report("app", "ws/app", "branch main", "", "abc", "SonarQube", found["code"], [],
+                                [], [], sdt_to_docx.date(2026, 11, 12))
+    out = tmp_path / "titles.docx"
+    sdt_to_docx.write_docx(report, None, out)
+    text, *_ = _docx(out)
+    assert "Some rule from the findings [some-rule] - 1 Finding" in text
+    assert "Other rule [other-rule] - 1 Finding" in text
+    assert "Hard-coded credentials should not be used [S2068] - 1 Finding" in text
+
+
+def test_sonarqube_mode_derives_opengrep_titles_without_findings():
+    sonar = _Sonar([], [_sonar_issue("i1", "external_opengrep:scp.java.x.some-rule"),
+                        _sonar_issue("i2", "java:S2068")],
+                   names={"external_opengrep:scp.java.x.some-rule": "opengrep:scp.java.x.some-rule",
+                          "java:S2068": "Hard-coded credentials should not be used"})
+    _, found = sdt_to_docx.from_sonar(sonar, "proj", "main", "", None)
+    names = {g.rule: g.name for g in found["code"]}
+    assert names["external_opengrep:scp.java.x.some-rule"] == "Some rule"
+    assert names["java:S2068"] == "Hard-coded credentials should not be used"
+    assert sdt_to_docx.rule_name_from_id("scp.java.x.some_rule-name") == "Some rule name"
+
+
+def test_docx_main_uses_the_findings_title_in_sonarqube_mode(tmp_path, monkeypatch):
+    findings = tmp_path / "findings.json"
+    findings.write_text(json.dumps({"findings": [
+        {"scanner": {"adapter": "opengrep"}, "category": "sast",
+         "rule": {"id": "scp.java.x.some-rule", "name": "Some rule from the findings"},
+         "severity": {"canonical": "high"}, "message": "flagged",
+         "location": {"path": "src/A.java", "startLine": 1}}]}))
+    sonar = _Sonar([], [_sonar_issue("i1", "external_opengrep:scp.java.x.some-rule")],
+                   names={"external_opengrep:scp.java.x.some-rule": "opengrep:scp.java.x.some-rule"})
+    monkeypatch.setattr(sdt_to_docx, "Sonar", lambda url, token: sonar)
+    monkeypatch.setenv("SONAR_TOKEN", "test")
+    out = tmp_path / "report.docx"
+    monkeypatch.setattr(sys, "argv", ["sdt_to_docx.py", "--sonar-url", "http://sonar.example.com",
+                                      "--project-key", "proj", "--findings", str(findings), "--out", str(out)])
+    assert sdt_to_docx.main() == 0
+    text, *_ = _docx(out)
+    assert "Some rule from the findings [some-rule]" in text
 
 
 def _hotspot(key, path, line, **extra):
@@ -1732,6 +2244,19 @@ def test_change_review_keeps_only_findings_on_added_lines():
     assert "## 1. Owner check removed" in text and "`routes/report.js:11`" in text and "3 changed files were not sent" in text
 
 
+def test_change_review_has_its_own_reasoning_depth():
+    import sdt_review_diff
+    env = {"SDT_CODEX_REASONING": "medium", "SDT_AI_DIFF_REASONING": "Low"}
+    assert sdt_review_diff.apply_diff_reasoning(env) == "low" and env["SDT_CODEX_REASONING"] == "low"
+    env = {"SDT_CODEX_REASONING": "high"}
+    assert sdt_review_diff.apply_diff_reasoning(env) == "high"
+    env = {"SDT_AI_DIFF_REASONING": "fast"}
+    assert sdt_review_diff.apply_diff_reasoning(env) == "medium" and "SDT_CODEX_REASONING" not in env
+    report = {"model": "gpt-6.1-sol", "reasoning": "low", "files_reviewed": [], "findings": [], "files_partial": [],
+              "stopped": "", "calls": 0, "failed_calls": 0}
+    assert "Model `gpt-6.1-sol` (reasoning low) read 0 changed files" in sdt_review_diff.markdown(report, "origin/main", 0)
+
+
 def test_change_review_never_sends_secret_values():
     import sdt_review_diff
     secret = "sk_" + "live_" + "0123456789abcdefghij"
@@ -1761,8 +2286,433 @@ def test_docx_rule_sections_carry_a_reference_that_does_not_change_between_repor
     assert sdt_to_docx.rule_ref("plain") == "plain"
 
 
+@pytest.mark.parametrize("case", json.loads((Path(__file__).resolve().parents[1] /
+                                          "testdata/endpoints/report-rule-refs.json").read_text()))
+def test_docx_external_rule_references_match_golden(case):
+    assert sdt_to_docx.rule_ref(case["key"]) == case["reference"]
+    assert sdt_to_docx.external_id(case["key"]) == case["external_id"]
+
+
+@pytest.mark.parametrize("adapter, rule_id, expected", [
+    ("endpoints", "sensitive-route-public", "sensitive-route-public"),
+    ("opengrep", "scp.javascript.secrets.prod-literal-password", "prod-literal-password"),
+    ("gitleaks", "gcp-api-key", "gcp-api-key"),
+    ("trivy-fs", "CVE-2026-0001", "CVE-2026-0001"),
+    ("custom_v2.1", "checks.some-rule", "some-rule"),
+])
+def test_docx_shortens_keys_from_the_sonar_exporter(adapter, rule_id, expected):
+    key = f"external_sdt-{adapter}:{sdt_to_sonar._rule_key(adapter, rule_id)}"
+    assert sdt_to_docx.rule_ref(key) == expected
+    assert sdt_to_docx.external_id(key) == expected
+
+
 def test_triage_memory_lives_in_the_state_directory_when_there_is_one(tmp_path):
     where = sdt_triage_codex.default_memory_path
     assert where("proj:key/1", {"SDT_STATE_DIR": str(tmp_path)}) == tmp_path / "triage" / "proj_key_1.json"
     assert where("p", {"SDT_STATE_DIR": str(tmp_path), "SDT_TRIAGE_MEMORY": "/x/m.json"}) == Path("/x/m.json")
     assert where("p", {}) == Path.home() / ".cache" / "sdt" / "triage" / "p.json"
+
+def test_run_codex_passes_reasoning_effort_only_when_set(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["cmd"] = command
+        work = command[command.index("--cd") + 1]
+        (Path(work) / "answer.json").write_text('{"results": []}')
+
+        class R:
+            returncode = 0
+            stdout = stderr = ""
+        return R()
+
+    monkeypatch.setattr(sdt_triage_codex.subprocess, "run", fake_run)
+
+    monkeypatch.delenv("SDT_CODEX_REASONING", raising=False)
+    sdt_triage_codex.run_codex("codex", "gpt-6.1-sol", "prompt", 30)
+    assert captured["cmd"][captured["cmd"].index("--model") + 1] == "gpt-6.1-sol"
+    assert "model_reasoning_effort=medium" in captured["cmd"]  # default is medium, not the slower high/max
+
+    monkeypatch.setenv("SDT_CODEX_REASONING", "high")
+    sdt_triage_codex.run_codex("codex", "gpt-6.1-sol", "prompt", 30)
+    assert "model_reasoning_effort=high" in captured["cmd"]
+
+    monkeypatch.setenv("SDT_CODEX_REASONING", "inherit")  # fall back to the agent's codex config
+    sdt_triage_codex.run_codex("codex", "gpt-6.1-sol", "prompt", 30)
+    assert "-c" not in captured["cmd"]
+
+
+GUIDANCE_FIXTURE = Path(__file__).resolve().parents[1] / "testdata/endpoints/advisory"
+
+
+def _guidance_fixture():
+    findings = json.loads((GUIDANCE_FIXTURE / "findings.json").read_text())
+    answer = json.loads((GUIDANCE_FIXTURE / "answer.json").read_text())
+    return findings, answer
+
+
+@pytest.mark.parametrize("second", [False, True])
+def test_detailed_guidance_schema_and_both_prompts(second):
+    findings, _ = _guidance_fixture()
+    group = sdt_to_docx.from_findings(findings)["code"][0]
+    prompt = sdt_triage_codex.build_prompt(group, [("o1", group.occurrences[0], "orders.save(order);")], second)
+    schema = sdt_triage_codex.RESPONSE_SCHEMA["properties"]["results"]["items"]
+    for key in ("impact", "fix_steps", "fix_example", "verify_fix"):
+        assert key in schema["required"] and f"- {key}:" in prompt
+    assert schema["properties"]["fix_steps"]["items"] == {"type": "string"}
+    assert "2-5" in prompt and "12 lines" in prompt and "before part names its file" in prompt
+    assert "environment or secret-store reference" in prompt
+
+
+def test_guidance_fake_codex_cli_redacts_remembers_and_renders_in_order(tmp_path, monkeypatch):
+    findings, answer = _guidance_fixture()
+    secret = "sk_" + "live_" + "0123456789abcdefghij"
+    note = answer["results"][0]
+    for key in ("impact", "verify_fix"):
+        note[key] += f' apiKey = "{secret}"'
+    note["fix_steps"][0] += f' apiKey = "{secret}"'
+    note["fix_example"] = (f'// Before: src/OrdersController.java:3\nString apiKey = "{secret}";\n'
+                           '// After\nString apiKey = System.getenv("ORDERS_API_KEY");')
+    calls = []
+
+    def fake_codex(command, **kwargs):
+        calls.append(kwargs["input"])
+        schema = json.loads(Path(command[command.index("--output-schema") + 1]).read_text())
+        assert "verify_fix" in schema["properties"]["results"]["items"]["required"]
+        Path(command[command.index("--output-last-message") + 1]).write_text(json.dumps(answer))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(sdt_triage_codex.subprocess, "run", fake_codex)
+    monkeypatch.setattr(sdt_triage_codex, "find_codex", lambda explicit: "fake-codex")
+    monkeypatch.setenv("SDT_AI_TRIAGE", "1")
+    out, store = tmp_path / "triage.json", tmp_path / "memory.json"
+    monkeypatch.setattr(sys, "argv", ["triage", "--findings", str(GUIDANCE_FIXTURE / "findings.json"),
+                                      "--src-root", str(GUIDANCE_FIXTURE), "--out", str(out), "--memory", str(store)])
+    assert sdt_triage_codex.main() == 0
+    first = json.loads(out.read_text())
+    assert "Evidence the scanner used" in calls[0] and '.antMatchers("/api/v1/feign/**").permitAll()' in calls[0]
+    assert sdt_triage_codex.main() == 0
+    again = json.loads(out.read_text())
+    assert len(calls) == 1 and again["remembered"] == 1
+    assert secret not in out.read_text() + store.read_text()
+    reviewed = first["results"][0]
+    assert 'String apiKey = "[REDACTED]";' in reviewed["fix_example"]
+    assert "src/OrdersController.java:3" in reviewed["fix_example"] and "\n// After\n" in reviewed["fix_example"]
+    found = sdt_to_docx.from_findings(findings)
+    assert sdt_to_docx.apply_triage(found["code"], again) == 1
+    text, document, *_ = _write_report(tmp_path, found)
+    assert secret not in document
+    block = text[text.index("Assessment: Real issue"):]
+    labels = ["Assessment:", "Impact:", "Evidence:", "Confirm impact:", "Fix:", "Fix steps:", "Example:",
+              "Verify the fix:"]
+    assert [block.index(label) for label in labels] == sorted(block.index(label) for label in labels)
+    assert "1. In config/" in block and "2. Add an authorization" in block
+    assert sdt_to_docx.code_block(reviewed["fix_example"].splitlines()) in document
+    compact = sdt_to_docx.ai_line(reviewed)
+    assert reviewed["suggested_fix"] in compact and all(label not in compact for label in labels[5:])
+
+
+@pytest.mark.parametrize("grouped", [False, True])
+def test_guidance_matches_golden_and_renders_in_both_layouts(tmp_path, monkeypatch, grouped):
+    findings, answer = _guidance_fixture()
+    note = sdt_triage_codex.validate(answer, {"o1"})[0]
+    golden = json.loads((GUIDANCE_FIXTURE / "review-golden.json").read_text())
+    assert [list(row) for row in sdt_to_docx.review_lines(note)] == golden
+    found = sdt_to_docx.from_findings(findings)
+    found["code"][0].occurrences[0].ai = note
+    monkeypatch.setattr(sdt_to_docx, "GROUP_THRESHOLD", 0 if grouped else 10)
+    text, document, *_ = _write_report(tmp_path, found, src_root=GUIDANCE_FIXTURE)
+    full = text[text.index("Assessment: Real issue"):]
+    if grouped:
+        full = text[text.index("AdvisoryAssessment: Real issue"):]
+    positions = [full.index(name + ":") for name, _ in golden]
+    assert positions == sorted(positions)
+    assert sdt_to_docx.code_block(note["fix_example"].splitlines()) in document
+    assert sdt_to_docx._code_action(note) == note["suggested_fix"]
+
+
+def test_guidance_manual_check_false_positive_and_legacy_memory(tmp_path):
+    _, answer = _guidance_fixture()
+    note = answer["results"][0]
+    note["verdict"] = "needs_context"
+    rows = sdt_to_docx.review_lines(note)
+    assert [name for name, _ in rows] == ["Assessment", "Evidence", "Check", "Then", "Fix steps"]
+    note["verdict"] = "likely_false_positive"
+    clean = sdt_triage_codex.validate(answer, {"o1"})[0]
+    assert clean["fix_steps"] == [] and clean["impact"] == clean["fix_example"] == clean["verify_fix"] == ""
+    root, groups = _triage_groups(tmp_path)
+    occurrence = groups[0].occurrences[0]
+    code = sdt_triage_codex.context(root, occurrence)
+    key = sdt_triage_codex.memory_key("gpt-6-luna", groups[0].rule, occurrence.path, code)
+    legacy = {"verdict": "likely_true_positive", "confidence": "high", "reason": "r", "check": "c",
+              "suggested_fix": "f"}
+    report = _run_triage(root, groups, lambda *args: pytest.fail("old memory must still load"),
+                         memory={key: legacy}, max_per_rule=1)
+    assert report["remembered"] == 1
+    assert sdt_to_docx.review_lines(report["results"][0]) == [
+        ("Assessment", "Real issue - fix required (certainty: High)"),
+        ("Evidence", "r"), ("Confirm impact", "c"), ("Fix", "f")]
+
+
+@pytest.mark.parametrize("adapter", ["endpoints", "opengrep"])
+@pytest.mark.parametrize("sonar", [False, True])
+def test_triage_finds_evidence_by_rule_path_and_line(adapter, sonar):
+    findings, answer = _guidance_fixture()
+    findings["findings"][0]["scanner"]["adapter"] = adapter
+    groups = sdt_to_docx.from_findings(findings)["code"]
+    if sonar:
+        # The keys SonarQube really uses: the plugin keeps the full id, sdt_to_sonar only its last segment.
+        groups[0].rule = ("external_opengrep:scp.endpoints.sensitive-route-public" if adapter == "opengrep" else
+                          "external_sdt-endpoints:sdt-endpoints-sensitive-route-public-0123456789abcdef")
+    other = json.loads(json.dumps(findings["findings"][0]))
+    other["location"]["startLine"] = 4
+    other["metadata"]["evidence"] = ["src/OrdersController.java:1"]
+    findings["findings"].insert(0, other)
+
+    def fake_codex(codex, model, prompt, timeout):
+        evidence = prompt.split("Evidence the scanner used:", 1)[1]
+        assert "config/SecurityConfiguration.java:5" in evidence
+        assert '>    5  ' in evidence and '.antMatchers("/api/v1/feign/**").permitAll()' in evidence
+        assert "void configure(HttpSecurity http)" in evidence and "    8  }" in evidence
+        assert "// src/OrdersController.java:1" not in evidence
+        return answer
+
+    report = _run_triage(GUIDANCE_FIXTURE, groups, fake_codex, findings=findings)
+    assert report["calls"] == 1 and report["failed_calls"] == 0
+
+
+def test_evidence_is_confined_redacted_and_part_of_memory_identity(tmp_path):
+    root = tmp_path / "source"
+    root.mkdir()
+    (root / "Controller.java").write_text("void save() { orders.save(order); }\n")
+    secret = "private-" + "value123"
+    (root / "security.yml").write_text(f"password: {secret}\naccess: public\n")
+    (tmp_path / "outside.java").write_text("OUTSIDE_SOURCE\n")
+    (root / "link.java").symlink_to(tmp_path / "outside.java")
+    finding = {"rule": {"id": "route"}, "scanner": {"adapter": "endpoints"},
+               "location": {"path": "Controller.java", "startLine": 1},
+               "metadata": {"evidence": ["security.yml:2", "../outside.java:1", "link.java:1", "missing.java:1"]}}
+    groups = sdt_to_docx.from_findings({"findings": [finding]})["code"]
+    memory, prompts = {}, []
+
+    def fake_codex(*args):
+        prompts.append(args[2])
+        return _fp_answer(*args)
+
+    for _ in range(2):
+        _run_triage(root, groups, fake_codex, findings={"findings": [finding]}, memory=memory)
+    assert len(prompts) == 1 and "password: [REDACTED]" in prompts[0]
+    assert secret not in prompts[0] and "OUTSIDE_SOURCE" not in prompts[0]
+    (root / "security.yml").write_text("access: authenticated\n")
+    finding["metadata"]["evidence"] = ["security.yml:1"]
+    _run_triage(root, groups, fake_codex, findings={"findings": [finding]}, memory=memory)
+    assert len(prompts) == 2 and "access: authenticated" in prompts[1]
+
+
+def test_both_opinions_batch_at_six_even_when_more_per_rule_are_requested(tmp_path):
+    (tmp_path / "api.java").write_text("\n".join(f"call{i}();" for i in range(14)))
+    group = sdt_to_docx.Group("r", "Rule", "Finding", "High", occurrences=[
+        sdt_to_docx.Occurrence("api.java", line, "m", "Open", "") for line in range(1, 15)])
+    batches = []
+
+    def fake_codex(codex, model, prompt, timeout):
+        ids = re.findall(r"^### (o\d+):", prompt, re.M)
+        batches.append((prompt.startswith(sdt_triage_codex.SECOND_OPINION), len(ids)))
+        return {"results": [{**_fp_answer(codex, model, prompt, timeout)["results"][0], "id": item_id}
+                            for item_id in ids]}
+
+    report = _run_triage(tmp_path, [group], fake_codex, max_per_rule=14, confirm=True)
+    assert batches == [(False, 6), (False, 6), (False, 2), (True, 6), (True, 6), (True, 2)]
+    assert len(report["results"]) == 14
+    assert all(note["second_opinion"] == "likely_false_positive" for note in report["results"])
+
+
+def test_prompt_version_invalidates_remembered_advice_without_guidance(tmp_path, monkeypatch):
+    root, groups = _triage_groups(tmp_path)
+    occurrence = groups[0].occurrences[0]
+    code = sdt_triage_codex.context(root, occurrence)
+    with monkeypatch.context() as old:
+        old.setattr(sdt_triage_codex, "PROMPT_VERSION", "4")
+        key = sdt_triage_codex.memory_key("gpt-6-luna", groups[0].rule, occurrence.path, code)
+    memory = {key: _fp_answer(None, None, None, None)["results"][0]}
+    report = _run_triage(root, groups, _fp_answer, memory=memory, max_per_rule=1)
+    assert report["calls"] == 1 and report["remembered"] == 0
+
+
+def test_resolved_findings_move_to_an_appendix_and_leave_the_counts(tmp_path):
+    (tmp_path / "a.ts").write_text("const x = s.replace(/\\/+$/, '')\n")
+    found = {
+        "code": [sdt_to_docx.Group("typescript:S5852", "slow regex", "Security Hotspot", "Medium", [], [], [
+            sdt_to_docx.Occurrence("a.ts", 1, "regex", "To review", ""),
+            sdt_to_docx.Occurrence("a.ts", 1, "regex", "Safe", "")])],
+        "secret": [],
+        "dependency": [
+            sdt_to_docx.DependencyRow("lodash", "4.17.20", "package-lock.json", advisories={"CVE-1": "High"}, status="Accepted"),
+            sdt_to_docx.DependencyRow("braces", "3.0.3", "package-lock.json", advisories={"CVE-2": "High"}, status="Open")],
+        "config": []}
+    resolved = sdt_to_docx.split_resolved(found)
+    # The decided occurrence and package move out; the open ones stay.
+    assert [o.status for g in found["code"] for o in g.occurrences] == ["To review"]
+    assert [o.status for g in resolved["code"] for o in g.occurrences] == ["Safe"]
+    assert [r.package for r in found["dependency"]] == ["braces"]
+    assert [r.package for r in resolved["dependency"]] == ["lodash"]
+
+    report = sdt_to_docx.Report("app", "ws/app", "branch dev", "", "abc", "SonarQube + OpenGrep + Gitleaks + Trivy",
+                                found["code"], found["secret"], found["dependency"], found["config"],
+                                sdt_to_docx.date(2026, 10, 20), resolved=resolved)
+    counts = sdt_to_docx._counts(report)
+    assert counts["code"][0] == 1 and counts["dependency"][0] == 1  # active-only, decided ones not counted
+    out = tmp_path / "r.docx"
+    sdt_to_docx.write_docx(report, tmp_path, out)
+    text, *_ = _docx(out)
+    assert "Resolved in SonarQube" in text and "lodash" in text and "Accepted" in text
+
+
+def test_a_finding_resolved_in_sonarqube_is_not_counted_as_fixed(tmp_path):
+    (tmp_path / "a.ts").write_text("const x = /(a+)+$/\n")
+    before = sdt_to_docx.report_state(_listed(code=[("typescript:S5852", "a.ts", 1, "To review")]), tmp_path)
+    found = {"code": [sdt_to_docx.Group("typescript:S5852", "r", "Security Hotspot", "Medium", [], [], [
+                 sdt_to_docx.Occurrence("a.ts", 1, "regex", "Safe", "")])],
+             "secret": [], "dependency": [], "config": []}
+    resolved = sdt_to_docx.split_resolved(found)
+    active = sdt_to_docx.Report("app", "ws/app", "branch dev", "", "x", "SonarQube + OpenGrep + Gitleaks + Trivy",
+                                found["code"], [], [], [], sdt_to_docx.date(2026, 10, 20), resolved=resolved)
+    now = sdt_to_docx.report_state(active, tmp_path)
+    # Without the resolved places it would read (0, 1, 0) - wrongly "fixed".
+    assert sdt_to_docx.compare(now, before) == {"code": (0, 1, 0), "secret": (0, 0, 0), "dependency": (0, 0, 0)}
+    assert sdt_to_docx.compare(now, before, sdt_to_docx.resolved_places(resolved, tmp_path))["code"] == (0, 0, 0)
+
+
+def test_s6299_advisory_clears_sanitised_bindings_and_leaves_raw_ones(tmp_path, monkeypatch):
+    monkeypatch.delenv("SDT_SANITISERS", raising=False)
+    monkeypatch.delenv("SDT_SANITIZERS", raising=False)
+    assess = sdt_advisory.assess
+    rule = "typescript:S6299"
+
+    def verdict(name, body, line=1):
+        root = _src(tmp_path, name, body)
+        return assess(rule, name, line, root)
+
+    # Sanitised / validated / i18n / constant bindings are false positives.
+    assert verdict("Safe.vue", '<div v-html="safeBody"></div>\n')["verdict"] == "likely_false_positive"
+    assert verdict("Purify.vue", '<div v-html="DOMPurify.sanitize(raw)"></div>\n')["verdict"] == "likely_false_positive"
+    assert verdict("I18n.vue", "<div v-html=\"$t('hello')\"></div>\n")["verdict"] == "likely_false_positive"
+    assert verdict("Const.vue", "<div v-html=\"'<b>x</b>'\"></div>\n")["verdict"] == "likely_false_positive"
+    assert verdict("Href.vue", '<a :href="validatedUrl">x</a>\n')["verdict"] == "likely_false_positive"
+    # A value assigned from a sanitiser a few lines away is traced.
+    traced = verdict("Trace.vue", '<div v-html="row.answerHtml"/>\n\nconst rows = items.map(x => ({ answerHtml: sanitizeBody(x.html) }))\n')
+    assert traced["verdict"] == "likely_false_positive"
+
+    # Raw CMS/API HTML, and a bare href to a config field, are not auto-cleared.
+    assert verdict("RawHtml.vue", '<div v-html="detailBody"></div>\n\nconst detailBody = computed(() => cms.value.body)\n')["verdict"] == "needs_context"
+    assert verdict("RawHref.vue", '<a :href="item.url">x</a>\n')["verdict"] == "needs_context"
+
+    # A project names its own sanitiser helper; then the binding it produces is a false positive too.
+    monkeypatch.setenv("SDT_SANITISERS", "toTrustedMarkup")
+    proj = verdict("Proj.vue", '<div v-html="row.body"/>\n\nconst rows = items.map(x => ({ body: toTrustedMarkup(x.v) }))\n')
+    assert proj["verdict"] == "likely_false_positive"
+
+
+def test_report_keeps_two_secrets_that_history_puts_on_one_line(tmp_path):
+    root = _src(tmp_path, "config/admin.js", "module.exports = ({ env }) => ({\n"
+                "  apiToken: { salt: env('API_TOKEN_SALT', 'x') },\n  auth: { secret: env('ADMIN_JWT_SECRET', 'y') },\n});\n")
+
+    def leak(commit, match):
+        return {"category": "secret", "rule": {"id": "generic-api-key"}, "severity": {"canonical": "high"},
+                "scanner": {"adapter": "gitleaks"}, "location": {"path": "config/admin.js", "startLine": 2},
+                "metadata": {"commit": commit}, "evidence": {"text": match}}
+
+    doc = {"findings": [leak("2" * 40, "API_TOKEN_SALT', '[REDACTED]'"), leak("1" * 40, "ADMIN_JWT_SECRET', '[REDACTED]'")]}
+    merged = sdt_to_docx.merge(sdt_to_docx.from_findings(doc, root), None)
+    assert len(merged["secret"]) == 2
+    (group,) = sdt_to_docx.group_secrets(merged["secret"])
+    assert group.count == 2 and len(group.commits) == 2 and group.places == {"Current code"}
+
+
+# ------------------------------------------------------------- priority (ADR 0009)
+def _priority_report(tmp_path, ctx):
+    """A SQL injection, a weak hash, a private key in history and an unused Critical package."""
+    sqli = sdt_to_docx.Group("javascript:S3649", "Database queries should not be vulnerable to injection attacks",
+                             "Vulnerability", "High")
+    sqli.occurrences = [sdt_to_docx.Occurrence("src/db.js", 3, "tainted query", "Open", "")]
+    hashing = sdt_to_docx.Group("java:S4790", "Using weak hashing algorithms is security-sensitive", "Security Hotspot",
+                                "High")
+    hashing.occurrences = [sdt_to_docx.Occurrence("src/Hash.java", 9, "md5", "To review", "")]
+    key = sdt_to_docx.SecretRow("private-key", "deploy/id_rsa", 1, "abc123", "Git history only", "High")
+    package = sdt_to_docx.DependencyRow("lodash", "4.17.0", "package-lock.json", {"CVE-2026-9": "4.17.21"},
+                                        {"CVE-2026-9": "Critical"}, "No")
+    report = sdt_to_docx.Report("app", "ws/app", "branch main", "", "abc", "SDT", [sqli, hashing], [key], [package], [],
+                                sdt_to_docx.date(2026, 11, 3), context=ctx)
+    out = tmp_path / "priority.docx"
+    sdt_to_docx.write_docx(report, None, out)
+    text = _docx(out)[0]
+    start = text.index("Fix First", text.index("Contents") + len("Contents") + 200)
+    return text, text[start:text.index("1. Code Security", start)]
+
+
+def test_report_ranks_findings_by_priority_and_says_why(tmp_path):
+    text, fix_first = _priority_report(tmp_path, sdt_priority.Context("internal", source="inventory"))
+    # The key is P1 although only in history and the service is internal; the weak hash is not lowered
+    # for an internal service; the injection and the unused package are, and leave Fix First.
+    assert "Secret: private-key (git history only)" in fix_first and "working credential by its format" in fix_first
+    assert fix_first.index("private-key") < fix_first.index("Using weak hashing")
+    assert "Database queries" not in fix_first and "lodash" not in fix_first
+    assert "PriorityP1 1, P2 1, P3 2" in text  # the cover
+    assert "Service ExposureInternal network only, normal business criticality (from the inventory)" in text
+    assert "1.1 Using weak hashing" in text and "1.2 Database queries" in text  # most urgent rule first
+    assert "P3 (High severity; internal service ↓)" in text  # the rule's priority with its reason
+    assert "How Priority Is Set" in text
+    assert "Service exposure: internal network only; business criticality: normal (from the inventory)." in text
+    assert "service exposure is not recorded" not in text
+
+
+def test_report_without_a_recorded_exposure_lowers_nothing_and_asks_for_it(tmp_path):
+    text, fix_first = _priority_report(tmp_path, sdt_priority.Context())
+    assert "Database queries" in fix_first  # High stays P2: an unknown fact never lowers
+    assert "Not recorded, so treated as reachable from the internet" in text
+    assert "This repository's service exposure is not recorded" in text
+
+
+def test_report_takes_the_service_exposure_from_the_inventory(tmp_path, monkeypatch, capsys):
+    (tmp_path / "findings.json").write_text(json.dumps({"findings": [
+        {"scanner": {"adapter": "opengrep"}, "category": "sast", "rule": {"id": "tainted-sql-string"},
+         "severity": {"canonical": "high"}, "message": "tainted query", "location": {"path": "src/db.js", "startLine": 3}}]}))
+    inventory = tmp_path / "inventory.tsv"
+    inventory.write_text("repository\texposure\tcriticality\nws/app\tinternal\n")
+
+    def report(*extra):
+        monkeypatch.setattr(sys, "argv", ["sdt_to_docx.py", "--findings", str(tmp_path / "findings.json"),
+                                          "--repository", "ws/app", "--out", str(tmp_path / "r.docx"), *extra])
+        assert sdt_to_docx.main() == 0
+        return _docx(tmp_path / "r.docx")[0]
+
+    assert "Internal network only, normal business criticality (from the inventory)" in report("--inventory", str(inventory))
+    monkeypatch.setenv("SDT_INVENTORY", str(inventory))
+    assert "Internal network only" in report()
+    assert "Reachable from the internet, normal business criticality (from the command line and inventory)" in \
+        report("--exposure", "internet")
+    # An inventory that cannot be read is reported, and the report is still written with nothing lowered.
+    assert "Not recorded, so treated as reachable" in report("--inventory", str(tmp_path / "missing.tsv"))
+    assert "inventory not used" in capsys.readouterr().err
+
+
+def test_report_puts_a_signing_secret_found_as_a_generic_key_at_p1(tmp_path):
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "admin.js").write_text("module.exports = ({ env }) => ({\n  auth: {\n"
+                                                  "    secret: env('ADMIN_JWT_SECRET', 'not-a-real-secret'),\n  },\n});\n")
+    leak = {"category": "secret", "rule": {"id": "generic-api-key"}, "severity": {"canonical": "high"},
+            "scanner": {"adapter": "gitleaks"}, "location": {"path": "config/admin.js", "startLine": 3},
+            "metadata": {"commit": "1" * 40}, "evidence": {"text": "ADMIN_JWT_SECRET', '[REDACTED]'"}}
+    found = sdt_to_docx.merge(sdt_to_docx.from_findings({"findings": [leak]}, tmp_path), None)
+    (group,) = sdt_to_docx.group_secrets(found["secret"])
+    assert group.priority.level == "P1" and "named as a signing key or password" in group.priority.why
+    text, _, _, _ = _write_report(tmp_path, found, src_root=tmp_path)
+    assert "not-a-real-secret" not in text and "Secret: generic-api-key (current code)" in text
+
+
+def test_ai_status_makes_a_missing_or_cut_short_review_visible():
+    assert sdt_to_docx.ai_status({"engine": "codex", "calls": 5, "failed_calls": 0, "stopped": ""}) == ""
+    assert "not available" in sdt_to_docx.ai_status({"engine": "rules"})
+    assert "not available" in sdt_to_docx.ai_status(None)
+    cut = sdt_to_docx.ai_status({"engine": "codex", "calls": 3, "failed_calls": 3,
+                                 "stopped": "3 consecutive failed calls (last: out of credits)"})
+    assert cut.startswith("AI review incomplete (3 of 3 calls failed; stopped: 3 consecutive") and "rule advice" in cut

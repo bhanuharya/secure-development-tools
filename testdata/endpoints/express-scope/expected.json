@@ -1,0 +1,38 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "POST",
+      "path": "/private",
+      "handler": "handle",
+      "file": "app.js",
+      "line": 8,
+      "protection": "authenticated",
+      "evidence": [
+        "app.js:7 middleware requireAuth on app"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "POST",
+      "path": "/transfer",
+      "handler": "handle",
+      "file": "app.js",
+      "line": 14,
+      "protection": "public",
+      "evidence": [
+        "app.js:14 no gate middleware on the route"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 1,
+    "public": 1
+  }
+}

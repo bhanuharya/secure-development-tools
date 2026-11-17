@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+spec:
+  type: LoadBalancer
+  loadBalancerSourceRanges: []
+  ports:
+    - port: 6379

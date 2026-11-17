@@ -1,0 +1,46 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/accounts/transfer",
+      "handler": "handle",
+      "file": "main.go",
+      "line": 7,
+      "protection": "public",
+      "evidence": [
+        "main.go:7 no gate middleware on the route",
+        "main.go:7 middleware logger1 (does not match the gate list)",
+        "main.go:7 middleware logger2 (does not match the gate list)",
+        "main.go:7 middleware logger3 (does not match the gate list)",
+        "main.go:7 middleware logger4 (does not match the gate list)",
+        "main.go:7 middleware logger5 (does not match the gate list)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "POST",
+      "path": "/orders/transfer",
+      "handler": "handle",
+      "file": "app.js",
+      "line": 5,
+      "protection": "public",
+      "evidence": [
+        "app.js:5 no gate middleware on the route",
+        "app.js:5 middleware logger1 (does not match the gate list)",
+        "app.js:5 middleware logger2 (does not match the gate list)",
+        "app.js:5 middleware logger3 (does not match the gate list)",
+        "app.js:5 middleware logger4 (does not match the gate list)"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "public": 2
+  }
+}

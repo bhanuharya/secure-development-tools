@@ -1,0 +1,37 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "GET",
+      "path": "/api/orders",
+      "handler": "listOrders",
+      "file": "main.go",
+      "line": 9,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:7 middleware checkCaller on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/orders",
+      "handler": "createOrder",
+      "file": "main.go",
+      "line": 8,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:7 middleware checkCaller on group /api"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 2
+  }
+}

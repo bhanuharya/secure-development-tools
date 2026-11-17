@@ -87,6 +87,50 @@ func TestOpengrepPathsRelativeToRoot(t *testing.T) {
 	}
 }
 
+func TestOpengrepRuleNameFromTitleOrID(t *testing.T) {
+	a := &OpengrepAdapter{}
+	withTitle := []byte(`{"results": [{"check_id": "scp.java.authz.permitall-wildcard-prefix", "path": "/repo/A.java", "start": {"line": 1}, "end": {"line": 1}, "extra": {"message": "m", "severity": "ERROR", "metadata": {"title": "permitAll() opens a whole path prefix"}}}]}`)
+	pr := a.Parse("1.29.0", "/repo", withTitle, "", 1)
+	if got := pr.Findings[0].Rule.Name; got != "permitAll() opens a whole path prefix" {
+		t.Fatalf("title not used as rule name: %q", got)
+	}
+	withoutTitle := []byte(`{"results": [{"check_id": "vendor.semgrep.java.lang.correctness.no-string-eqeq", "path": "/repo/S.java", "start": {"line": 1}, "end": {"line": 1}, "extra": {"message": "m", "severity": "ERROR"}}]}`)
+	pr = a.Parse("1.29.0", "/repo", withoutTitle, "", 1)
+	if got := pr.Findings[0].Rule.Name; got != "No string eqeq" {
+		t.Fatalf("fallback name wrong: %q", got)
+	}
+}
+
+// Vendored rules stay verbatim, so their name comes from the pack overlay.
+// A rule's own metadata.title still wins when it has one.
+func TestOpengrepRuleNameFromVendoredOverlay(t *testing.T) {
+	pack := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(pack, "vendor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	overlay := "vendor.semgrep.python.lang.security.rule: Overlay readable name\n"
+	if err := os.WriteFile(filepath.Join(pack, "vendor", "titles.yaml"), []byte(overlay), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SDT_RULES_PACK_DIR", pack)
+	payload := func(metadata string) []byte {
+		extra := `"message": "m", "severity": "ERROR"`
+		if metadata != "" {
+			extra += `, "metadata": ` + metadata
+		}
+		return []byte(`{"results": [{"check_id": "rules.opengrep-rules.vendor.semgrep.python.lang.security.rule", "path": "/repo/app.py", "start": {"line": 1}, "end": {"line": 1}, "extra": {` + extra + `}}]}`)
+	}
+	a := &OpengrepAdapter{}
+	pr := a.Parse("1.29.0", "/repo", payload(""), "", 1)
+	if got := pr.Findings[0].Rule.Name; got != "Overlay readable name" {
+		t.Fatalf("overlay title not used as rule name: %q", got)
+	}
+	pr = a.Parse("1.29.0", "/repo", payload(`{"title": "Rule's own name"}`), "", 1)
+	if got := pr.Findings[0].Rule.Name; got != "Rule's own name" {
+		t.Fatalf("metadata title must win over the overlay: %q", got)
+	}
+}
+
 // Regression (pilot): four identical `hardcoded-conditional` messages in one
 // file collapsed to one fingerprint. Flagged-code content must dominate.
 func TestOpengrepContentSeparatesSameFileFindings(t *testing.T) {
@@ -130,6 +174,37 @@ func TestOpengrepCorrectnessClassification(t *testing.T) {
 	}
 	if cf.Confidence != "high" || sf.Confidence != "high" {
 		t.Fatalf("scanner confidence not carried: %q / %q", cf.Confidence, sf.Confidence)
+	}
+}
+
+// Every opengrep finding carries the rule's metadata.confidence, normalized to
+// high|medium|low. A rule without one stays unset; an unknown label is never
+// guessed into a level.
+func TestOpengrepConfidenceFromMetadata(t *testing.T) {
+	a := &OpengrepAdapter{}
+	payload := func(metadata string) []byte {
+		extra := `"message": "m", "severity": "ERROR"`
+		if metadata != "" {
+			extra += `, "metadata": ` + metadata
+		}
+		return []byte(`{"results": [{"check_id": "scp.test.rule", "path": "/repo/app.go", "start": {"line": 1}, "end": {"line": 1}, "extra": {` + extra + `}}]}`)
+	}
+	cases := []struct{ metadata, want string }{
+		{`{"confidence": "HIGH"}`, "high"},
+		{`{"confidence": " Medium "}`, "medium"},
+		{`{"confidence": "low"}`, "low"},
+		{`{"confidence": "certain"}`, ""},
+		{`{}`, ""},
+		{``, ""},
+	}
+	for _, c := range cases {
+		pr := a.Parse("1.29.0", "/repo", payload(c.metadata), "", 1)
+		if len(pr.Findings) != 1 {
+			t.Fatalf("metadata %q: want 1 finding, got %d", c.metadata, len(pr.Findings))
+		}
+		if got := pr.Findings[0].Confidence; got != c.want {
+			t.Fatalf("metadata %q: confidence %q, want %q", c.metadata, got, c.want)
+		}
 	}
 }
 

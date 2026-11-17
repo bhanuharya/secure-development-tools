@@ -1,0 +1,65 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/api/orders",
+      "handler": "Controller.orders",
+      "file": "Controller.java",
+      "line": 7,
+      "protection": "authenticated",
+      "evidence": [
+        "Security.java:16 .anyRequest().authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/api/orders",
+      "handler": "Controller.create",
+      "file": "Controller.java",
+      "line": 10,
+      "protection": "authenticated",
+      "evidence": [
+        "Security.java:16 .anyRequest().authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "handler": "Controller.order",
+      "file": "Controller.java",
+      "line": 13,
+      "protection": "authenticated",
+      "evidence": [
+        "Security.java:16 .anyRequest().authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/legacy/export",
+      "handler": "Controller.legacy",
+      "file": "Controller.java",
+      "line": 16,
+      "protection": "authenticated",
+      "evidence": [
+        "Security.java:16 .anyRequest().authenticated()"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 4
+  }
+}

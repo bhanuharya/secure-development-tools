@@ -1,0 +1,43 @@
+{
+  "root": ".",
+  "routes": [
+    {
+      "confidence": "high",
+      "evidence": [
+        "src/main/java/com/example/orders/SecurityConfig.java:11 .requestMatchers(\"/api/admin/**\").permitAll()"
+      ],
+      "externalPath": "/orders-service/api/admin/refunds",
+      "file": "src/main/java/com/example/orders/OrdersController.java",
+      "framework": "spring-mvc",
+      "handler": "OrdersController.refund",
+      "line": 11,
+      "method": "POST",
+      "path": "/api/admin/refunds",
+      "protection": "public",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "src/main/java/com/example/orders/SecurityConfig.java:12 .anyRequest().authenticated()"
+      ],
+      "externalPath": "/orders-service/api/orders",
+      "file": "src/main/java/com/example/orders/OrdersController.java",
+      "framework": "spring-mvc",
+      "handler": "OrdersController.list",
+      "line": 8,
+      "method": "GET",
+      "path": "/api/orders",
+      "protection": "authenticated",
+      "service": "."
+    }
+  ],
+  "schema": "sdt-endpoints/v1",
+  "summary": {
+    "authenticated": 1,
+    "public": 1
+  },
+  "unresolved": [
+    "src/main/resources/application-prod.yml: profile \"prod\" serves the routes under \"/prod-orders\" instead of \"/orders-service\""
+  ]
+}

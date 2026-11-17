@@ -1,0 +1,7 @@
+# Signing key and partner key as literal values in the production profile.
+security:
+  authentication:
+    jwt:
+      base64-secret: NGY5ZDJjN2E4MWIzNGU1ZmEwYzZkN2U4ZXhhbXBsZS1vbmx5
+partner:
+  api-key: 4f9d2c7a81b34e5fa0c6d7e8

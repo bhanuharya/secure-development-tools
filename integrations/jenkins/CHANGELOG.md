@@ -1,5 +1,101 @@
 # Changelog
 
+## 2026-11-16
+
+- The AI review asks about four rules at a time instead of one after another (`SDT_CODEX_PARALLEL`, default
+  4). A first scan of a large service made 15 to 19 calls of about 30 s each, so the step took about eight
+  minutes and could run out of `SDT_CODEX_BUDGET` before the last rules. The report, the remembered verdicts
+  and the stop after two consecutive failed calls are unchanged.
+- The code scanner and the endpoint fact run use at most two cores, down from four, unless `SDT_SCAN_THREADS`
+  says otherwise. Each core past the second cost more CPU than it saved time: on four services, 4 cores used 37%
+  more CPU than 2 for an 11% shorter code scan. An agent that already sets `SDT_SCAN_THREADS` is unchanged.
+- `out/timings.tsv` also has each scanner's CPU seconds (`cpu:opengrep`) and peak memory in MiB (`mem:opengrep`),
+  from the run manifest's new `cpuMs` and `maxRssKb`. Compare those between builds: wall time grows whenever
+  another build shares the agent.
+- Optional clone cache: with `SDT_CLONE_CACHE` set to a folder on the agent, each repository is kept there as a
+  mirror, updated at the start of every scan of it. The checkout borrows the mirror's objects and fetches only
+  what is new, then copies them in so the checkout stands alone. The workspace is still wiped after each build,
+  so without a cache every scan cloned the whole history of every branch again: 80 to 150 s for one large
+  service on the lab. If the mirror cannot be updated, the scan clones in full as before, and a mirror unused
+  for 30 days is removed. Unset (the default), nothing changes.
+- The SAST report gives a rule's fix after its findings have been assessed, not before. A rule section used to
+  open with the rule's recommendation (for a hard-coded password: revoke and rotate it), and a finding the review
+  judged a false positive was headed by the scanner's message saying the same. The recommendation now follows the
+  findings and names the ones it is for, those not assessed as false positives; a false positive is headed
+  "Likely false positive. The rule says: ...".
+
+## 2026-11-03
+
+- The SAST report gives every finding a priority, P1 (act now) to P4 (fix when the code is touched), next to its
+  severity, and lists each section most urgent first. Priority starts from the severity and moves one step per known
+  fact: the review judged it real, the file is a test or an example, no source file imports the package, a secret is
+  named as a signing key or password, or the service is only reachable from an internal network. Fix First is now
+  the open P1 and P2 findings with a Why column, and a new section, How Priority Is Set, states the rules and the
+  facts used. Service exposure and criticality come from a repository inventory (`SDT_INVENTORY`); a repository it
+  does not list counts as reachable from the internet, so nothing is lowered on a guess. Secrets are never lowered
+  for an internal service.
+
+## 2026-10-20
+
+- The deterministic advisory now settles Vue/JS HTML-injection hotspots (`S6299`: `v-html`, `innerHTML`, `:href`)
+  instead of printing one generic "manual check" for the whole rule. It reads the binding and advises false
+  positive when the bound value is a constant, an i18n string, named sanitised/validated (`safe*`/`validated*`),
+  or produced by a sanitiser/validator - matched generically (`sanitize`, `DOMPurify`, `escapeHtml`, allow-list)
+  or by the helper names a project lists in `SDT_SANITISERS`. A bare binding to raw CMS/API data, or an unguarded
+  `:href`, stays a manual check (it is a real `javascript:`-URL / XSS risk until a guard is added). This covers
+  every occurrence of the rule, not only the few a model review samples. Advisory only: it never changes a
+  SonarQube status.
+
+## 2026-10-20
+
+- A finding decided in SonarQube now leaves the body of the SAST report instead of staying in its section. A
+  hotspot marked Safe, or an issue marked False positive, Accepted or Fixed, moves to a new compact "Resolved in
+  SonarQube" appendix (category, finding, where, status) and no longer counts toward Total Findings or Needs a
+  Decision, and is not reported as fixed in Changes Since Previous Scan. The appendix keeps the audit trail. So
+  once a reviewer marks a finding, the next report shows only what still needs attention. With no SonarQube
+  source every finding is open, so nothing moves. (The separate suppression/exception flow, which removes a
+  finding from findings.json and the Sonar import as well, is unchanged.)
+
+## 2026-10-20
+
+- Two secret-scanning false positives are no longer reported. A CKEditor 5 license key (an ES256 JWT naming
+  `proxy-event.ckeditor.com`, shipped in the client by design) was flagged as `jwt`, including where Strapi
+  stores it in a content-type `schema.json` and in the generated `types/generated/*.d.ts`; a kebab-case
+  content slug (e.g. `2024-year-end-event`) was flagged as `generic-api-key`. Both are now allowlisted in the
+  built-in secret defaults. The cuts are narrow: a JWT without CKEditor's marker and a mixed-case or
+  high-entropy value are still reported, and dedicated token rules (AWS, Slack, GitHub, ...) are untouched.
+  Takes effect with the next scan after the SDT checkout is updated (no pipeline library change).
+
+## 2026-10-20
+
+- Deeper AI review of code-security findings, to cut false positives a shallow read misses (e.g. a Vue `v-html`
+  whose value is sanitised first). The default model is now `gpt-6.1-sol`; the code shown to the model grew
+  (64 lines of surrounding code, up from 40; the enclosing function up to 200 lines; more related lines from
+  elsewhere in the file), and up to 8 occurrences per rule are reviewed. `SDT_CODEX_REASONING`
+  (`minimal`..`max`, default `medium`) pins the reasoning depth; `medium` keeps a single call under the
+  per-call timeout (at `high`/`max` a deep call could time out and stall the review), and `inherit` uses the codex config. Remembered verdicts from
+  the previous, shallower context are re-asked once. The review stays advisory: it never changes a SonarQube
+  status or an SDT verdict. A deeper review is slower, so raise `SDT_CODEX_BUDGET` if the step reports it
+  stopped on the time budget.
+
+## 2026-10-19
+
+- A decision made in SonarQube now shows in the SAST report for every kind of finding, not only for code
+  hotspots. A package or configuration check marked Safe, Accepted or False positive still read Open and still
+  counted under Needs a Decision; a secret or code issue marked Accepted or False positive was not read at all.
+  Packages and configuration checks now have a Status column; a decided secret says "Decided in SonarQube"
+  instead of asking for rotation; Fix First and the Review Notes list only what is still open. A package counts
+  as decided once all its advisories are. Takes effect with the next scan after the SDT checkout is updated
+  (no pipeline library change).
+
+- "Changes Since Previous Scan" in the SAST report now counts SonarQube's own findings. It compared only SDT's
+  findings (OpenGrep, Gitleaks, Trivy), so a commit that fixed ten SonarQube hotspots showed 0 fixed, and a report
+  listing them showed 0 still open. Each report now writes what it lists (`report-state.json`, digests only) to
+  the history directory, and the next report compares with that. Columns: New, Fixed, Still Present (New plus
+  Still Present equals the findings the report lists; a hotspot marked Safe is still present). The previous scan
+  is named with its commit. The first report after the update has no comparison yet; the one after it does.
+  Needs the SDT checkout updated and the pipeline library cache cleared.
+
 ## 2026-10-13
 
 - Pre-commit check on the developer's machine (in the SDT repository; nothing changes in Jenkins). `sdt scan

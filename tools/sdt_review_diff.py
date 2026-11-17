@@ -151,6 +151,23 @@ def batches(files: list[tuple[str, str]]) -> list[list[tuple[str, str]]]:
     return groups + ([current] if current else [])
 
 
+EFFORTS = ("minimal", "low", "medium", "high", "max", "inherit")
+
+
+def apply_diff_reasoning(env=None) -> str:
+    """The change review's reasoning depth: SDT_AI_DIFF_REASONING when set, else the finding
+    triage's SDT_CODEX_REASONING (default medium). Set for this process only, so the triage keeps
+    its own depth. Returns the depth in use."""
+    env = os.environ if env is None else env
+    own = env.get("SDT_AI_DIFF_REASONING", "").strip().lower()
+    if own in EFFORTS:
+        env["SDT_CODEX_REASONING"] = own
+    elif own:
+        print(f"sdt_review_diff: SDT_AI_DIFF_REASONING={own!r} is not one of {', '.join(EFFORTS)}; ignored",
+              file=sys.stderr)
+    return env.get("SDT_CODEX_REASONING", "medium")
+
+
 def review(diffs: dict[str, str], codex: str, model: str, *, per_call_timeout: float, budget: float,
            max_failures: int = 2, call=sdt_triage_codex.run_codex, clock=time.monotonic) -> dict:
     """Review the per-file diffs; ``diffs`` maps path -> unified diff."""
@@ -195,7 +212,9 @@ def review(diffs: dict[str, str], codex: str, model: str, *, per_call_timeout: f
 
 def markdown(report: dict, base: str, skipped: int, over_limit: int = 0) -> str:
     lines = ["# AI review of this change (advisory)", "",
-             f"Model `{report['model']}` read {len(report['files_reviewed'])} changed files against `{base}` "
+             f"Model `{report['model']}`"
+             + (f" (reasoning {report['reasoning']})" if report.get("reasoning") else "")
+             + f" read {len(report['files_reviewed'])} changed files against `{base}` "
              f"and reported {len(report['findings'])} possible security problems. {skipped} changed files were "
              "not sent (tests, lock files, generated or non-code files).",
              "This is advice for the reviewer: confirm each item in the code before acting on it. "
@@ -240,6 +259,7 @@ def main() -> int:
     if not codex or os.environ.get("SDT_AI_DIFF_REVIEW", "0") != "1":
         print("sdt_review_diff: off (set SDT_AI_DIFF_REVIEW=1 and install Codex): no change review")
         return 0
+    reasoning = apply_diff_reasoning()
     try:
         scope = f"{args.base}...HEAD"
         changed = [p for p in git(args.src_root, "diff", "--name-only", "--diff-filter=AMR", scope).splitlines() if p]
@@ -250,6 +270,7 @@ def main() -> int:
         print(f"sdt_review_diff: cannot read the change ({exc}): no change review", file=sys.stderr)
         return 0
     report = review(diffs, codex, args.model, per_call_timeout=args.per_call_timeout, budget=args.budget)
+    report["reasoning"] = reasoning
     report["base"] = args.base
     report["files_over_limit"] = code[len(chosen):]
     args.out.parent.mkdir(parents=True, exist_ok=True)

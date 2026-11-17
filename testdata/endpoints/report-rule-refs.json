@@ -1,0 +1,102 @@
+[
+  {
+    "key": "external_sdt-endpoints:sdt-endpoints-sensitive-route-public-6ed480a9aa313cd2",
+    "reference": "sensitive-route-public",
+    "external_id": "sensitive-route-public"
+  },
+  {
+    "key": "external_sdt-opengrep:sdt-opengrep-prod-literal-password-0123456789abcdef",
+    "reference": "prod-literal-password",
+    "external_id": "prod-literal-password"
+  },
+  {
+    "key": "external_sdt-gitleaks:sdt-gitleaks-gcp-api-key-0123456789abcdef",
+    "reference": "gcp-api-key",
+    "external_id": "gcp-api-key"
+  },
+  {
+    "key": "external_sdt-trivy-fs:sdt-trivy-fs-CVE-2026-0001-0123456789abcdef",
+    "reference": "CVE-2026-0001",
+    "external_id": "CVE-2026-0001"
+  },
+  {
+    "key": "external_sdt-trivy:sdt-trivy-DS-0002-0123456789abcdef",
+    "reference": "DS-0002",
+    "external_id": "DS-0002"
+  },
+  {
+    "key": "external_sdt-custom-adapter:sdt-custom-adapter-some-rule-0123456789abcdef",
+    "reference": "some-rule",
+    "external_id": "some-rule"
+  },
+  {
+    "key": "external_sdt-endpoints:sdt-endpoints-sensitive-route-public",
+    "reference": "sdt-endpoints-sensitive-route-public",
+    "external_id": "sdt-endpoints-sensitive-route-public"
+  },
+  {
+    "key": "external_sdt-endpoints:sdt-endpoints-sensitive-route-public-0123456789abcde",
+    "reference": "sdt-endpoints-sensitive-route-public-0123456789abcde",
+    "external_id": "sdt-endpoints-sensitive-route-public-0123456789abcde"
+  },
+  {
+    "key": "external_sdt-endpoints:sdt-endpoints-sensitive-route-public-0123456789abcdef0",
+    "reference": "sdt-endpoints-sensitive-route-public-0123456789abcdef0",
+    "external_id": "sdt-endpoints-sensitive-route-public-0123456789abcdef0"
+  },
+  {
+    "key": "external_sdt-endpoints:sdt-endpoints-sensitive-route-public-0123456789abcdeg",
+    "reference": "sdt-endpoints-sensitive-route-public-0123456789abcdeg",
+    "external_id": "sdt-endpoints-sensitive-route-public-0123456789abcdeg"
+  },
+  {
+    "key": "external_sdt-endpoints:sdt-opengrep-some-rule-0123456789abcdef",
+    "reference": "sdt-opengrep-some-rule-0123456789abcdef",
+    "external_id": "sdt-opengrep-some-rule-0123456789abcdef"
+  },
+  {
+    "key": "external_sdt-endpoints:sdt-endpoints-rule with spaces-0123456789abcdef",
+    "reference": "sdt-endpoints-rule with spaces-0123456789abcdef",
+    "external_id": "sdt-endpoints-rule with spaces-0123456789abcdef"
+  },
+  {
+    "key": "external_sdt-endpoints:sdt-endpoints-rule:tail-0123456789abcdef",
+    "reference": "tail-0123456789abcdef",
+    "external_id": "sdt-endpoints-rule:tail-0123456789abcdef"
+  },
+  {
+    "key": "external_sdt-endpoints:sdt-endpoints-sensitive-route-public-0123456789abcdef\n",
+    "reference": "sdt-endpoints-sensitive-route-public-0123456789abcdef\n",
+    "external_id": "sdt-endpoints-sensitive-route-public-0123456789abcdef\n"
+  },
+  {
+    "key": "external_other:sdt-endpoints-sensitive-route-public-0123456789abcdef",
+    "reference": "sdt-endpoints-sensitive-route-public-0123456789abcdef",
+    "external_id": "sdt-endpoints-sensitive-route-public-0123456789abcdef"
+  },
+  {
+    "key": "sdt-endpoints-sensitive-route-public-0123456789abcdef",
+    "reference": "sdt-endpoints-sensitive-route-public-0123456789abcdef",
+    "external_id": "sdt-endpoints-sensitive-route-public-0123456789abcdef"
+  },
+  {
+    "key": "external_sdt-legacy:sdt-gitleaks-gcp-api-key-0123456789abcdef",
+    "reference": "sdt-gitleaks-gcp-api-key-0123456789abcdef",
+    "external_id": "gcp-api-key"
+  },
+  {
+    "key": "typescript:S6299",
+    "reference": "S6299",
+    "external_id": "S6299"
+  },
+  {
+    "key": "opengrep-dart:scp.dart.tls.bad-cert",
+    "reference": "bad-cert",
+    "external_id": "scp.dart.tls.bad-cert"
+  },
+  {
+    "key": "plain",
+    "reference": "plain",
+    "external_id": "plain"
+  }
+]

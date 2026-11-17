@@ -13,6 +13,7 @@ import (
 
 	"github.com/bhanuharya/secure-development-tools/internal/config"
 	sdtctx "github.com/bhanuharya/secure-development-tools/internal/context"
+	"github.com/bhanuharya/secure-development-tools/internal/execute"
 	"github.com/bhanuharya/secure-development-tools/internal/finding"
 	"github.com/bhanuharya/secure-development-tools/internal/report"
 )
@@ -68,7 +69,10 @@ func (a *OpengrepAdapter) Plan(ctx *sdtctx.ScanContext, cfg *config.ScanConfigur
 			// over Semgrep CE. Required for taint-mode rules to track
 			// sources to sinks across function boundaries. Semgrep CE
 			// rejects the flag, so it stays OpenGrep-only.
-			"--taint-intrafile")
+			"--taint-intrafile",
+			// Where each taint finding's value came from, so the sinks of one
+			// flow are reported once (collapseTaintFlows).
+			"--dataflow-traces")
 	} else {
 		options = append(options, "--quiet")
 	}
@@ -78,7 +82,7 @@ func (a *OpengrepAdapter) Plan(ctx *sdtctx.ScanContext, cfg *config.ScanConfigur
 	}
 	generated, skipped, note := skipGenerated(root)
 	scope = append(scope, generated...)
-	scope = append(scope, "-j", strconv.Itoa(scanThreads()))
+	scope = append(scope, "-j", strconv.Itoa(execute.ScanThreads()))
 	target := root
 	scope = append(scope, target)
 
@@ -126,11 +130,15 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 				Col  int `json:"col"`
 			} `json:"end"`
 			Extra struct {
-				Message  string `json:"message"`
-				Severity string `json:"severity"`
-				Fix      string `json:"fix"`
-				Lines    string `json:"lines"`
+				Message       string `json:"message"`
+				Severity      string `json:"severity"`
+				Fix           string `json:"fix"`
+				Lines         string `json:"lines"`
+				DataflowTrace *struct {
+					TaintSource json.RawMessage `json:"taint_source"`
+				} `json:"dataflow_trace"`
 				Metadata struct {
+					Title      string `json:"title"`
 					CWE        any    `json:"cwe"`
 					OWASP      any    `json:"owasp"`
 					References any    `json:"references"`
@@ -143,13 +151,22 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 	if err := json.Unmarshal(stdout, &data); err != nil {
 		return ParseResult{Health: HealthMalformed, Diagnostics: []string{"opengrep returned invalid JSON"}}
 	}
+	titles := ruleTitles(rulePackDir(root))
 	var out []*finding.Finding
+	sources := map[*finding.Finding]string{}
 	for i, r := range data.Results {
 		sev := finding.MapSeverity(r.Extra.Severity)
 		if sev.Canonical == finding.SevInfo && r.Extra.Metadata.Category == "security" {
 			sev.Canonical = finding.SevMedium
 		}
 		ruleID := cleanRuleID(r.CheckID)
+		ruleName := strings.TrimSpace(r.Extra.Metadata.Title)
+		if ruleName == "" {
+			ruleName = strings.TrimSpace(overlayTitle(titles, ruleID))
+		}
+		if ruleName == "" {
+			ruleName = ruleNameFromID(ruleID)
+		}
 		msg := report.Redact(truncate(r.Extra.Message, 1000))
 		sl, el := r.Start.Line, r.End.Line
 		rel := relToRoot(root, r.Path)
@@ -176,7 +193,7 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 			ID:            fmt.Sprintf("opengrep:%05d", i+1),
 			Scanner:       finding.ScannerID{Adapter: "opengrep", Tool: "opengrep", Version: toolVersion},
 			Category:      finding.CatSAST,
-			Rule:          finding.Rule{ID: ruleID, CWE: toStringList(r.Extra.Metadata.CWE, true)},
+			Rule:          finding.Rule{ID: ruleID, Name: ruleName, CWE: toStringList(r.Extra.Metadata.CWE, true)},
 			Severity:      sev,
 			Confidence:    confidence,
 			Message:       msg,
@@ -194,9 +211,19 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 		trimmedLines := strings.TrimSpace(r.Extra.Lines)
 		semCtx := fingerprintCtx(ruleID+"\n"+trimmedLines, &sl)
 		f.Fingerprint = finding.Fingerprint{Algorithm: finding.FingerprintVersion, Value: finding.FingerprintValue(f.Category, "opengrep", ruleID, rel, semCtx)}
+		if r.Extra.DataflowTrace != nil {
+			if line, col, ok := taintSourceAt(r.Extra.DataflowTrace.TaintSource); ok {
+				sources[f] = fmt.Sprintf("%s\x00%s\x00%d:%d", ruleID, rel, line, col)
+			}
+		}
 		out = append(out, f)
 	}
-	return ParseResult{Findings: out, Health: HealthCompleted}
+	out, collapsed := collapseTaintFlows(out, sources)
+	var diagnostics []string
+	if collapsed > 0 {
+		diagnostics = append(diagnostics, fmt.Sprintf("opengrep: %d further sink(s) of a reported taint flow folded into its finding", collapsed))
+	}
+	return ParseResult{Findings: out, Health: HealthCompleted, Diagnostics: diagnostics}
 }
 
 // ruleFolderAliases adds rule folders beyond the one named after a detected language:
@@ -235,7 +262,9 @@ func rulePackOfExecutable() string {
 	return ""
 }
 
-func ruleFiles(root string, languages []string) []string {
+// rulePackDir is the rule pack a scan rooted at root uses. It is also where
+// the vendored-title overlay is read from.
+func rulePackDir(root string) string {
 	pack := envOr("SDT_RULES_PACK_DIR", filepath.Join(root, "rules", "opengrep-rules"))
 	// Fall back to repo-bundled rules when scanning fixtures elsewhere.
 	if _, err := os.Stat(pack); err != nil {
@@ -247,10 +276,23 @@ func ruleFiles(root string, languages []string) []string {
 			}
 		}
 	}
+	return pack
+}
+
+func ruleFiles(root string, languages []string) []string {
+	pack := rulePackDir(root)
 	var files []string
-	subs := append([]string{"common"}, languages...)
+	// The yaml pack is generic: its rules match Consul HCL, .env files,
+	// application.yaml and nginx.conf through their own paths: filters, so a
+	// repository holding only those files never gets a language that selects
+	// it. Keep it always loaded; duplicates are removed below.
+	subs := append([]string{"common", "yaml"}, languages...)
 	for _, l := range languages {
 		subs = append(subs, ruleFolderAliases[l]...)
+	}
+	wanted := map[string]bool{}
+	for _, s := range subs {
+		wanted[s] = true
 	}
 	for _, s := range subs {
 		d := filepath.Join(pack, s)
@@ -268,10 +310,21 @@ func ruleFiles(root string, languages []string) []string {
 			}
 		}
 	}
-	// Vendored third-party.
+	// Vendored third-party, laid out as vendor/<source>/<language>/...: only the
+	// languages of this repository. Loading every language's rules took a merged
+	// rule file from 189 to 566 rules for a Java service, and the engine's
+	// start-up from 1.4 s to 4.7 s on every scan.
 	vendor := filepath.Join(pack, "vendor")
 	_ = filepath.Walk(vendor, func(p string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(vendor, p)
+		if err != nil {
+			return nil
+		}
+		parts := strings.Split(filepath.ToSlash(rel), "/")
+		if len(parts) < 3 || !wanted[parts[1]] {
 			return nil
 		}
 		if isRuleFile(filepath.Base(p)) {

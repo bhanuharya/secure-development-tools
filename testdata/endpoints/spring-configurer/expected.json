@@ -1,0 +1,52 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/api/orders",
+      "handler": "Controller.list",
+      "file": "Controller.java",
+      "line": 7,
+      "protection": "authenticated",
+      "evidence": [
+        "SecurityConfig.java:14 .anyRequest().authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/api/orders",
+      "handler": "Controller.create",
+      "file": "Controller.java",
+      "line": 10,
+      "protection": "authenticated",
+      "evidence": [
+        "SecurityConfig.java:14 .anyRequest().authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "GET",
+      "path": "/health",
+      "handler": "Controller.health",
+      "file": "Controller.java",
+      "line": 13,
+      "protection": "public",
+      "evidence": [
+        "SecurityConfig.java:13 .requestMatchers(\"/health\").permitAll()"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 2,
+    "public": 1
+  }
+}

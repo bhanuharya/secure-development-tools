@@ -1,0 +1,38 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/admin/roles",
+      "handler": "Controller.roles",
+      "file": "Controller.java",
+      "line": 3,
+      "protection": "role",
+      "evidence": [
+        "Security.java:6 .requestMatchers(\"/admin/**\").hasAuthority(AuthoritiesConstants.ADMIN)"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/internal/transfer",
+      "handler": "Controller.transfer",
+      "file": "Controller.java",
+      "line": 5,
+      "protection": "authenticated",
+      "evidence": [
+        "Security.java:7 .anyRequest().authenticated()"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 1,
+    "role": 1
+  }
+}

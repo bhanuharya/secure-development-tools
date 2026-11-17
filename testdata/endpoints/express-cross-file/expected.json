@@ -1,0 +1,137 @@
+{
+  "root": ".",
+  "routes": [
+    {
+      "confidence": "low",
+      "evidence": [
+        "routes/reports.route.js:4 router reportRouter is mounted more than once with different prefixes or middleware"
+      ],
+      "file": "routes/reports.route.js",
+      "framework": "express",
+      "handler": "listReports",
+      "line": 4,
+      "method": "GET",
+      "path": "/",
+      "protection": "unknown",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "routes/accounts.route.js:6 middleware requireLogin(...) on router"
+      ],
+      "file": "routes/accounts.route.js",
+      "framework": "express",
+      "handler": "getMe",
+      "line": 7,
+      "method": "GET",
+      "path": "/api/v1/accounts/me",
+      "protection": "authenticated",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "routes/accounts.route.js:8 middleware requireRole(...)",
+        "routes/accounts.route.js:6 middleware requireLogin(...) on router"
+      ],
+      "file": "routes/accounts.route.js",
+      "framework": "express",
+      "handler": "transfer",
+      "line": 8,
+      "method": "POST",
+      "path": "/api/v1/accounts/transfer",
+      "protection": "role",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "routes/index.js:16 middleware requireLogin on mount /admin"
+      ],
+      "file": "routes/admin.route.js",
+      "framework": "express",
+      "handler": "listUsers",
+      "line": 6,
+      "method": "GET",
+      "path": "/api/v1/admin/users",
+      "protection": "authenticated",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "routes/admin.route.js:7 middleware requireRole(...)",
+        "routes/index.js:16 middleware requireLogin on mount /admin"
+      ],
+      "file": "routes/admin.route.js",
+      "framework": "express",
+      "handler": "deleteUser",
+      "line": 7,
+      "method": "DELETE",
+      "path": "/api/v1/admin/users/{id}",
+      "protection": "role",
+      "roles": [
+        "admin"
+      ],
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "routes/index.js:10 no gate middleware on the route",
+        "app.js:7 middleware inline function on app (does not match the gate list)",
+        "app.js:6 middleware requestId on app (does not match the gate list)"
+      ],
+      "file": "routes/index.js",
+      "framework": "express",
+      "handler": "health",
+      "line": 10,
+      "method": "GET",
+      "path": "/api/v1/health",
+      "protection": "public",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "routes/legacy.route.js:4 no gate middleware on the route",
+        "app.js:7 middleware inline function on app (does not match the gate list)",
+        "app.js:6 middleware requestId on app (does not match the gate list)"
+      ],
+      "file": "routes/legacy.route.js",
+      "framework": "express",
+      "handler": "exportEverything",
+      "line": 4,
+      "method": "POST",
+      "path": "/api/v1/legacy/admin/export",
+      "protection": "public",
+      "service": "."
+    },
+    {
+      "confidence": "low",
+      "evidence": [
+        "routes/webhooks.route.js:5 router router is not mounted in any file this scan follows"
+      ],
+      "file": "routes/webhooks.route.js",
+      "framework": "express",
+      "handler": "receiveEvent",
+      "line": 5,
+      "method": "POST",
+      "path": "/events",
+      "protection": "unknown",
+      "service": "."
+    }
+  ],
+  "schema": "sdt-endpoints/v1",
+  "summary": {
+    "authenticated": 2,
+    "public": 2,
+    "role": 2,
+    "unknown": 2
+  },
+  "unresolved": [
+    "routes/reports.route.js router reportRouter is mounted more than once with different prefixes or middleware; protection unknown",
+    "routes/webhooks.route.js router router is exported, but no mount of it was found; protection unknown"
+  ]
+}

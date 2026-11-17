@@ -1,0 +1,76 @@
+# Annotated tests for platform.yaml. The engine's test mode ignores the rules' path
+# filters, so the manifest, resource and plist cases share this plain-text fixture.
+# --- AndroidManifest.xml ---
+<application
+    android:label="app"
+# ruleid: scp.flutter.android.cleartext-traffic
+    android:usesCleartextTraffic="true"
+# ok: scp.flutter.android.cleartext-traffic
+    android:usesCleartextTraffic="false"
+# ok: scp.flutter.android.cleartext-traffic
+    usesCleartextTraffic="true"
+# ruleid: scp.flutter.android.debuggable
+    android:debuggable="true"
+# ok: scp.flutter.android.debuggable
+    android:debuggable="false"
+    android:icon="@mipmap/ic_launcher">
+# ruleid: scp.flutter.android.exported-without-permission
+    <service android:name=".SyncService" android:exported="true" />
+# ok: scp.flutter.android.exported-without-permission
+    <service android:name=".PushService" android:exported="false" />
+# ok: scp.flutter.android.exported-without-permission
+    <receiver android:name=".Boot" android:exported="true" android:permission="android.permission.RECEIVE_BOOT_COMPLETED" />
+# ruleid: scp.flutter.android.exported-without-permission
+    <provider
+        android:name=".DataProvider"
+        android:authorities="app.data"
+        android:exported="true" />
+# ok: scp.flutter.android.exported-without-permission
+    <provider android:name=".Signed" android:exported="true" android:readPermission="app.READ" />
+# ok: scp.flutter.android.exported-without-permission
+    <activity android:name=".MainActivity" android:exported="true">
+        <intent-filter>
+# ruleid: scp.flutter.android.custom-scheme-link
+            <data android:scheme="com.example.app" />
+        </intent-filter>
+        <intent-filter android:autoVerify="true">
+# ok: scp.flutter.android.custom-scheme-link
+            <data android:scheme="https" android:host="example.com" />
+        </intent-filter>
+    </activity>
+</application>
+<queries>
+    <intent>
+# ok: scp.flutter.android.custom-scheme-link
+        <data android:scheme="whatsapp" />
+    </intent>
+</queries>
+# --- res/xml/network_security_config.xml ---
+# ruleid: scp.flutter.android.cleartext-traffic
+<base-config cleartextTrafficPermitted="true">
+# ok: scp.flutter.android.cleartext-traffic
+<domain-config cleartextTrafficPermitted="true">
+# --- res/xml/provider_paths.xml ---
+<paths>
+# ruleid: scp.flutter.android.fileprovider-broad-path
+    <external-path name="external_files" path="." />
+# ruleid: scp.flutter.android.fileprovider-broad-path
+    <root-path name="root" path="" />
+# ruleid: scp.flutter.android.fileprovider-broad-path
+    <files-path name="all" path="/" />
+# ok: scp.flutter.android.fileprovider-broad-path
+    <cache-path name="shared" path="shared/" />
+# ok: scp.flutter.android.fileprovider-broad-path
+    <files-path name="app_flutter" path="app_flutter" />
+</paths>
+# --- ios/Runner/Info.plist ---
+<dict>
+# ruleid: scp.flutter.ios.ats-arbitrary-loads
+    <key>NSAllowsArbitraryLoads</key>
+    <true/>
+# ok: scp.flutter.ios.ats-arbitrary-loads
+    <key>NSAllowsArbitraryLoads</key>
+    <false/>
+# ruleid: scp.flutter.ios.ats-arbitrary-loads
+    <key>NSAllowsArbitraryLoadsInWebContent</key> <true />
+</dict>

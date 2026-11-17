@@ -1,0 +1,81 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/four",
+      "handler": "handle",
+      "file": "main.go",
+      "line": 12,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:8 middleware gin.BasicAuth(...) on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/one",
+      "handler": "handle",
+      "file": "main.go",
+      "line": 9,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:8 middleware gin.BasicAuth(...) on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/three",
+      "handler": "handle",
+      "file": "main.go",
+      "line": 11,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:8 middleware gin.BasicAuth(...) on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/api/two",
+      "handler": "handle",
+      "file": "main.go",
+      "line": 10,
+      "protection": "authenticated",
+      "evidence": [
+        "main.go:8 middleware gin.BasicAuth(...) on group /api"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "gin",
+      "method": "POST",
+      "path": "/records",
+      "handler": "handle",
+      "file": "main.go",
+      "line": 13,
+      "protection": "public",
+      "evidence": [
+        "main.go:13 no gate middleware on the route",
+        "main.go:7 middleware gin.Logger on router (does not match the gate list)"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 4,
+    "public": 1
+  }
+}

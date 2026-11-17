@@ -141,12 +141,12 @@ func TestOpengrepPlanLeavesGeneratedFilesOutAndSaysSo(t *testing.T) {
 	}
 }
 
-// The code scanner does not get faster beyond a few cores, so it is held to
-// four unless SDT_SCAN_THREADS says otherwise (two scans on a small machine).
+// More code-scanner threads cost more CPU than they save time, so it is held to
+// two unless SDT_SCAN_THREADS says otherwise.
 func TestOpengrepPlanUsesTheThreadLimit(t *testing.T) {
 	withRulePack(t)
 	fakeOpengrep(t)
-	fallback := strconv.Itoa(min(runtime.NumCPU(), 4))
+	fallback := strconv.Itoa(min(runtime.NumCPU(), 2))
 	for value, want := range map[string]string{"": fallback, "2": "2", " 3 ": "3", "16": "16", "0": fallback, "-1": fallback, "many": fallback} {
 		t.Setenv("SDT_SCAN_THREADS", value)
 		task, err := (&OpengrepAdapter{}).Plan(testCtx(), config.Defaults(), t.TempDir())

@@ -1,0 +1,8 @@
+# Every service in the registry gets a public route.
+spring:
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true

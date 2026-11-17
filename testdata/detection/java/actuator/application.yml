@@ -1,0 +1,7 @@
+# Environment, log file and thread dump are served over HTTP in every profile.
+management:
+  endpoints:
+    web:
+      base-path: /management
+      exposure:
+        include: ["configprops", "env", "health", "info", "threaddump", "logfile"]

@@ -4,6 +4,7 @@ rules:
     message: Avoid building shell commands with untrusted input.
     severity: ERROR
     metadata:
+      title: Shell command built from untrusted input
       category: security
       cwe: ["CWE-78"]
       owasp: ["A03:2021 - Injection"]
@@ -17,6 +18,7 @@ rules:
       name, or check that the cleaned path still starts with the base folder.
     severity: WARNING
     metadata:
+      title: Request-controlled path used in file access
       category: security
       cwe: ["CWE-22"]
       owasp: ["A01:2021 - Broken Access Control"]

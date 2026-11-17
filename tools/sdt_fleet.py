@@ -187,7 +187,9 @@ def ssh_key_is_private(path: Path) -> bool:
 
 def repository_url(transport: str, workspace: str, slug: str) -> str:
     if transport == "ssh":
-        return f"git@bitbucket.org:{workspace}/{slug}.git"
+        # Bitbucket Cloud serves git over SSH at ssh.bitbucket.org (bitbucket.org stops on 12 Nov 2026).
+        host = os.environ.get("SDT_BITBUCKET_SSH_HOST", "ssh.bitbucket.org")
+        return f"git@{host}:{workspace}/{slug}.git"
     return f"https://bitbucket.org/{workspace}/{slug}.git"
 
 

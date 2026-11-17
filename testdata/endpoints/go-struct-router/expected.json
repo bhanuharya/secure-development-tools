@@ -1,0 +1,96 @@
+{
+  "root": ".",
+  "routes": [
+    {
+      "confidence": "high",
+      "evidence": [
+        "server.go:39 no gate middleware on the route"
+      ],
+      "file": "server.go",
+      "framework": "fiber",
+      "handler": "purge",
+      "line": 39,
+      "method": "POST",
+      "path": "/admin/purge",
+      "protection": "public",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "server.go:29 middleware requireToken on group /api (registered in secure)"
+      ],
+      "file": "server.go",
+      "framework": "fiber",
+      "handler": "listOrders",
+      "line": 33,
+      "method": "GET",
+      "path": "/api/orders",
+      "protection": "authenticated",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "server.go:37 no gate middleware on the route",
+        "server.go:24 middleware requestLogger on router (registered in setupMiddlewares) (does not match the gate list)"
+      ],
+      "file": "server.go",
+      "framework": "fiber",
+      "handler": "health",
+      "line": 37,
+      "method": "GET",
+      "path": "/health",
+      "protection": "public",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "server.go:38 no gate middleware on the route"
+      ],
+      "file": "server.go",
+      "framework": "fiber",
+      "handler": "login",
+      "line": 38,
+      "method": "POST",
+      "path": "/login",
+      "protection": "public",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "admin.go:11 middleware requireStaffRole on group /staff"
+      ],
+      "file": "admin.go",
+      "framework": "fiber",
+      "handler": "deleteUser",
+      "line": 15,
+      "method": "DELETE",
+      "path": "/staff/users/{id}",
+      "protection": "role",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "server.go:40 no gate middleware on the route"
+      ],
+      "file": "server.go",
+      "framework": "fiber",
+      "handler": "status",
+      "line": 40,
+      "method": "GET",
+      "path": "/status",
+      "protection": "public",
+      "service": "."
+    }
+  ],
+  "schema": "sdt-endpoints/v1",
+  "summary": {
+    "authenticated": 1,
+    "public": 4,
+    "role": 1
+  }
+}

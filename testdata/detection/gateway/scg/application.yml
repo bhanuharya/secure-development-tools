@@ -1,0 +1,9 @@
+# A Spring Cloud Gateway route that forwards the management API.
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: management
+          uri: http://accounts:8080
+          predicates:
+            - Path=/management/**

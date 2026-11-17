@@ -1,0 +1,5 @@
+# Local development only: the agent runs in memory with ACLs off.
+services:
+  consul:
+    image: consul:1.19
+    command: ["consul", "agent", "-dev", "-client", "127.0.0.1"]

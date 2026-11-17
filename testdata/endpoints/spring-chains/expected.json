@@ -1,0 +1,38 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/api/orders",
+      "handler": "Controller.create",
+      "file": "Controller.java",
+      "line": 10,
+      "protection": "authenticated",
+      "evidence": [
+        "Security.java:15 .anyRequest().authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/transfer",
+      "handler": "Controller.transfer",
+      "file": "Controller.java",
+      "line": 7,
+      "protection": "public",
+      "evidence": [
+        "Security.java:22 .anyRequest().permitAll()"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 1,
+    "public": 1
+  }
+}

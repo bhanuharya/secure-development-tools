@@ -1,6 +1,7 @@
 # Planted weaknesses for internal/scanner/detection_test.go: one small file per weakness.
 # cwe: the CWE numbers a correct report may carry. by: rules = the shipped rule pack must report it;
-# sonarqube = left to SonarQube's own analyser in the pipeline, not checked by the test.
+# sonarqube = left to SonarQube's own analyser in the pipeline, not checked by the test;
+# none = a safe look-alike (lookalike/): the rule pack must NOT report it under any of these CWEs.
 path	weakness	cwe	by
 go/cmd.go	command injection	78	rules
 go/crypto.go	weak hash and predictable random numbers	327,328,338,330	rules
@@ -36,3 +37,141 @@ python/path.py	path traversal	22	rules
 python/settings.py	weak hash	327,328,326	rules
 python/sqli.py	SQL injection	89	rules
 python/ssrf.py	server-side request forgery	918	rules
+node/env-fallback.js	secret read from the environment with a literal fallback	798,1188	rules
+python/env_fallback.py	secret read from the environment with a literal fallback	798,1188	rules
+java/application.yml	secret placeholder with a literal default	798,1188	rules
+deploy/Dockerfile	development server started by the container image	489,552	rules
+java/InternalApiOpen.java	internal service endpoints open to anonymous callers	306,862	rules
+java/NoDefaultRule.java	security chain without a default rule	276,862	rules
+java/ScopedChain.java	security chain limited to a hand-written path list	862	rules
+java/CommentedRule.java	authorization rule commented out	862	rules
+java/StaffRegistration.java	roles and activation taken from the request	915,269	rules
+java/CorsAnyOrigin.java	CORS any origin with credentials	942	rules
+java/UserDto.java	password printed by toString	532,312	rules
+java/TestEndpoint.java	test endpoint in production code	489	rules
+java/cors/application.yml	CORS any origin with credentials in configuration	942	rules
+java/keystore/application-prod.yml	key store opened with a default password	798,321	rules
+java/logging/application-prod.yml	DEBUG logging in the production profile	532	rules
+node/basic-auth.js	fixed Basic credential in front-end code	798	rules
+node/frontend.env	secret in a public build variable	798,200	rules
+java/gateway/application-prod.yml	gateway access policy left at the template entry	284,862	rules
+java/keystore-repo/application-prod.yml	key store loaded from the repository	321,798	rules
+java/prod-password/application-prod.yml	literal password in the production profile	798,260	rules
+java/actuator/application.yml	sensitive actuator endpoints exposed	200,215	rules
+java/PaymentCallback.java	secret passed to a log call	532	rules
+java/SalesSearch.java	search query syntax controlled by the caller	943	rules
+node/login-console.js	password written to the browser console	532	rules
+java/UploadToDisk.java	upload file name used as the written and deleted path	22,73	rules
+java/SpringSqlSearch.java	SQL text built from a Spring request parameter	89	rules
+java/NoopAccessCheck.java	access check with an empty body	862,285	rules
+java/WebSocketRegistration.java	WebSocket without a handshake check, any origin	306,862,1385,346	rules
+java/lookalike/LocationHeader.java	URI only for the Location header (not SSRF)	918	none
+java/lookalike/DownloadHeader.java	file name only for a download header (not path traversal)	22,73	none
+java/lookalike/PemParsing.java	PEM delimiters stripped from a runtime key (not a committed key)	798,321	none
+java/lookalike/BatchHelper.java	batch helper with bound values (not SQL injection)	89	none
+java/AdminServiceClient.java	service client with an administrator role and client_credentials	269,798	rules
+java/CredentialChangeById.java	password and e-mail change for the account named in the URL	639,620	rules
+java/PasswordCheckOpen.java	password and PIN check open without login	307,306	rules
+java/RecoverablePassword.java	stored PIN decoded back to clear text	257,916	rules
+java/PasswordChangeLog.java	encoded password passed to a log call	532	rules
+java/NioPathTraversal.java	path traversal through Paths.get, file name from a cookie	22,73	rules
+java/SessionAttributeName.java	request data used as a session attribute name	501	rules
+java/lookalike/SessionServerValue.java	server-side values stored in the session (not a trust boundary violation)	501	none
+java/default-secret/application-prod.yml	client secret left at the generator's default	1392,798	rules
+java/prod-secret/application-prod.yml	signing key and API key as literals in the production profile	798,321	rules
+java/registry-url/application-prod.yml	registry address built with the password inside	522,200	rules
+java/registry-url-literal/application-prod.yml	registry address with a literal password	798,522	rules
+java/gateway-locator/application.yml	gateway routes every registered service	441,284	rules
+java/lookalike/OwnPasswordChange.java	password change limited to the caller's own account (not an IDOR)	639,620	none
+java/lookalike/DocumentDecode.java	Base64 document and one-way password match (not a recoverable password)	257,916	none
+java/lookalike/ServiceClient.java	service client with its own role (not an administrator client)	269	none
+java/lookalike/registry-url/application-prod.yml	registry address without credentials, secrets from the environment	522,200,798	none
+go/route_no_auth.go	state-changing route without the auth middleware its neighbours use	306,862	rules
+go/secret_log.go	bearer token written to the log	532	rules
+go/recoverable_pin.go	stored PIN decrypted back to clear text	257,916	rules
+go/lookalike/route_public.go	public login and read-only route next to a protected one (not missing auth)	306,862	none
+go/lookalike/token_error.go	error value named like a token, bcrypt check (not a secret in a log)	532,257,916	none
+node/credential-change.js	password reset for the account in the URL without a caller check	639,620	rules
+node/route-no-auth.js	state-changing route without the auth middleware its neighbours use	306,862	rules
+node/secret-log.js	one-time code written to the server log	532	rules
+node/recoverable-password.js	stored password decrypted back to clear text	257,916	rules
+node/lookalike/own-password.js	password change limited to the caller's own account (not an IDOR)	639,620	none
+node/lookalike/document-decrypt.js	document decryption and bcrypt check (not a recoverable password)	257,916	none
+python/credential_change.py	password reset for the account in the URL without a caller check	639,620	rules
+python/secret_log.py	password written to the log	532	rules
+python/recoverable_pin.py	stored PIN decrypted back to clear text	257,916	rules
+python/lookalike/own_password.py	password change limited to the caller's own account (not an IDOR)	639,620	none
+kotlin/SecretLog.kt	one-time code written to logcat	532	rules
+kotlin/RecoverablePin.kt	stored PIN decrypted back to clear text	257,916	rules
+dart/api_config.dart	client secret compiled into the app	798,321	rules
+dart/saved_login.dart	saved password decrypted on the device	257,522	rules
+dart/keys_lookalike.dart	field names and hints (not hard-coded secrets)	798,321	none
+config/prod/production.env	database password in a production environment file	798,260	rules
+config/default/app.env	token signing key left at a well-known placeholder	1392,798	rules
+config/registry.yaml	registry address with a literal password	798,522	rules
+config/lookalike/production.env	values injected by the platform, address without credentials	798,260,1392,522	none
+java/HardcodedSecretField.java	hard-coded secret constant in Java code	798,321	rules
+java/lookalike/SecretFieldNames.java	field, header and placeholder names (not hard-coded secrets)	798,321	none
+java/lookalike/SecretConfigKeys.java	configuration keys, message keys and URL paths (not hard-coded secrets)	798,321	none
+kotlin/HardcodedSecretField.kt	hard-coded secret constant in Kotlin code	798,321	rules
+kotlin/lookalike/SecretFieldNames.kt	field, header and placeholder names (not hard-coded secrets)	798,321	none
+kotlin/lookalike/SecretConfigKeys.kt	configuration keys, message keys and URL paths (not hard-coded secrets)	798,321	none
+node/secret-constant.js	hard-coded secret constant in JavaScript	798,321	rules
+node/lookalike/secret-constant-names.js	field, header and placeholder names (not hard-coded secrets)	798,321	none
+node/lookalike/secret-config-keys.js	configuration keys, message keys and URL paths (not hard-coded secrets)	798,321	none
+go/secret_constant.go	hard-coded secret constant in Go code	798,321	rules
+go/lookalike/secret_constant_names.go	field, header and placeholder names (not hard-coded secrets)	798,321	none
+go/lookalike/secret_config_keys.go	configuration keys, message keys and URL paths (not hard-coded secrets)	798,321	none
+python/secret_constant.py	hard-coded secret constant in Python code	798,321	rules
+python/lookalike/secret_constant_names.py	field, header and placeholder names (not hard-coded secrets)	798,321	none
+python/lookalike/secret_config_keys.py	configuration keys, message keys and URL paths (not hard-coded secrets)	798,321	none
+infra/k8s-service-public-lb.yaml	internal service registry published through a public load balancer	668	rules
+infra/k8s-ingress-actuator.yaml	ingress for the actuator management endpoints	668	rules
+infra/consul-acl-disabled.hcl	Consul agent with ACLs disabled and default allow	306	rules
+infra/consul-compose.yaml	Consul client on every interface with the UI and port published	668	rules
+infra/actuator-exposure.env	sensitive actuator endpoints exposed through an environment file	200	rules
+infra/firewall-open.tf	internet firewall open to infrastructure ports	284	rules
+infra/lookalike/internal-load-balancer.yaml	internal load balancer and restricted source ranges (not public)	668	none
+infra/lookalike/clusterip-acls.yaml	ClusterIP service and Consul ACLs enabled (not exposed)	306,668	none
+infra/dev/consul-agent-dev.yaml	Consul development agent under a dev path (not a deployment)	306	none
+gateway/kong-management.yaml	kong route to the management endpoints	284	rules
+gateway/kong-catch-all.yaml	kong catch-all route	284	rules
+gateway/zuul/application.yml	zuul routes every registered service	441	rules
+gateway/scg/application.yml	gateway route to the management endpoints	284	rules
+gateway/nginx/nginx.conf	nginx proxies the management endpoints without a restriction	284	rules
+gateway/lookalike/kong-health.yaml	kong route to health only (not a sensitive route)	284,441	none
+gateway/lookalike/application.yml	zuul ignores every service and the gateway routes health only (not exposure)	284,441	none
+endpoints/transfer/main.go	money transfer reachable without authentication	306,284	rules
+endpoints/lookalike/main.go	public login and health next to protected state-changing routes (not missing auth)	306,862,284,285	none
+infra/k8s-aws-false.yaml	internal service with k8s-aws-false	668	rules
+infra/k8s-azure-false.yaml	internal service with k8s-azure-false	668	rules
+infra/k8s-gke-external.yaml	internal service with k8s-gke-external	668	rules
+infra/k8s-aws-true-prefix.yaml	internal service with k8s-aws-true-prefix	668	rules
+infra/k8s-ipv4-open.yaml	internal service with k8s-ipv4-open	668	rules
+infra/k8s-ipv6-open.yaml	internal service with k8s-ipv6-open	668	rules
+infra/k8s-mixed-open.yaml	internal service with k8s-mixed-open	668	rules
+infra/k8s-empty-ranges.yaml	internal service with k8s-empty-ranges	668	rules
+infra/lookalike/k8s-aws-true.yaml	internal service with k8s-aws-true	668	none
+infra/lookalike/k8s-azure-true.yaml	internal service with k8s-azure-true	668	none
+infra/lookalike/k8s-aws-internal-scheme.yaml	internal service with k8s-aws-internal-scheme	668	none
+infra/lookalike/k8s-gke-internal.yaml	internal service with k8s-gke-internal	668	none
+infra/lookalike/k8s-restricted-flow.yaml	internal service with k8s-restricted-flow	668	none
+infra/lookalike/k8s-restricted-block.yaml	internal service with k8s-restricted-block	668	none
+infra/consul-client-first.hcl	Consul UI and client binding client-first.hcl	668	rules
+infra/consul-ui-first.hcl	Consul UI and client binding ui-first.hcl	668	rules
+infra/consul-ui-config-first.hcl	Consul UI and client binding ui-config-first.hcl	668	rules
+infra/consul-ui-first.json	Consul UI and client binding ui-first.json	668	rules
+infra/lookalike/consul-ui-disabled.hcl	Consul UI and client binding ui-disabled.hcl	668	none
+infra/lookalike/consul-loopback.hcl	Consul UI and client binding loopback.hcl	668	none
+gateway/nginx/nginx-allow-only.conf	NGINX sensitive proxy with allow-only	284	rules
+gateway/nginx/nginx-commented-deny.conf	NGINX sensitive proxy with commented-deny	284	rules
+gateway/lookalike/nginx-allow-deny.conf	NGINX sensitive proxy with allow-deny	284	none
+gateway/lookalike/nginx-internal.conf	NGINX sensitive proxy with internal	284	none
+infra/k8s-nodeport.yaml	internal services reachable on node ports despite load-balancer restrictions	668	rules
+gateway/nginx/nginx-allow-all-first.conf	NGINX sensitive proxy with allow-all-before-deny	284	rules
+gateway/lookalike/nginx-deny-all-first.conf	NGINX sensitive proxy with deny-all-before-allow	284	none
+gateway/nginx/nginx-cidr-all.conf	NGINX sensitive proxy with unrestricted IPv4 allow	284	rules
+gateway/nginx/nginx-cidr-all-v6.conf	NGINX sensitive proxy with unrestricted IPv6 allow	284	rules
+gateway/lookalike/nginx-cidr-private.conf	NGINX sensitive proxy with private CIDR allows (not unrestricted)	284	none
+android/app/src/main/AndroidManifest.xml	release manifest allows cleartext HTTP	319	rules
+android/lookalike/app/src/debug/AndroidManifest.xml	cleartext allowed in the debug manifest only (not shipped)	319	none

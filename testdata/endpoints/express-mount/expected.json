@@ -1,0 +1,23 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "express",
+      "method": "POST",
+      "path": "/transfer",
+      "handler": "handleTransfer",
+      "file": "app.js",
+      "line": 7,
+      "protection": "authenticated",
+      "evidence": [
+        "app.js:6 middleware verifyToken on mount"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 1
+  }
+}

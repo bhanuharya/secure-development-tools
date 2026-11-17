@@ -4,6 +4,7 @@ rules:
     message: Avoid Runtime.exec with untrusted input.
     severity: ERROR
     metadata:
+      title: Shell command built from untrusted input
       category: security
       cwe: ["CWE-78"]
       owasp: ["A03:2021 - Injection"]

@@ -1,0 +1,8 @@
+[
+  {
+    "rule": "scp.endpoints.sensitive-route-public",
+    "file": "src/main/java/com/example/orders/OrdersController.java",
+    "line": 11,
+    "endpoint": "POST /api/admin/refunds"
+  }
+]

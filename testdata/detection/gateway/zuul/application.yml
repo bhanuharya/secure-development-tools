@@ -1,0 +1,7 @@
+# A Zuul gateway that routes every registered service.
+zuul:
+  prefix: /services
+  routes:
+    accounts:
+      path: /accounts/**
+      serviceId: accounts

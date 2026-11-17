@@ -2,11 +2,13 @@
 package scanner
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/bhanuharya/secure-development-tools/internal/config"
 	sdtctx "github.com/bhanuharya/secure-development-tools/internal/context"
 	"github.com/bhanuharya/secure-development-tools/internal/finding"
+	"github.com/bhanuharya/secure-development-tools/internal/usage"
 )
 
 // Health mirrors execute health for policy decisions.
@@ -50,6 +52,20 @@ type Task struct {
 	// ExecArgs, when set, is what runs in place of Args: an equivalent
 	// invocation that is cheaper to execute (see mergedRules).
 	ExecArgs []string
+	// Run, when set, is an in-process adapter's work: the orchestrator calls
+	// it at execution time, beside the other scanners and under the scan's
+	// context and the task's time limit, instead of spawning Executable. It
+	// returns the native report Parse reads and what the work cost.
+	Run func(ctx context.Context) ([]byte, usage.Usage, error)
+}
+
+// Artifact is an extra file an adapter contributes to the run's artifact
+// directory (for example the endpoint inventory next to findings.json).
+type Artifact struct {
+	Name      string
+	Data      []byte
+	MediaType string
+	Schema    string
 }
 
 // ParseResult is adapter parse output.
@@ -57,6 +73,8 @@ type ParseResult struct {
 	Findings    []*finding.Finding
 	Diagnostics []string
 	Health      Health
+	// Artifacts are written next to findings.json when the run finalizes.
+	Artifacts []Artifact
 }
 
 // Adapter implements identify/validate/detect/plan/parse/redact.

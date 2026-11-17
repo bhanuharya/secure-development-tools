@@ -1,0 +1,5 @@
+# The token-signing client still has the generator's secret.
+security:
+  client-authorization:
+    client-id: internal
+    client-secret: internal

@@ -1,0 +1,4 @@
+# Requests to /api/** only reach this service through the API gateway, which validates the JWT.
+upstreamAuth:
+  - paths: ["/api/**"]
+    by: API gateway (JWT)

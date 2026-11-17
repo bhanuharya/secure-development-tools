@@ -4,6 +4,7 @@ rules:
     message: This URL uses cleartext http://. Traffic can be read and modified on the network; use https://.
     severity: WARNING
     metadata:
+      title: Cleartext HTTP URL in mobile app
       name: "Network URLs should use HTTPS"
       category: security
       cwe: ["CWE-319"]
@@ -26,6 +27,7 @@ rules:
     message: A credential-like value is written to SharedPreferences, which is stored unencrypted on the device. Use flutter_secure_storage (Keychain / Keystore) instead.
     severity: ERROR
     metadata:
+      title: Secret stored unencrypted in SharedPreferences
       name: "Credentials should not be stored in SharedPreferences"
       category: security
       cwe: ["CWE-312"]
@@ -51,6 +53,7 @@ rules:
     message: An API key or authorization header value is hardcoded in the app. Anything shipped in the binary can be extracted; issue per-user credentials from the backend instead.
     severity: ERROR
     metadata:
+      title: API key hard-coded in the app
       name: "API keys and auth headers should not be hardcoded"
       category: security
       cwe: ["CWE-798"]
@@ -79,6 +82,7 @@ rules:
     message: A credential-like value is written to the log. Device logs are readable by other tools and end up in crash reports; never log secrets.
     severity: WARNING
     metadata:
+      title: Sensitive value written to the log
       name: "Credentials and PINs should not be written to logs"
       category: security
       cwe: ["CWE-532"]
@@ -107,6 +111,7 @@ rules:
     message: A JavaScript channel exposes Dart code to every page the WebView loads. Make sure only trusted origins can reach it and validate every message.
     severity: WARNING
     metadata:
+      title: JavaScript channel exposed to every WebView page
       name: "WebView JavaScript channels should only be exposed to trusted pages"
       category: security
       cwe: ["CWE-749"]
@@ -127,6 +132,7 @@ rules:
     message: The IV is constant (all zeros or a literal), so identical plaintexts encrypt identically and CBC/GCM security guarantees are lost. Generate a random IV per encryption.
     severity: ERROR
     metadata:
+      title: Constant initialization vector used for encryption
       name: "Encryption IVs should be random, not constant"
       category: security
       cwe: ["CWE-329"]
@@ -149,6 +155,7 @@ rules:
     message: local_auth is called with biometricOnly set to false, so a device PIN or pattern also passes. Review whether this action needs a biometric, and bind it to a Keystore/Keychain key rather than a boolean result.
     severity: WARNING
     metadata:
+      title: Biometric check accepts a device PIN fallback
       name: "Sensitive actions should require biometrics, not a device PIN fallback"
       category: security
       cwe: ["CWE-287"]
@@ -166,6 +173,7 @@ rules:
     message: Deep links are handled here. Anything that can open a URL can send this data; validate the scheme, host and parameters before navigating, loading a WebView or calling an API.
     severity: WARNING
     metadata:
+      title: Deep link handled without validation
       name: "Deep link parameters should be validated before use"
       category: security
       cwe: ["CWE-939"]

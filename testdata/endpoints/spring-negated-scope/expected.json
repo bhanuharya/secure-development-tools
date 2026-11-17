@@ -1,0 +1,51 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "spring-webflux",
+      "method": "POST",
+      "path": "/services/accounts",
+      "handler": "AccountController.create",
+      "file": "AccountController.java",
+      "line": 11,
+      "protection": "authenticated",
+      "evidence": [
+        "GatewaySecurity.java:13 .anyExchange().authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-webflux",
+      "method": "GET",
+      "path": "/services/accounts/{id}",
+      "handler": "AccountController.get",
+      "file": "AccountController.java",
+      "line": 8,
+      "protection": "authenticated",
+      "evidence": [
+        "GatewaySecurity.java:13 .anyExchange().authenticated()"
+      ],
+      "confidence": "high"
+    },
+    {
+      "service": ".",
+      "framework": "spring-webflux",
+      "method": "GET",
+      "path": "/status",
+      "handler": "StatusController.status",
+      "file": "StatusController.java",
+      "line": 5,
+      "protection": "authenticated",
+      "evidence": [
+        "GatewaySecurity.java:13 .anyExchange().authenticated()"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "authenticated": 3
+  }
+}

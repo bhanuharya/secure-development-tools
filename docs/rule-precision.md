@@ -28,6 +28,26 @@ not by themselves prove attacker control. New Dart checks stay at WARNING
 until representative Flutter and backend applications have been scanned and
 every hit triaged under the promotion ladder above.
 
+The Flutter platform pack (`flutter/platform.yaml`, 6 rules) reads what the Dart
+code cannot: the release `AndroidManifest.xml` (cleartext traffic, `debuggable`,
+services, receivers and providers exported without a permission, custom-scheme deep
+links), FileProvider path files, and the iOS `Info.plist` (App Transport Security
+turned off). Debug and profile manifests and a package's example app are not
+reported. The rules are WARNING, and the deep-link rule is INFO, until wider triage.
+
+## Triage log (Flutter platform pack, 2026-11-13, five Flutter repositories)
+
+Two apps and three packages whose only app is an example. The packages gave no
+findings.
+
+| Finding | Verdict | Action |
+|---|---|---|
+| `android:usesCleartextTraffic="true"` in a release manifest (1 app) | TP | Kept |
+| FileProvider `external-path path="."` (2 apps) | TP: the whole external storage is shareable | Kept |
+| Custom-scheme deep link forwarded to Dart (1 app) | TP, informational | Kept at INFO |
+| `NSAllowsArbitraryLoads` in a notification-service extension (1 app) | TP | Kept |
+| `usesCleartextTraffic="true"` without the `android:` prefix (1 app) | Not reported: Android ignores the attribute | Correct |
+
 ## Triage log (Wave 1+2, 2026-09-04, own repo)
 
 | Finding | Verdict | Action |

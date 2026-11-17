@@ -1,0 +1,8 @@
+# Consul started on every interface with the UI and the HTTP port published.
+services:
+  consul:
+    image: consul:1.19
+    command: ["agent", "-dev", "-client", "0.0.0.0", "-ui"]
+    ports:
+      - "8500:8500"
+      - "8600:8600/udp"

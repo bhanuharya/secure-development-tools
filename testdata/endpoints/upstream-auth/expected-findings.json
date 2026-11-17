@@ -1,0 +1,8 @@
+[
+  {
+    "rule": "scp.endpoints.sensitive-route-without-role",
+    "file": "main.go",
+    "line": 8,
+    "endpoint": "POST /api/transfer"
+  }
+]

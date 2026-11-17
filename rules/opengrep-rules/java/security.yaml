@@ -4,16 +4,22 @@ rules:
     message: Runtime.exec with untrusted input enables command injection.
     severity: ERROR
     metadata:
+      title: Shell command built from untrusted input
       category: security
       cwe: ["CWE-78"]
       owasp: ["A03:2021 - Injection"]
-    pattern: Runtime.getRuntime().exec(...)
+    patterns:
+      - pattern: Runtime.getRuntime().exec(...)
+      # A command that is a constant (a literal, or a final string built from literals) has no
+      # input to inject.
+      - pattern-not: Runtime.getRuntime().exec("...", ...)
 
   - id: scp.java.crypto.weak-md5
     languages: [java]
     message: MD5 is broken for security purposes. Use SHA-256 or better.
     severity: WARNING
     metadata:
+      title: MD5 used for security purposes
       category: security
       cwe: ["CWE-328"]
     pattern: MessageDigest.getInstance("MD5")
@@ -26,6 +32,7 @@ rules:
       against an allow-list before connecting.
     severity: WARNING
     metadata:
+      title: Request target comes from the HTTP request
       category: security
       cwe: ["CWE-918"]
       owasp: ["A10:2021 - Server-Side Request Forgery (SSRF)"]
@@ -34,21 +41,39 @@ rules:
     pattern-sources:
       - pattern-either:
           - pattern: (HttpServletRequest $REQ).getParameter(...)
+          - pattern: (HttpServletRequest $REQ).getParameterValues(...)
+          - pattern: (HttpServletRequest $REQ).getParameterMap()
+          - pattern: (HttpServletRequest $REQ).getParameterNames()
+          - pattern: (HttpServletRequest $REQ).getHeaderNames()
           - pattern: (HttpServletRequest $REQ).getHeader(...)
+          - pattern: (HttpServletRequest $REQ).getHeaders(...)
           - pattern: (HttpServletRequest $REQ).getQueryString()
+          - pattern: (HttpServletRequest $REQ).getCookies()
+          - pattern: (Cookie $COOKIE).getValue()
+          # Annotation names spelled out, not @$ANNOTATION with a regex: matching every annotated
+          # parameter of every method and filtering afterwards cost a third of this pack's CPU time.
           - patterns:
-              - pattern-inside: |
-                  $RET $METHOD(..., @$ANNOTATION(...) $TYPE $ARG, ...) { ... }
-              - metavariable-regex:
-                  metavariable: $ANNOTATION
-                  regex: ^(RequestParam|PathVariable|RequestHeader|RequestBody)$
-              - focus-metavariable: $ARG
-          - patterns:
-              - pattern-inside: |
-                  $RET $METHOD(..., @$ANNOTATION $TYPE $ARG, ...) { ... }
-              - metavariable-regex:
-                  metavariable: $ANNOTATION
-                  regex: ^(RequestParam|PathVariable|RequestHeader|RequestBody)$
+              - pattern-either:
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam(...) $TYPE $ARG, ...) { ... }
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam $TYPE $ARG, ...) { ... }
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable(...) $TYPE $ARG, ...) { ... }
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable $TYPE $ARG, ...) { ... }
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestHeader(...) $TYPE $ARG, ...) { ... }
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestHeader $TYPE $ARG, ...) { ... }
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody(...) $TYPE $ARG, ...) { ... }
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody $TYPE $ARG, ...) { ... }
+                  - pattern-inside: |
+                      $RET $METHOD(..., @CookieValue(...) $TYPE $ARG, ...) { ... }
+                  - pattern-inside: |
+                      $RET $METHOD(..., @CookieValue $TYPE $ARG, ...) { ... }
               - focus-metavariable: $ARG
     pattern-sinks:
       - patterns:
@@ -64,4 +89,12 @@ rules:
               - pattern: (RestTemplate $T).postForObject($URL, ...)
               - pattern: (RestTemplate $T).postForEntity($URL, ...)
               - pattern: (RestTemplate $T).exchange($URL, ...)
+          # A URI built for a Location header, or a relative path, never makes the server connect.
+          - pattern-not-inside: ResponseEntity.created(...)
+          - pattern-not-inside: $HEADERS.setLocation(...)
+          - pattern-not-inside: $BUILDER.location(...)
+          - pattern-not: new URI("=~/^\//" + $REST)
+          - pattern-not: new URI("=~/^\//" + $A + $B)
+          - pattern-not: URI.create("=~/^\//" + $REST)
+          - pattern-not: URI.create("=~/^\//" + $A + $B)
           - focus-metavariable: $URL

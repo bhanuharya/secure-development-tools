@@ -1,0 +1,38 @@
+{
+  "root": ".",
+  "routes": [
+    {
+      "confidence": "high",
+      "evidence": [
+        "views/billing.py:13 no gate decorator or dependency on the route"
+      ],
+      "file": "views/billing.py",
+      "framework": "flask",
+      "handler": "refund",
+      "line": 13,
+      "method": "POST",
+      "path": "/billing/admin/refund",
+      "protection": "public",
+      "service": "."
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "views/billing.py:8 decorator @login_required on create_invoice"
+      ],
+      "file": "views/billing.py",
+      "framework": "flask",
+      "handler": "create_invoice",
+      "line": 7,
+      "method": "POST",
+      "path": "/billing/invoices",
+      "protection": "authenticated",
+      "service": "."
+    }
+  ],
+  "schema": "sdt-endpoints/v1",
+  "summary": {
+    "authenticated": 1,
+    "public": 1
+  }
+}

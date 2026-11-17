@@ -1,0 +1,8 @@
+[
+  {
+    "rule": "scp.endpoints.sensitive-route-without-role",
+    "file": "app/routers/users.py",
+    "line": 11,
+    "endpoint": "POST /api/v1/users/{user_id}/reset-password"
+  }
+]

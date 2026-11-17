@@ -26,6 +26,9 @@
  *                             that keeps state between scans: "-v sdt-state:/var/lib/sdt"
  *   SDT_AGENT_LABEL           agent label to run on
  *   SDT_CLONE_MINUTES         time limit of the clone, in minutes (default 30; the git plugin's own is 10)
+ *   SDT_CLONE_CACHE           optional folder on the agent that keeps a mirror of every scanned repository, so a
+ *                             scan fetches only what changed since the last one instead of the whole history.
+ *                             Empty (default): every scan clones in full
  *   SDT_FLEET_DATABASE        optional SQLAlchemy URL of the fleet store
  *   SDT_QUALITY_GATE_ENFORCE  "1" fails the build on a failed gate (default: report only)
  *   SDT_BITBUCKET_API_CREDENTIALS  "Secret text" credential with a Bitbucket token that may comment on pull
@@ -48,9 +51,12 @@ def call(Map args = [:]) {
     sonarUrl        : args.sonarUrl ?: env.SDT_SONAR_URL ?: error('sdtScan: set sonarUrl or SDT_SONAR_URL'),
     sonarCredentials: args.sonarCredentials ?: env.SDT_SONAR_CREDENTIALS ?: 'sdt-sonar-token',
     gitCredentials  : args.gitCredentials ?: env.SDT_GIT_CREDENTIALS ?: 'sdt-bitbucket-ssh',
+    // Bitbucket Cloud serves git over SSH at ssh.bitbucket.org (bitbucket.org stops on 12 Nov 2026).
+    sshHost         : args.sshHost ?: env.SDT_BITBUCKET_SSH_HOST ?: 'ssh.bitbucket.org',
     image           : args.containsKey('image') ? args.image : (env.SDT_IMAGE ?: ''),
     agentLabel      : args.agentLabel ?: env.SDT_AGENT_LABEL ?: '',
     cloneMinutes    : (args.cloneMinutes ?: env.SDT_CLONE_MINUTES ?: '30') as int,
+    cloneCache      : args.cloneCache ?: env.SDT_CLONE_CACHE ?: '',
     fleetDatabase   : args.fleetDatabase ?: env.SDT_FLEET_DATABASE ?: '',
     enforceGate     : (args.enforceGate ?: env.SDT_QUALITY_GATE_ENFORCE ?: '0').toString(),
     prCommentCredentials: args.prCommentCredentials ?: env.SDT_BITBUCKET_API_CREDENTIALS ?: '',
@@ -73,15 +79,23 @@ def call(Map args = [:]) {
     long began = System.currentTimeMillis()
     try {
       stage('checkout') {
+        def remote = [url: "git@${cfg.sshHost}:${cfg.workspace}/${cfg.repo}.git"]
+        if (cfg.gitCredentials != 'none') { remote.credentialsId = cfg.gitCredentials }
+        String mirror = cfg.cloneCache ? updateMirror(cfg, remote.url) : ''
+        // Full history: secrets in past commits are findings too. That takes a repository with large
+        // files in its history longer than the git plugin's 10 minutes. With a mirror, objects it
+        // already has are borrowed instead of fetched.
+        def cloneOption = [$class: 'CloneOption', shallow: false, noTags: false, timeout: cfg.cloneMinutes]
+        if (mirror) { cloneOption.reference = mirror }
         dir('source') {
-          def remote = [url: "git@bitbucket.org:${cfg.workspace}/${cfg.repo}.git"]
-          if (cfg.gitCredentials != 'none') { remote.credentialsId = cfg.gitCredentials }
           checkout([$class: 'GitSCM', branches: [[name: ref]],
                     userRemoteConfigs: [remote],
-                    // Full history: secrets in past commits are findings too. That takes a repository
-                    // with large files in its history longer than the git plugin's 10 minutes.
-                    extensions: [[$class: 'CloneOption', shallow: false, noTags: false, timeout: cfg.cloneMinutes],
-                                 [$class: 'CleanBeforeCheckout']]])
+                    extensions: [cloneOption, [$class: 'CleanBeforeCheckout']]])
+          if (mirror) {
+            // Copy the borrowed objects in, so the checkout stands alone: a scanner container does not see
+            // the mirror's path, and the mirror may be pruned once this scan has finished.
+            sh 'git repack -a -d -q && rm -f .git/objects/info/alternates'
+          }
           if (cfg.prMergeCommit) {
             // The target branch now contains the pull request. Scan the merge commit and, in this
             // workspace only, point the target branch at what it was before the merge.
@@ -115,7 +129,7 @@ def call(Map args = [:]) {
       def environment = ["SRC=${pwd()}/source", "OUT=${pwd()}/out", "REPO_SLUG=${cfg.repo}",
                          "SDT_SCAN_BRANCH=${cfg.branch}", "SDT_SCAN_PR_ID=${cfg.prId}",
                          "SDT_SCAN_PR_BRANCH=${cfg.prBranch}", "SDT_SCAN_PR_BASE=${cfg.prBase}",
-                         "WORKSPACE_NAME=${cfg.workspace}",
+                         "WORKSPACE_NAME=${cfg.workspace}", "SDT_BITBUCKET_SSH_HOST=${cfg.sshHost}",
                          "SONAR_HOST_URL=${cfg.sonarUrl}", "SCOPE_URL=${scopeUrl}",
                          "FLEET_DATABASE=${cfg.fleetDatabase}", "QUALITY_GATE_ENFORCE=${cfg.enforceGate}",
                          "BITBUCKET_USER=${cfg.prCommentUser}", "SDT_REPORTS_REPO=${cfg.reportsRepo}",
@@ -153,8 +167,10 @@ def call(Map args = [:]) {
       }
     } finally {
       archiveArtifacts artifacts: 'out/*.docx, out/*.xlsx, out/fleet/*.pdf, out/fleet/*.xlsx, ' +
-                                  'out/sdt/findings.json, out/sdt/findings-new.json, out/sdt/findings.sarif, out/sdt/run-manifest.json, ' +
+                                  'out/sdt/findings.json, out/sdt/findings-new.json, out/sdt/findings.sarif, ' +
+                                  'out/sdt/endpoints.json, out/sdt/run-manifest.json, ' +
                                   'out/sbom.cdx.json, out/triage.json, out/quality-gate.txt, out/sonar-scanner.log, out/timings.tsv, ' +
+                                  'out/report-state.json, ' +
                                   'out/ai-change-review.md, out/ai-change-review.json, out/sonar-pull-request.json',
                        allowEmptyArchive: true
       cleanWs()
@@ -177,6 +193,36 @@ private void oneAtATime(String resource, Closure body) {
     echo 'sdtScan: Lockable Resources plugin not installed; scans of the same repository are not kept apart'
     body()
   }
+}
+
+/**
+ * Bring this repository's mirror in SDT_CLONE_CACHE up to date (cloning it on the first scan) and return its path,
+ * or '' when that fails: the checkout then clones in full, as without a cache. Scans of one repository run one
+ * at a time (oneAtATime), so two scans never update the same mirror. Mirrors unused for 30 days are removed.
+ */
+private String updateMirror(Map cfg, String url) {
+  String mirror = "${cfg.cloneCache}/${cfg.workspace}/${cfg.repo}.git"
+  int status = 1
+  withGitKey(cfg.gitCredentials) {
+    status = sh(returnStatus: true, script: """
+      set -eu
+      m='${mirror}'
+      if [ -d "\$m/objects" ]; then
+        timeout ${cfg.cloneMinutes}m git -C "\$m" fetch -q --prune --tags origin
+      else
+        rm -rf "\$m" "\$m.tmp"; mkdir -p "\$(dirname "\$m")"
+        timeout ${cfg.cloneMinutes}m git clone -q --mirror '${url}' "\$m.tmp"
+        mv "\$m.tmp" "\$m"
+      fi
+      touch "\$m"
+      find '${cfg.cloneCache}' -mindepth 2 -maxdepth 2 -name '*.git' -type d -mtime +30 -prune -exec rm -rf {} + || true
+    """)
+  }
+  if (status != 0) {
+    echo "sdtScan: clone cache ${mirror} could not be updated (exit ${status}); cloning in full"
+    return ''
+  }
+  return mirror
 }
 
 /** Run a .sdt script with BRANCH / PR_* restored from SDT_SCAN_*; returns the exit code. */

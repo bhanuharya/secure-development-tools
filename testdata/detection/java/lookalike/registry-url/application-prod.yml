@@ -1,0 +1,9 @@
+# The address carries no credentials; they come from the environment in their own properties.
+eureka:
+  client:
+    service-url:
+      defaultZone: https://service-registry:8761/eureka/
+registry:
+  username: ${REGISTRY_USER}
+  password: ${REGISTRY_PASSWORD}
+  jwt-secret: ${JWT_SECRET}

@@ -8,7 +8,8 @@
 #   SONAR_TOKEN=... WORKSPACE_NAME=my-workspace SDT_HOME=~/secure-development-tools \
 #   OUT=./reports scripts/regenerate-reports.sh 25 26 27
 #
-# Optional: PREVIOUS="17 18 19" (earlier builds of the same repositories) adds the trend section.
+# Optional: PREVIOUS="17 18 19" (earlier builds of the same repositories) adds the trend section,
+# from the report-state.json those builds archived (builds from 2026-10-19 on).
 set -uo pipefail
 : "${JENKINS_URL:?}" "${JENKINS_USER:?}" "${JENKINS_API_TOKEN_FILE:?}" "${SONAR_HOST_URL:?}" "${SONAR_TOKEN:?}"
 : "${WORKSPACE_NAME:?}" "${SDT_HOME:?}" "${OUT:?}"
@@ -32,17 +33,18 @@ for n in "$@"; do
   [ -n "$commit" ] || { echo "#$n $repo: scanned commit not found in the log"; continue; }
   get -o "$W/findings.json" "$JENKINS_URL/$n/artifact/out/findings.json"
   get -o "$W/triage.json" "$JENKINS_URL/$n/artifact/triage.json"; head -c1 "$W/triage.json" | grep -q '{' || rm -f "$W/triage.json"
-  [ -n "${PREV[$repo]:-}" ] && get -o "$W/previous.json" "$JENKINS_URL/${PREV[$repo]}/artifact/out/findings.json"
+  [ -n "${PREV[$repo]:-}" ] && get -o "$W/previous.json" "$JENKINS_URL/${PREV[$repo]}/artifact/out/report-state.json"
+  head -c1 "$W/previous.json" 2>/dev/null | grep -q '{' || rm -f "$W/previous.json"
   : > "$W/coverage.txt"
   printf '%s' "$console" | grep -q "pub get failed" && \
     echo "Dart lint skipped: dependencies did not resolve with the scanner's Flutter SDK; security rules still ran." > "$W/coverage.txt"
-  git clone -q --no-checkout "git@bitbucket.org:$WORKSPACE_NAME/$repo.git" "$W/src" && git -C "$W/src" checkout -q "$commit" \
+  git clone -q --no-checkout "git@${SDT_BITBUCKET_SSH_HOST:-ssh.bitbucket.org}:$WORKSPACE_NAME/$repo.git" "$W/src" && git -C "$W/src" checkout -q "$commit" \
     || { echo "#$n $repo: checkout failed"; continue; }
   key="sdt_$(printf '%s' "${WORKSPACE_NAME}_$repo" | tr '.-' '__' | cut -c1-160)_$(printf '%s' "$WORKSPACE_NAME/$repo" | sha256sum | cut -c1-10)"
   args=(--sonar-url "$SONAR_HOST_URL" --project-key "$key" --branch "$branch" --findings "$W/findings.json"
         --src-root "$W/src" --repository "$WORKSPACE_NAME/$repo" --commit "${commit:0:12}" --coverage "$W/coverage.txt"
         --scope-url "https://bitbucket.org/$WORKSPACE_NAME/$repo/branch/$branch")
   [ -s "$W/triage.json" ] && args+=(--triage "$W/triage.json")
-  [ -s "$W/previous.json" ] && args+=(--previous-findings "$W/previous.json")
+  [ -s "$W/previous.json" ] && args+=(--previous-state "$W/previous.json")
   python3 "$SDT_HOME/tools/sdt_to_docx.py" "${args[@]}" --out "$OUT/SAST Report - $repo.docx" | sed "s/^/#$n /"
 done

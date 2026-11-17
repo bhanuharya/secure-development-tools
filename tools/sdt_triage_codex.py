@@ -20,6 +20,10 @@ Guardrails, because tokens cost money and code is sensitive:
     --max-failures consecutive failed calls (bad model name, auth, outage) instead of
     spending more.
 
+Rules are reviewed --parallel at a time (SDT_CODEX_PARALLEL, default 4): one call takes
+tens of seconds and a large service has fifteen rules, so one at a time spends most of
+the budget waiting. The report lists rules in the same order either way.
+
   SONAR_TOKEN=... python3 tools/sdt_triage_codex.py --sonar-url http://localhost:9000 \\
       --project-key KEY --branch main --src-root source --out out/triage.json
 """
@@ -34,19 +38,24 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sdt_to_docx  # noqa: E402  (same findings, same order as the report)
 
-DEFAULT_MODEL = "gpt-6-luna"
+DEFAULT_MODEL = "gpt-6.1-sol"
 VERDICTS = ("likely_true_positive", "likely_false_positive", "needs_context")
 CONFIDENCE = ("low", "medium", "high")
-CONTEXT_LINES = 40  # enough to see where a flagged value comes from
-PROMPT_VERSION = "2"  # part of every remembered verdict: change it when the prompt or context changes
+CONTEXT_LINES = 64  # lines of surrounding code: enough to see where a flagged value comes from and how it is sanitised
+PROMPT_VERSION = "7"  # part of every remembered verdict: change it when the prompt or context changes
 MAX_REASON = 400
+MAX_PER_CALL = 6
+DEFAULT_PARALLEL = 4
+GUIDANCE_TEXT = ("impact", "verify_fix")
 
 RESPONSE_SCHEMA = {
     "type": "object",
@@ -58,7 +67,8 @@ RESPONSE_SCHEMA = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["id", "verdict", "confidence", "reason", "check", "suggested_fix"],
+                "required": ["id", "verdict", "confidence", "reason", "check", "suggested_fix",
+                             "impact", "fix_steps", "fix_example", "verify_fix"],
                 "properties": {
                     "id": {"type": "string"},
                     "verdict": {"type": "string", "enum": list(VERDICTS)},
@@ -66,16 +76,20 @@ RESPONSE_SCHEMA = {
                     "reason": {"type": "string"},
                     "check": {"type": "string"},
                     "suggested_fix": {"type": "string"},
+                    "impact": {"type": "string"},
+                    "fix_steps": {"type": "array", "items": {"type": "string"}, "maxItems": 5},
+                    "fix_example": {"type": "string"},
+                    "verify_fix": {"type": "string"},
                 },
             },
         },
     },
 }
 
-from sdt_advisory import CREDENTIAL_RULE, redact, redact_lines  # noqa: E402  (one redaction for prompts and reports)
+from sdt_advisory import CREDENTIAL_RULE, redact, redact_evidence, redact_lines, redact_tree, scrub  # noqa: E402  (one redaction for prompts and reports)
 
 
-MAX_BLOCK_LINES = 150
+MAX_BLOCK_LINES = 200
 BRACE_FILE = re.compile(r"\.(dart|java|kt|kts|js|jsx|ts|tsx|go|swift|c|cc|cpp|h|cs|scala|php|rs)$")
 STRINGS_AND_COMMENTS = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|//.*$')
 CONTROL_BLOCK = re.compile(r"^\}?\s*(if|else|for|while|switch|try|catch|do|finally)\b")
@@ -114,7 +128,7 @@ COMMON_WORDS = frozenset("""await async break case catch class const continue de
 function import return static string super switch this throw true undefined void while with null new let var
 value values item items data result results index length name type key keys error props attrs slot template
 href class style http https""".split())
-RELATED_MATCHES, RELATED_PAD, RELATED_MAX_LINES = 6, 2, 60
+RELATED_MATCHES, RELATED_PAD, RELATED_MAX_LINES = 8, 3, 96
 
 
 def related_lines(lines: list[str], index: int, start: int, end: int) -> list[tuple[int, int]]:
@@ -153,11 +167,13 @@ def related_lines(lines: list[str], index: int, start: int, end: int) -> list[tu
     return merged
 
 
-def context(src_root: Path | None, occurrence: sdt_to_docx.Occurrence, credential: bool = False) -> str:
+def context(src_root: Path | None, occurrence: sdt_to_docx.Occurrence, credential: bool = False,
+            withheld: set | None = None) -> str:
     """The enclosing function (up to MAX_BLOCK_LINES) or +/-CONTEXT_LINES around the flagged line,
     then the lines elsewhere in the file that share its names; numbered with ">" marking the
     flagged line, redacted; "" when unreadable. For a credential rule every quoted value on the
-    flagged line is withheld too: the review judges that a value is there, never the value."""
+    flagged line is withheld too: the review judges that a value is there, never the value.
+    Values withheld here are added to `withheld` so they can be removed from the answer as well."""
     if not src_root or not occurrence.path or occurrence.line < 1:
         return ""
     root = src_root.resolve()
@@ -177,8 +193,8 @@ def context(src_root: Path | None, occurrence: sdt_to_docx.Occurrence, credentia
     else:
         start, end = max(0, index - CONTEXT_LINES), min(len(lines) - 1, index + CONTEXT_LINES)
     related = related_lines(lines, index, start, end)
-    wanted = [n for low, high in [(start, end)] + related for n in range(low, high + 1)]
-    shown = redact_lines({n: lines[n].rstrip() for n in wanted}, occurrence.path, {index} if credential else set())
+    shown = redact_lines(dict(enumerate(lines)), occurrence.path, {index} if credential else set(),
+                         withheld)
 
     def numbered(low: int, high: int) -> list[str]:
         return [f"{'>' if n == index else ' '}{n + 1:>5}  {shown[n][:200]}" for n in range(low, high + 1)]
@@ -193,6 +209,77 @@ def memory_key(model: str, rule: str, path: str, code: str) -> str:
     """Identity of one review question: same model, rule, file and code shown -> same verdict."""
     digest = hashlib.sha256("\x00".join((PROMPT_VERSION, model, rule, path, code)).encode()).hexdigest()
     return "sha256:" + digest
+
+
+EVIDENCE_LOCATION = re.compile(r"([^\s:`\"'()]+):([1-9]\d*)\b")
+
+
+def finding_evidence(findings: dict) -> dict[tuple, list[str]]:
+    """Index scanner evidence by rule, path and line, including findings imported into Sonar."""
+    indexed: dict[tuple, list[str]] = {}
+    for finding in findings.get("findings", []):
+        if finding.get("suppression"):
+            continue
+        location = finding.get("location") or {}
+        evidence = (finding.get("metadata") or {}).get("evidence") or []
+        if isinstance(evidence, str):
+            evidence = evidence.splitlines()
+        rule_id = str((finding.get("rule") or {}).get("id") or "")
+        where = (str(location.get("path") or ""), int(location.get("startLine") or 0))
+        # SonarQube keys an SDT external rule by the id's last segment (sdt_to_sonar._rule_key), so
+        # index the full id and that tail: scp.endpoints.sensitive-route-public and sensitive-route-public.
+        for name in {rule_id, re.split(r"[./]", rule_id)[-1]}:
+            indexed.setdefault((name, *where), []).extend(e for e in evidence if isinstance(e, str))
+    return indexed
+
+
+def evidence_context(src_root: Path | None, evidence: list[str], withheld: set | None = None) -> str:
+    """The scanner's cited lines with +/-3 lines; confine reads to the source checkout.
+    Values withheld here join `withheld`, so evidence and the answer cannot give them away."""
+    if not src_root:
+        return ""
+    evidence = [redact_evidence(item, withheld) for item in evidence]
+    root, seen, blocks = src_root.resolve(), set(), []
+    for path, number in EVIDENCE_LOCATION.findall("\n".join(evidence)):
+        line = int(number)
+        target = (root / path).resolve()
+        if (target, line) in seen or root not in target.parents:
+            continue
+        seen.add((target, line))
+        try:
+            lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        if not 1 <= line <= len(lines):
+            continue
+        indices = range(max(0, line - 4), min(len(lines), line + 3))
+        shown = redact_lines(dict(enumerate(lines)), path, withheld=withheld)
+        blocks.append(f"// {path}:{line}\n" + "\n".join(
+            f"{'>' if n == line - 1 else ' '}{n + 1:>5}  {shown[n][:200]}" for n in indices))
+    return "\n\nEvidence the scanner used:\n" + redact("\n\n".join(blocks)) if blocks else ""
+
+
+def sanitise_review(item: dict, path: str = "", withheld: set | None = None) -> dict:
+    """Redact fresh and remembered advice alike, preserving snippet layout and legacy fields.
+    `withheld` holds values an excerpt removed: they are removed from the answer too, even when
+    the model echoed one next to a name the redactor does not know."""
+    result = dict(item)
+    for part in ("reason", "check", "suggested_fix") + GUIDANCE_TEXT:
+        if part in result:
+            text = redact(" ".join(str(result[part] or "").split()), path, withheld)
+            result[part] = scrub(text, withheld)[:MAX_REASON]
+    if "fix_steps" in result:
+        steps = result["fix_steps"] if isinstance(result["fix_steps"], list) else []
+        result["fix_steps"] = [scrub(redact(" ".join(step.split()), path, withheld), withheld)[:MAX_REASON]
+                               for step in steps[:5] if isinstance(step, str) and step.strip()]
+    if "fix_example" in result:
+        example = redact(str(result["fix_example"] or ""), path, withheld)
+        result["fix_example"] = "\n".join(scrub(example, withheld).splitlines()[:12])
+    if result.get("verdict") == "likely_false_positive":
+        for part in GUIDANCE_TEXT + ("fix_steps", "fix_example"):
+            if part in result:
+                result[part] = [] if part == "fix_steps" else ""
+    return redact_tree(result, withheld)
 
 
 def load_memory(path: Path | None) -> dict:
@@ -217,7 +304,10 @@ def default_memory_path(project: str, environ) -> Path:
 def save_memory(path: Path, entries: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps({"version": 1, "entries": entries}, indent=1) + "\n")
+    hidden: set = set()
+    safe = redact_tree(entries, hidden)
+    safe = {key: sanitise_review(value, withheld=hidden) for key, value in safe.items() if isinstance(value, dict)}
+    temporary.write_text(json.dumps({"version": 1, "entries": safe}, indent=1) + "\n")
     temporary.replace(path)
 
 
@@ -231,15 +321,21 @@ does not waste time on them. Confirm a finding as real only when the code suppor
 
 
 def build_prompt(group: sdt_to_docx.Group, items: list[tuple[str, sdt_to_docx.Occurrence, str]],
-                 second: bool = False) -> str:
-    risk = " ".join(group.risk)[:1200] or "(no rule description available)"
-    fixes = "; ".join(group.fixes)[:600]
-    blocks = "\n\n".join(f"### {item_id}: {o.path}:{o.line}\nScanner message: {o.message or '-'}\n```\n{code}\n```"
-                         for item_id, o, code in items)
-    return f"""{SECOND_OPINION if second else FIRST_OPINION}
+                 second: bool = False, withheld: set | None = None) -> str:
+    """The review question. Every field is redacted and `withheld` scrubs values the excerpt
+    removed, so a scanner message or rule description cannot carry them into the prompt."""
+    def clean(text: str) -> str:
+        return scrub(redact(text, withheld=withheld), withheld)
 
-Rule: {group.rule} ({group.kind}, severity {group.severity})
-Rule name: {group.name}
+    risk = clean(" ".join(group.risk)[:1200]) or "(no rule description available)"
+    fixes = clean("; ".join(group.fixes)[:600])
+    blocks = "\n\n".join(
+        f"### {item_id}: {o.path}:{o.line}\nScanner message: {clean(o.message or '-')}\n```\n{clean(code)}\n```"
+        for item_id, o, code in items)
+    return clean(f"""{SECOND_OPINION if second else FIRST_OPINION}
+
+Rule: {clean(group.rule)} ({group.kind}, severity {group.severity})
+Rule name: {clean(group.name)}
 Why the rule exists: {risk}
 Recommended practice: {fixes or '-'}
 
@@ -252,6 +348,12 @@ For each occurrence, first check these false-positive causes against the code sh
 4. The framework or API used is safe by default for this case, or the risky option is disabled.
 5. The code is unreachable, debug-only, or behind a check that makes the risk impossible.
 6. The rule matched something that only looks like the pattern (a name, a comment, a string).
+
+Causes 2 and 4 never clear a hard-coded secret, key, salt, token, password or address: the
+literal is the problem. A literal default in an environment or configuration lookup
+(env('X', '...'), process.env.X || '...', os.getenv('X', '...'), ${{X:...}}) is what the
+application runs with whenever the variable is not set. That the variable can override it is
+not a reason to call the finding a false positive.
 
 Then decide:
 - likely_false_positive: one of the causes above clearly applies - name the line or call.
@@ -272,6 +374,20 @@ Answer rules (short, factual, no hedging words like "may" or "might"):
 - suggested_fix: real issue -> one short concrete code change; false positive -> the note to
   record when marking it Safe (e.g. "constant URL, no user input"); needs context -> what to
   do for each outcome of the check.
+- impact: one concrete sentence saying what an attacker or user can do through this code
+  if it is not fixed; name the route, value or call.
+- fix_steps: 2-5 short ordered steps, each naming the file and line or identifier to change.
+  For needs_context, say what to do IF the check confirms the issue.
+- fix_example: a before/after snippet of at most 12 lines total in the occurrence's language,
+  using the identifiers shown. Use an empty string when a snippet does not help (for example,
+  a pure configuration value change). For a secret finding, the before part names its file,
+  line and key or variable with the value written as [REDACTED]; the after part uses an
+  environment or secret-store reference. Never include a credential value.
+- verify_fix: a test to add, a request that must now be refused, or a setting to check to
+  prove the fix works.
+- For likely_true_positive, impact, fix_steps and verify_fix must be non-empty; fix_example
+  is optional. For likely_false_positive, these new text fields stay empty and fix_steps is [].
+  For needs_context, use empty strings for inapplicable text fields, and [] for absent steps.
 - confidence: low, medium or high.
 - Answer every id exactly once. Values shown as [REDACTED] were removed on purpose: each one is a
   real-looking literal in the code. A value you can still read (password, changeit, ${{DB_PASSWORD}})
@@ -279,11 +395,13 @@ Answer rules (short, factual, no hedging words like "may" or "might"):
 - Never write a credential value in your answer; say "the value on line N".
 
 {blocks}
-"""
+""")
 
 
-def validate(answer: object, ids: set[str]) -> list[dict]:
-    """Only well-formed results for ids we asked about; everything else is dropped."""
+def validate(answer: object, ids: set[str], paths: dict[str, str] | None = None,
+             withheld: dict[str, set] | None = None) -> list[dict]:
+    """Only well-formed results for ids we asked about; everything else is dropped.
+    `withheld` maps an id to the values its excerpt removed; those never survive the answer."""
     if not isinstance(answer, dict) or not isinstance(answer.get("results"), list):
         raise ValueError("answer has no results list")
     out, seen = [], set()
@@ -296,9 +414,10 @@ def validate(answer: object, ids: set[str]) -> list[dict]:
         if item.get("verdict") not in VERDICTS or item.get("confidence") not in CONFIDENCE:
             continue
         seen.add(item_id)
-        out.append({"id": item_id, "verdict": item["verdict"], "confidence": item["confidence"],
-                    **{part: redact(" ".join(str(item.get(part, "")).split()))[:MAX_REASON]
-                       for part in ("reason", "check", "suggested_fix")}})
+        parts = ("reason", "check", "suggested_fix") + GUIDANCE_TEXT + ("fix_steps", "fix_example")
+        out.append(sanitise_review({"id": item_id, "verdict": item["verdict"], "confidence": item["confidence"],
+                                    **{part: item[part] for part in parts if part in item}},
+                                   (paths or {}).get(item_id, ""), (withheld or {}).get(item_id)))
     return out
 
 
@@ -309,7 +428,14 @@ def run_codex(codex: str, model: str, prompt: str, timeout: float, response_sche
         answer = Path(work) / "answer.json"
         schema.write_text(json.dumps(response_schema or RESPONSE_SCHEMA))
         command = [codex, "exec", "--model", model, "--sandbox", "read-only", "--skip-git-repo-check",
-                   "--ephemeral", "--cd", work, "--output-schema", str(schema), "--output-last-message", str(answer), "-"]
+                   "--ephemeral", "--cd", work]
+        # Pin the reasoning depth to "medium" by default rather than inherit the agent's codex
+        # config: at "high"/"max" a single call can exceed the per-call timeout and the review stalls.
+        # SDT_CODEX_REASONING overrides it; "inherit" falls back to the codex config.
+        effort = os.environ.get("SDT_CODEX_REASONING", "medium")
+        if effort and effort != "inherit":
+            command += ["-c", f"model_reasoning_effort={effort}"]
+        command += ["--output-schema", str(schema), "--output-last-message", str(answer), "-"]
         result = subprocess.run(command, input=prompt, capture_output=True, text=True, timeout=timeout, cwd=work)
         if result.returncode != 0:
             last = (result.stderr or result.stdout).strip().splitlines()[-3:]
@@ -319,9 +445,124 @@ def run_codex(codex: str, model: str, prompt: str, timeout: float, response_sche
         return json.loads(answer.read_text())
 
 
+def collect_reviews(group, src_root, model, max_per_rule, memory, report, evidence) -> tuple[list, dict, dict, dict]:
+    """Collect unanswered occurrences; the memory identity includes the scanner's evidence code.
+    `withheld` keeps each memory key's removed values, to scrub the model's answer too."""
+    items, keys, shown, considered, withheld = [], {}, {}, 0, {}
+    for occurrence in group.occurrences:
+        hidden: set = set()
+        code = context(src_root, occurrence, bool(CREDENTIAL_RULE.search(group.rule)), hidden)
+        if not code:
+            continue
+        considered += 1
+        location = (sdt_to_docx.external_id(group.rule), occurrence.path, occurrence.line)
+        code += evidence_context(src_root, evidence.get(location, []), hidden)
+        key = memory_key(model, group.rule, occurrence.path, code)
+        withheld[key] = hidden
+        if isinstance(memory.get(key), dict):
+            report["remembered"] += 1
+            remembered = sanitise_review(memory[key], occurrence.path, hidden)
+            memory[key] = remembered
+            result = {**remembered, "rule": group.rule, "path": occurrence.path,
+                      "line": occurrence.line, "remembered": True}
+            report["results"].append(result)
+            shown[key] = (occurrence, code, result)
+        else:
+            shown[key] = (occurrence, code, None)
+            item_id = f"o{len(items) + 1}"
+            items.append((item_id, occurrence, code))
+            keys[item_id] = key
+        if considered >= max_per_rule:
+            break
+    return items, keys, shown, withheld
+
+
+def review_batch(group, items, keys, shown, memory, report, codex, model, call, timeout,
+                 withheld: dict | None = None) -> None:
+    lookup = {item_id: occurrence for item_id, occurrence, _ in items}
+    hidden = {item_id: (withheld or {}).get(keys[item_id]) for item_id in lookup}
+    answer = call(codex, model, build_prompt(group, items, withheld=set().union(
+        *(values for values in hidden.values() if values))), timeout)
+    results = validate(answer, set(lookup), {key: o.path for key, o in lookup.items()}, hidden)
+    for result in results:
+        item_id = result.pop("id")
+        occurrence, key = lookup[item_id], keys[item_id]
+        memory[key] = dict(result)
+        report["results"].append({"rule": group.rule, "path": occurrence.path, "line": occurrence.line, **result})
+        shown[key] = (occurrence, shown[key][1], report["results"][-1])
+
+
+class _Run:
+    """What the rule reviews share: the clock, the budget and the failure count."""
+
+    def __init__(self, budget: float, max_failures: int, clock):
+        self.clock, self.budget, self.max_failures = clock, budget, max_failures
+        self.started = clock()
+        self.lock = threading.Lock()
+        self.failures = 0
+        self.stopped = ""
+
+    def remaining(self) -> float:
+        return self.budget - (self.clock() - self.started)
+
+    def stop(self, reason: str) -> None:
+        with self.lock:
+            self.stopped = self.stopped or reason
+
+    def failed(self, reason: str) -> None:
+        with self.lock:
+            self.failures += 1
+            if self.failures >= self.max_failures:
+                self.stopped = self.stopped or f"{self.failures} consecutive failed calls (last: {reason[:200]})"
+
+    def succeeded(self) -> None:
+        with self.lock:
+            self.failures = 0
+
+
+def review_group(group, run: _Run, src_root, codex, model, call, per_call_timeout, max_per_rule, memory,
+                 evidence, confirm) -> tuple[dict, dict, set]:
+    """Review one rule. Returns its part of the report, the memory entries it added or
+    changed, and the values it withheld. ``memory`` is only read: rules run side by side."""
+    part = {"calls": 0, "failed_calls": 0, "remembered": 0, "results": []}
+    if run.stopped:
+        return part, {}, set()
+    if run.remaining() < 10:
+        run.stop("time budget spent")
+        return part, {}, set()
+    local = dict(memory)
+    items, keys, shown, withheld = collect_reviews(group, src_root, model, max_per_rule, local, part, evidence)
+    hidden = set().union(*withheld.values())
+    for offset in range(0, len(items), MAX_PER_CALL):
+        if run.stopped:
+            break
+        # Account for time spent in every batch, even when a rule spans several calls.
+        remaining = run.remaining()
+        if remaining < 10:
+            run.stop("time budget spent")
+            break
+        part["calls"] += 1
+        try:
+            review_batch(group, items[offset:offset + MAX_PER_CALL], keys, shown, local, part,
+                         codex, model, call, min(per_call_timeout, remaining), withheld)
+        except (subprocess.TimeoutExpired, RuntimeError, ValueError, OSError) as exc:
+            part["failed_calls"] += 1
+            reason = "timed out" if isinstance(exc, subprocess.TimeoutExpired) else str(exc)
+            print(f"sdt_triage_codex: {group.rule}: {reason}", file=sys.stderr)
+            run.failed(reason)
+            continue
+        run.succeeded()
+    if confirm and not run.stopped:
+        second_opinions(group, shown, local, part, codex, model, call,
+                        min(per_call_timeout, run.remaining()), clock=run.clock, withheld=withheld)
+    changed = {key: value for key, value in local.items() if memory.get(key) is not value}
+    return part, changed, hidden
+
+
 def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, model: str, *,
            per_call_timeout: float, budget: float, max_rules: int, max_per_rule: int, max_failures: int,
-           call=run_codex, clock=time.monotonic, memory: dict | None = None, confirm: bool = False) -> dict:
+           call=run_codex, clock=time.monotonic, memory: dict | None = None, confirm: bool = False,
+           findings: dict | None = None, parallel: int = 1) -> dict:
     """Review up to max_rules code rules, stopping on budget or repeated failure.
 
     ``memory`` holds earlier verdicts by memory_key: a question already answered for the same
@@ -331,86 +572,71 @@ def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, m
     With ``confirm``, every high-confidence false positive is put to a second, sceptical review
     once; its verdict is kept as ``second_opinion`` (and remembered) for anything that acts on
     the advisory, such as sdt_sonar_autoclose.py.
+
+    ``parallel`` rules are reviewed at a time. Each rule's results, memory entries and counts
+    are kept apart and merged in rule order, so the report does not depend on which call
+    finished first; a memory key names its rule, so two rules never write the same entry.
     """
-    started, failures = clock(), 0
+    run = _Run(budget, max_failures, clock)
     report = {"engine": "codex", "model": model, "advisory": True,
               "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
               "calls": 0, "failed_calls": 0, "remembered": 0, "stopped": "", "results": []}
     memory = {} if memory is None else memory
-    for group in groups[:max_rules]:
-        remaining = budget - (clock() - started)
-        if remaining < 10:
-            report["stopped"] = "time budget spent"
-            break
-        items, lookup, keys, considered = [], {}, {}, 0
-        shown: dict[str, tuple] = {}  # memory key -> (occurrence, code, its result in the report)
-        for occurrence in group.occurrences:
-            code = context(src_root, occurrence, bool(CREDENTIAL_RULE.search(group.rule)))
-            if not code:
-                continue
-            considered += 1
-            key = memory_key(model, group.rule, occurrence.path, code)
-            if isinstance(memory.get(key), dict):
-                report["remembered"] += 1
-                remembered = {name: redact(value) if name in ("reason", "check", "suggested_fix") else value
-                              for name, value in memory[key].items()}
-                report["results"].append({"rule": group.rule, "path": occurrence.path, "line": occurrence.line,
-                                          **remembered, "remembered": True})
-                shown[key] = (occurrence, code, report["results"][-1])
-            else:
-                shown[key] = (occurrence, code, None)
-                item_id = f"o{len(items) + 1}"
-                items.append((item_id, occurrence, code))
-                lookup[item_id], keys[item_id] = occurrence, key
-            if considered >= max_per_rule:
-                break
-        if items:
-            report["calls"] += 1
-            try:
-                answer = call(codex, model, build_prompt(group, items), min(per_call_timeout, remaining))
-                results = validate(answer, set(lookup))
-            except (subprocess.TimeoutExpired, RuntimeError, ValueError, OSError) as exc:
-                failures += 1
-                report["failed_calls"] += 1
-                reason = "timed out" if isinstance(exc, subprocess.TimeoutExpired) else str(exc)
-                print(f"sdt_triage_codex: {group.rule}: {reason}", file=sys.stderr)
-                if failures >= max_failures:
-                    report["stopped"] = f"{failures} consecutive failed calls (last: {reason[:200]})"
-                    break
-                continue
-            failures = 0
-            for result in results:
-                item_id = result.pop("id")
-                occurrence = lookup[item_id]
-                memory[keys[item_id]] = dict(result)
-                report["results"].append({"rule": group.rule, "path": occurrence.path, "line": occurrence.line, **result})
-                shown[keys[item_id]] = (occurrence, shown[keys[item_id]][1], report["results"][-1])
-        if confirm:
-            second_opinions(group, shown, memory, report, codex, model, call,
-                            min(per_call_timeout, budget - (clock() - started)))
-    return report
+    evidence = finding_evidence(findings or {})
+
+    def one(group):
+        return review_group(group, run, src_root, codex, model, call, per_call_timeout, max_per_rule,
+                            memory, evidence, confirm)
+
+    selected = groups[:max_rules]
+    if parallel > 1 and len(selected) > 1:
+        with ThreadPoolExecutor(max_workers=min(parallel, len(selected))) as pool:
+            parts = list(pool.map(one, selected))
+    else:
+        parts = [one(group) for group in selected]
+    all_hidden: set = set()
+    for part, changed, hidden in parts:
+        for name in ("calls", "failed_calls", "remembered"):
+            report[name] += part[name]
+        report["results"].extend(part["results"])
+        memory.update(changed)
+        all_hidden |= hidden
+    report["stopped"] = run.stopped
+    safe_memory = redact_tree(memory, all_hidden)
+    memory.clear()
+    memory.update(safe_memory)
+    return redact_tree(report, all_hidden)
 
 
-def second_opinions(group, shown: dict, memory: dict, report: dict, codex: str, model: str, call, timeout: float) -> None:
+def second_opinions(group, shown: dict, memory: dict, report: dict, codex: str, model: str, call, timeout: float,
+                    clock=time.monotonic, withheld: dict | None = None) -> None:
     """Put this rule's high-confidence false positives to a sceptical second review, once each."""
     pending = [(key, occurrence, code, result) for key, (occurrence, code, result) in shown.items()
                if result and result.get("verdict") == "likely_false_positive" and result.get("confidence") == "high"
                and not result.get("second_opinion")]
     if not pending or timeout < 10:
         return
-    items = [(f"o{n + 1}", occurrence, code) for n, (_, occurrence, code, _) in enumerate(pending)]
-    report["calls"] += 1
-    try:
-        answers = {r["id"]: r for r in validate(call(codex, model, build_prompt(group, items, second=True), timeout),
-                                                {item_id for item_id, _, _ in items})}
-    except (subprocess.TimeoutExpired, RuntimeError, ValueError, OSError) as exc:
-        report["failed_calls"] += 1
-        print(f"sdt_triage_codex: {group.rule}: second opinion failed ({str(exc)[:120]})", file=sys.stderr)
-        return
-    for (item_id, _, _), (key, _, _, result) in zip(items, pending):
-        if item_id in answers:
-            result["second_opinion"] = answers[item_id]["verdict"]
-            memory.setdefault(key, {})["second_opinion"] = answers[item_id]["verdict"]
+    deadline = clock() + timeout
+    for offset in range(0, len(pending), MAX_PER_CALL):
+        remaining = deadline - clock()
+        if remaining < 10:
+            return
+        batch = pending[offset:offset + MAX_PER_CALL]
+        items = [(f"o{n + 1}", occurrence, code) for n, (_, occurrence, code, _) in enumerate(batch)]
+        hidden = {f"o{n + 1}": (withheld or {}).get(key) for n, (key, _, _, _) in enumerate(batch)}
+        report["calls"] += 1
+        try:
+            answers = {r["id"]: r for r in validate(call(codex, model, build_prompt(
+                group, items, second=True, withheld=set().union(*(v for v in hidden.values() if v))), remaining),
+                {item_id for item_id, _, _ in items}, withheld=hidden)}
+        except (subprocess.TimeoutExpired, RuntimeError, ValueError, OSError) as exc:
+            report["failed_calls"] += 1
+            print(f"sdt_triage_codex: {group.rule}: second opinion failed ({str(exc)[:120]})", file=sys.stderr)
+            return
+        for (item_id, _, _), (key, _, _, result) in zip(items, batch):
+            if item_id in answers:
+                result["second_opinion"] = answers[item_id]["verdict"]
+                memory.setdefault(key, {})["second_opinion"] = answers[item_id]["verdict"]
 
 
 def find_codex(explicit: str) -> str:
@@ -425,7 +651,7 @@ def main() -> int:
     ap.add_argument("--project-key")
     ap.add_argument("--branch", default="")
     ap.add_argument("--pull-request", default="")
-    ap.add_argument("--findings", type=Path, help="SDT findings.json (used when SonarQube is not given)")
+    ap.add_argument("--findings", type=Path, help="SDT findings.json (also supplies scanner evidence for SonarQube)")
     ap.add_argument("--src-root", type=Path, required=True)
     ap.add_argument("--codex", default="", help="codex binary (default: $SDT_CODEX_BIN, else codex on PATH)")
     ap.add_argument("--model", default=os.environ.get("SDT_CODEX_MODEL", DEFAULT_MODEL))
@@ -435,6 +661,8 @@ def main() -> int:
     ap.add_argument("--max-rules", type=int, default=15)
     ap.add_argument("--max-per-rule", type=int, default=6)
     ap.add_argument("--max-failures", type=int, default=2, help="stop after this many consecutive failed calls")
+    ap.add_argument("--parallel", type=int, default=int(os.environ.get("SDT_CODEX_PARALLEL", DEFAULT_PARALLEL)),
+                    help="rules reviewed at a time (default: $SDT_CODEX_PARALLEL, else %(default)s)")
     ap.add_argument("--memory", type=Path, help="file of remembered verdicts (default: $SDT_TRIAGE_MEMORY, else "
                                                 "$SDT_STATE_DIR/triage/<project>.json, else ~/.cache/sdt/triage/); "
                                                 "unchanged code is not asked again")
@@ -448,11 +676,12 @@ def main() -> int:
         print("sdt_triage_codex: Codex not available (or SDT_AI_TRIAGE=0): normal report, no AI review")
         return 0
     try:
+        findings = json.loads(args.findings.read_text()) if args.findings else {}
         if args.sonar_url:
             _, found = sdt_to_docx.from_sonar(sdt_to_docx.Sonar(args.sonar_url, os.environ.get("SONAR_TOKEN", "")),
                                               args.project_key, args.branch, args.pull_request)
         elif args.findings:
-            found = sdt_to_docx.from_findings(json.loads(args.findings.read_text()), args.src_root)
+            found = sdt_to_docx.from_findings(findings, args.src_root)
         else:
             print("sdt_triage_codex: give --sonar-url or --findings", file=sys.stderr)
             return 0
@@ -464,9 +693,10 @@ def main() -> int:
     memory = {} if args.refresh else load_memory(memory_path)
     report = triage(groups, args.src_root, codex, args.model, per_call_timeout=args.per_call_timeout,
                     budget=args.budget, max_rules=args.max_rules, max_per_rule=args.max_per_rule,
-                    max_failures=args.max_failures, memory=memory, confirm=args.confirm)
+                    max_failures=args.max_failures, memory=memory, confirm=args.confirm, findings=findings,
+                    parallel=args.parallel)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(report, indent=2) + "\n")
+    args.out.write_text(json.dumps(redact_tree(report), indent=2) + "\n")
     try:
         save_memory(memory_path, memory)
     except OSError as exc:

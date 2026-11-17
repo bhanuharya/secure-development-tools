@@ -1,0 +1,23 @@
+{
+  "schema": "sdt-endpoints/v1",
+  "root": ".",
+  "routes": [
+    {
+      "service": ".",
+      "framework": "spring-mvc",
+      "method": "POST",
+      "path": "/internal/{operation}",
+      "handler": "Controller.transfer",
+      "file": "Controller.java",
+      "line": 5,
+      "protection": "public",
+      "evidence": [
+        "Security.java:12 .requestMatchers(\"/internal/a*\").permitAll() (path /internal/a)"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "summary": {
+    "public": 1
+  }
+}
