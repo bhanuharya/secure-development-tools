@@ -125,3 +125,34 @@ func TestStagedResolvesIndex(t *testing.T) {
 		t.Fatal("staged and committed contexts must never digest identically")
 	}
 }
+
+// The first commit of a repository can be checked before it is made: there is
+// no head yet, and a staged scan does not need one. Every other scan does.
+func TestStagedResolvesBeforeTheFirstCommit(t *testing.T) {
+	if !gitOK() {
+		t.Skip("git not installed")
+	}
+	repo := t.TempDir()
+	for _, args := range [][]string{{"init", "-q"}, {"add", "-A"}} {
+		if args[0] == "add" {
+			if err := os.WriteFile(repo+"/a.go", []byte("package a\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		c := exec.Command("git", args...)
+		c.Dir = repo
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	staged, _, err := Resolve(Inputs{Head: "HEAD", Staged: true}, repo)
+	if err != nil {
+		t.Fatalf("a staged scan before the first commit: %v", err)
+	}
+	if staged.HeadRevision != "" || len(staged.ChangedPaths) != 1 || staged.ChangedPaths[0] != "a.go" {
+		t.Fatalf("head = %q, staged paths = %v; want no head and [a.go]", staged.HeadRevision, staged.ChangedPaths)
+	}
+	if _, _, err := Resolve(Inputs{Head: "HEAD"}, repo); err == nil {
+		t.Fatal("a scan of commits needs a head")
+	}
+}

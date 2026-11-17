@@ -93,6 +93,11 @@ func Resolve(in Inputs, repoRoot string) (*ScanContext, []string, error) {
 		head = "HEAD"
 	}
 	headOID, err := gitOutput(repoRoot, "rev-parse", "--verify", head)
+	if err != nil && in.Staged {
+		// The first commit of a repository is being made: there is no head
+		// yet, and a staged scan reads the index, not the head.
+		headOID, err = "", nil
+	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve head %q: %w (hint: an unborn branch — "+
 			"`git init` with no commits yet — also fails this way; commit once, "+
