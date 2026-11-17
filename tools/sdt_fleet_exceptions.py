@@ -16,7 +16,7 @@ Left out, and counted in the summary:
     credential is allowlisted at the rule (docs/false-positives.md), never excepted here;
   * decisions older than --expire-days: they need a fresh review.
 
-  python3 tools/sdt_fleet_exceptions.py --database sqlite:///fleet.db --repository app \\
+  python3 tools/sdt_fleet_exceptions.py --database sqlite:///sdt-fleet.db --repository app \\
       --out exceptions/app.exceptions.yaml
 """
 from __future__ import annotations

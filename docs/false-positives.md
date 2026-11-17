@@ -29,6 +29,10 @@ that is not a credential is allowlisted at the rule.
      --repository my-repo --out .secure-dev/exceptions.yaml
    ```
 
+   Set `$SCP_DATABASE_URL` to the fleet store connection URL. Without it (and
+   without `--database`), the fleet tools fall back to a local SQLite file,
+   `sqlite:///./sdt-fleet.db`.
+
    Run it in the checkout that is about to be scanned, or write the file
    elsewhere and name it in the scan configuration (`exceptions.file`).
 4. `sdt scan` applies the file. The finding stays in `findings.json` marked
