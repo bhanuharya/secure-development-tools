@@ -40,7 +40,7 @@
  */
 def call(Map args = [:]) {
   def cfg = [
-    repo            : args.repo ?: error('sdtScan: repo is required'),
+    repo            : repoSlug(args.repo),
     branch          : args.branch ?: '',
     prId            : args.prId ?: '',
     prBranch        : args.prBranch ?: '',
@@ -193,6 +193,22 @@ private void oneAtATime(String resource, Closure body) {
     echo 'sdtScan: Lockable Resources plugin not installed; scans of the same repository are not kept apart'
     body()
   }
+}
+
+/**
+ * The repository slug as typed, without the slips that broke a scan halfway: 'web-portal/' and 'web-portal.git'
+ * give 'web-portal'. A name that is still not a slug stops here. A slash in it used to clone and scan, then
+ * fail at SonarQube (invalid project key) and write the report into a folder the build does not keep.
+ */
+private String repoSlug(raw) {
+  String typed = (raw ?: '').toString().trim()
+  if (!typed) { error('sdtScan: repo is required') }
+  String slug = typed.replaceAll('^/+|/+$', '').replaceFirst('(?i)\\.git$', '')
+  if (!(slug ==~ /[A-Za-z0-9._-]+/)) {
+    error("sdtScan: '${typed}' is not a repository slug: use only the repository's name in the Bitbucket " +
+          "workspace (letters, digits, '.', '_' and '-'), for example web-portal")
+  }
+  return slug
 }
 
 /**
