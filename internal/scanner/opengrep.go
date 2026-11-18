@@ -205,12 +205,15 @@ func (a *OpengrepAdapter) Parse(toolVersion string, root string, stdout []byte, 
 		if r.Extra.Fix != "" {
 			f.Remediation = &finding.Remediation{Guidance: truncate(r.Extra.Fix, 1000)}
 		}
-		// B1 identity: flagged code content dominates; the start line only
+		// B1 identity: flagged code content dominates; the start line
 		// separates true duplicates, so two distinct issues in one file
-		// never share a fingerprint.
+		// never share a fingerprint. Content leaves the line out: the
+		// baseline matches on it when an edit above the finding moved it.
 		trimmedLines := strings.TrimSpace(r.Extra.Lines)
 		semCtx := fingerprintCtx(ruleID+"\n"+trimmedLines, &sl)
-		f.Fingerprint = finding.Fingerprint{Algorithm: finding.FingerprintVersion, Value: finding.FingerprintValue(f.Category, "opengrep", ruleID, rel, semCtx)}
+		f.Fingerprint = finding.Fingerprint{Algorithm: finding.FingerprintVersion,
+			Value:   finding.FingerprintValue(f.Category, "opengrep", ruleID, rel, semCtx),
+			Content: finding.FingerprintValue(f.Category, "opengrep", ruleID, rel, fingerprintCtx(ruleID+"\n"+trimmedLines, nil))}
 		if r.Extra.DataflowTrace != nil {
 			if line, col, ok := taintSourceAt(r.Extra.DataflowTrace.TaintSource); ok {
 				sources[f] = fmt.Sprintf("%s\x00%s\x00%d:%d", ruleID, rel, line, col)

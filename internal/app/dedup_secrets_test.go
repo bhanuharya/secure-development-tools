@@ -49,3 +49,20 @@ func TestCollapseCrossScannerSecretsWithoutSecretFindings(t *testing.T) {
 		t.Fatalf("nothing to collapse without a secret-scanner finding: %d dropped", dropped)
 	}
 }
+
+// The secret scanner's finding remembers the code-rule finding it replaced, so
+// a baseline built from this scan still knows the code-rule finding.
+func TestCollapseCrossScannerSecretsRecordsTheCollapsedIdentity(t *testing.T) {
+	secret := secretTestFinding("gitleaks", finding.CatSecret, "private-key", nil, "keys/server.pem", 1)
+	secret.Fingerprint = finding.Fingerprint{Algorithm: finding.FingerprintVersion, Value: "sha256:gitleaks"}
+	code := secretTestFinding("opengrep", finding.CatSAST, "scp.common.secrets.private-key", []string{"CWE-798"}, "keys/server.pem", 1)
+	code.Fingerprint = finding.Fingerprint{Algorithm: finding.FingerprintVersion, Value: "sha256:opengrep", Content: "sha256:opengrep-content"}
+	out, dropped := collapseCrossScannerSecrets([]*finding.Finding{secret, code})
+	if dropped != 1 || len(out) != 1 {
+		t.Fatalf("dropped %d, kept %d; want 1 and 1", dropped, len(out))
+	}
+	got := out[0].Fingerprint.Collapsed
+	if len(got) != 1 || got[0].Value != "sha256:opengrep" || got[0].Content != "sha256:opengrep-content" {
+		t.Fatalf("collapsed identity not recorded: %+v", got)
+	}
+}

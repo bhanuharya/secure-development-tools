@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-11-18
+
+- A pull request scan no longer calls old findings new. Two causes, both seen on merged release pull requests
+  where every one of 10 "new" findings was already on the target branch:
+  - A code finding below an edit moved to another line, and the line was part of its identity. A finding whose rule,
+    file and flagged code are unchanged now stays existing wherever it moved; a second copy of the same code is
+    still new.
+  - A hard-coded password or key that both the secret scanner and a code rule report on one line is kept once, as
+    the secret scanner's finding. The pull request scan reads only the new commits for secrets, so on an untouched
+    line only the code rule's copy was left, and it was not in the target branch's baseline. The baseline now also
+    knows the copy.
+
+  Both made the pull request gate (`block-new-high-sast`) fail and listed the old findings as added in the report.
+  Findings carry the two identities in `fingerprint.content` and `fingerprint.collapsed`; `fingerprint.value` is
+  unchanged, so review decisions and remembered AI verdicts still match. A baseline file written before this change
+  still works, without the two fallbacks, until it is created again.
+
 ## 2026-11-17
 
 - A repository name typed with a trailing slash or `.git` (`web-portal/`, `web-portal.git`) is scanned as `web-portal`.
