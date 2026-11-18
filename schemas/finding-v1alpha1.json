@@ -12,7 +12,22 @@
       "required": ["algorithm", "value"],
       "properties": {
         "algorithm": {"const": "sdt-v2"},
-        "value": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+        "value": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "content": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$",
+                    "description": "Identity without the start line; a baseline falls back to it, so a finding that only moved stays existing"},
+        "collapsed": {
+          "type": "array",
+          "description": "Identities of findings merged into this one (a code rule's copy of a secret-scanner finding on the same line)",
+          "items": {
+            "type": "object",
+            "required": ["value"],
+            "properties": {
+              "algorithm": {"const": "sdt-v2"},
+              "value": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+              "content": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+            }
+          }
+        }
       }
     },
     "scanner": {

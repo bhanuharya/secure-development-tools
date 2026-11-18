@@ -78,6 +78,17 @@ type Reachability struct {
 type Fingerprint struct {
 	Algorithm string `json:"algorithm"`
 	Value     string `json:"value"`
+	// Content is the identity without the start line, for scanners whose
+	// Value includes it. A baseline falls back to it when Value does not
+	// match, so a finding that only moved (lines added or removed above it)
+	// stays existing.
+	Content string `json:"content,omitempty"`
+	// Collapsed holds the identities of findings merged into this one: a
+	// code rule's copy of a secret-scanner finding on the same line. A
+	// baseline knows them too, so a scan in which only the code rule reports
+	// the line (the secret scanner reads only the new commits of a pull
+	// request) still finds it existing.
+	Collapsed []Fingerprint `json:"collapsed,omitempty"`
 }
 
 type ScannerID struct {

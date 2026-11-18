@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -27,6 +28,12 @@ type Entry struct {
 	Rule     string `json:"rule"`
 	Category string `json:"category"`
 	Path     string `json:"path,omitempty"`
+	// Content is the finding's identity without its line (see
+	// finding.Fingerprint.Content); empty for scanners that have none.
+	Content string `json:"content,omitempty"`
+	// Of names the entry of the finding this one was collapsed into; both
+	// stand for one finding.
+	Of string `json:"of,omitempty"`
 }
 
 // Exception is a governed suppression.
@@ -65,21 +72,80 @@ func Load(path string) (*Baseline, error) {
 }
 
 // Apply classifies findings; returns resolved (baseline entries with no match).
+//
+// A finding is existing when its fingerprint, or one collapsed into it, is in
+// the baseline. Failing that, it is existing when a baseline entry no other
+// finding accounts for has the same content identity: the same rule and code
+// in the same file, only on another line because lines above it were added or
+// removed. Each such entry accounts for one finding, so a second copy of the
+// same code is still new.
 func (b *Baseline) Apply(findings []*finding.Finding) (resolved []string) {
-	seen := map[string]bool{}
-	for _, f := range findings {
-		if _, ok := b.Entries[f.Fingerprint.Value]; ok {
-			f.BaselineState = finding.StateExisting
-		} else {
-			f.BaselineState = finding.StateNew
+	members := map[string][]string{}
+	for fp, e := range b.Entries {
+		if e.Of != "" {
+			members[e.Of] = append(members[e.Of], fp)
 		}
-		seen[f.Fingerprint.Value] = true
 	}
+	matched := map[string]bool{}
+	mark := func(fp string) {
+		group := fp
+		if of := b.Entries[fp].Of; of != "" {
+			group = of
+		}
+		matched[group] = true
+		for _, m := range members[group] {
+			matched[m] = true
+		}
+	}
+	identities := func(f *finding.Finding) []finding.Fingerprint {
+		return append([]finding.Fingerprint{f.Fingerprint}, f.Fingerprint.Collapsed...)
+	}
+
+	var unmatched []*finding.Finding
+	for _, f := range findings {
+		f.BaselineState = finding.StateNew
+		for _, id := range identities(f) {
+			if _, ok := b.Entries[id.Value]; ok && id.Value != "" {
+				f.BaselineState = finding.StateExisting
+				mark(id.Value)
+			}
+		}
+		if f.BaselineState == finding.StateNew {
+			unmatched = append(unmatched, f)
+		}
+	}
+
+	byContent := map[string][]string{}
+	for fp, e := range b.Entries {
+		if e.Content != "" && !matched[fp] {
+			byContent[e.Content] = append(byContent[e.Content], fp)
+		}
+	}
+	for _, fps := range byContent {
+		sort.Strings(fps)
+	}
+	for _, f := range unmatched {
+	identity:
+		for _, id := range identities(f) {
+			if id.Content == "" {
+				continue
+			}
+			for _, fp := range byContent[id.Content] {
+				if !matched[fp] {
+					f.BaselineState = finding.StateExisting
+					mark(fp)
+					break identity
+				}
+			}
+		}
+	}
+
 	for fp := range b.Entries {
-		if !seen[fp] {
+		if !matched[fp] {
 			resolved = append(resolved, fp)
 		}
 	}
+	sort.Strings(resolved)
 	return resolved
 }
 
@@ -97,7 +163,21 @@ func Create(path string, findings []*finding.Finding, configDigest, revision str
 		if f.Location != nil {
 			loc = f.Location.Path
 		}
-		b.Entries[f.Fingerprint.Value] = Entry{Rule: f.Rule.ID, Category: f.Category, Path: loc}
+		b.Entries[f.Fingerprint.Value] = Entry{Rule: f.Rule.ID, Category: f.Category, Path: loc, Content: f.Fingerprint.Content}
+	}
+	// Collapsed identities after every finding's own, so a finding's own
+	// entry is never replaced by another finding's collapsed copy.
+	for _, f := range findings {
+		for _, c := range f.Fingerprint.Collapsed {
+			if _, ok := b.Entries[c.Value]; ok || c.Value == "" {
+				continue
+			}
+			loc := ""
+			if f.Location != nil {
+				loc = f.Location.Path
+			}
+			b.Entries[c.Value] = Entry{Category: f.Category, Path: loc, Content: c.Content, Of: f.Fingerprint.Value}
+		}
 	}
 	raw, _ := json.MarshalIndent(b, "", "  ")
 	return os.WriteFile(path, append(raw, '\n'), 0o644)
