@@ -170,6 +170,12 @@ validation removed, a secret logged, a setting weakened. The result is `ai-chang
 to the report. Every item points at a line the change added and says what to verify; it never blocks the build
 and never enters SonarQube. Tests, lock files and non-code files are not sent, secret values are redacted, and
 files beyond the per-review limit are named as unread rather than silently skipped.
+A rescan reads the same: each file's review is remembered per repository (under `$SDT_STATE_DIR/ai-change-review/`,
+or `SDT_DIFF_REVIEW_MEMORY`), and a file whose change, context, model and reasoning depth are the same as in an
+earlier review is not sent again; its earlier items are reused word for word. A file the pull request changed since
+is sent with what the last review of it in the same pull request reported, and the model is asked to keep the title
+of a problem that still applies. A failed call is not remembered, so the next scan asks again; `--refresh` ignores
+the memory.
 `SDT_AI_DIFF_REASONING` sets the change review's reasoning depth on its own (for example `low` for a
 faster, cheaper read of every pull request); unset, it uses `SDT_CODEX_REASONING` like the triage.
 

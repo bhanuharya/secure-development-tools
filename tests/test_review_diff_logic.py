@@ -254,5 +254,119 @@ class TestReviewDiffLogicAbuse(unittest.TestCase):
         self.assertNotIn("(confidence medium) · verified", md)
 
 
+OTHER_DIFF = """@@ -1,2 +1,3 @@
+ const db = require('./db')
++const limit = 50
+ module.exports = db
+"""
+
+CHANGED_DIFF = """@@ -8,5 +8,7 @@
+ router.get('/health', health)
+-router.get('/reports/:id', auth, owner, showReport)
++router.get('/reports/:id', auth, showReport)
++router.delete('/reports/:id', auth, deleteReport)
++router.patch('/reports/:id', auth, renameReport)
+ module.exports = router
+"""
+
+OWNER_FINDING = {
+    "path": "routes/report.js", "line": 9, "title": "Owner check removed", "severity": "high",
+    "confidence": "high", "abuse_class": "bola-idor", "attack_scenario": "Any user reads another user's report.",
+    "evidence": "Line 9 drops the owner middleware.", "check": "showReport", "fix": "restore owner",
+}
+
+
+class TestReviewMemory(unittest.TestCase):
+    """A rescan reads the same: the model is asked again only about files whose change changed."""
+
+    def run_review(self, diffs, call, memory, scope="pr-1", verify=False):
+        return sdt_review_diff.review(diffs, "codex", "gpt-6.1-sol", per_call_timeout=30, budget=300,
+                                      call=call, memory=memory, scope=scope, verify=verify)
+
+    def test_unchanged_change_is_not_asked_again_and_reads_the_same(self):
+        prompts = []
+
+        def call(codex, model, prompt, timeout, schema):
+            prompts.append(prompt)  # the model words its answer differently every time
+            return {"findings": [{**OWNER_FINDING, "title": f"Owner check removed (wording {len(prompts)})"}]}
+
+        memory: dict = {}
+        first = self.run_review({"routes/report.js": SAMPLE_DIFF}, call, memory)
+        second = self.run_review({"routes/report.js": SAMPLE_DIFF}, call, memory)
+        self.assertEqual(len(prompts), 1)
+        self.assertEqual(first["findings"], second["findings"])
+        self.assertEqual(second["files_remembered"], ["routes/report.js"])
+        self.assertEqual(second["files_reviewed"], ["routes/report.js"])
+        self.assertIn("unchanged since an earlier review", sdt_review_diff.markdown(second, "origin/main", 0))
+
+    def test_changed_file_is_asked_with_its_earlier_titles_and_the_rest_is_reused(self):
+        prompts = []
+
+        def call(codex, model, prompt, timeout, schema):
+            prompts.append(prompt)
+            return {"findings": [OWNER_FINDING] if "### routes/report.js" in prompt else []}
+
+        memory: dict = {}
+        self.run_review({"routes/report.js": SAMPLE_DIFF, "lib/other.js": OTHER_DIFF}, call, memory)
+        calls_before = len(prompts)
+        self.run_review({"routes/report.js": CHANGED_DIFF, "lib/other.js": OTHER_DIFF}, call, memory)
+        new_prompts = prompts[calls_before:]
+        self.assertEqual(len(new_prompts), 1)
+        self.assertIn("### routes/report.js", new_prompts[0])
+        self.assertNotIn("### lib/other.js", new_prompts[0])
+        self.assertIn("An earlier review of this file in this pull request", new_prompts[0])
+        self.assertIn("(high) Owner check removed [was line 9]", new_prompts[0])
+
+    def test_earlier_titles_stay_within_their_pull_request(self):
+        prompts = []
+
+        def call(codex, model, prompt, timeout, schema):
+            prompts.append(prompt)
+            return {"findings": [OWNER_FINDING]}
+
+        memory: dict = {}
+        self.run_review({"routes/report.js": SAMPLE_DIFF}, call, memory, scope="pr-1")
+        self.run_review({"routes/report.js": CHANGED_DIFF}, call, memory, scope="pr-2")
+        self.assertEqual(len(prompts), 2)
+        self.assertNotIn("An earlier review", prompts[1])
+
+    def test_failed_call_is_asked_again_next_time(self):
+        answers = [RuntimeError("codex exited 1"), {"findings": [OWNER_FINDING]}]
+
+        def call(codex, model, prompt, timeout, schema):
+            answer = answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        memory: dict = {}
+        first = self.run_review({"routes/report.js": SAMPLE_DIFF}, call, memory)
+        self.assertEqual((first["failed_calls"], memory), (1, {}))
+        second = self.run_review({"routes/report.js": SAMPLE_DIFF}, call, memory)
+        self.assertEqual([f["title"] for f in second["findings"]], ["Owner check removed"])
+        self.assertEqual(len(memory), 1)
+
+    def test_memory_file_drops_old_reviews_and_redacts_values(self):
+        value = "Zk81" + "mQ7vT2pL9xR4"
+        memory = {
+            "sha256:recent": {"path": "a.js", "scope": "pr-1", "used": "2026-11-20", "saved": "2026-11-20T00:00:00+00:00",
+                              "findings": [{**OWNER_FINDING, "path": "a.js", "evidence": f'password = "{value}" on line 9'}]},
+            "sha256:old": {"path": "b.js", "scope": "pr-1", "used": "2026-01-01", "saved": "2026-01-01T00:00:00+00:00",
+                           "findings": []},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state" / "repo.json"
+            sdt_review_diff.save_memory(path, memory, "2026-11-24")
+            self.assertNotIn(value, path.read_text())
+            loaded = sdt_review_diff.load_memory(path)
+        self.assertEqual(list(loaded), ["sha256:recent"])
+        self.assertIn("[REDACTED]", loaded["sha256:recent"]["findings"][0]["evidence"])
+
+    def test_default_memory_path_follows_the_state_directory(self):
+        self.assertEqual(sdt_review_diff.default_memory_path("ws_my repo", {"SDT_STATE_DIR": "/state"}),
+                         Path("/state/ai-change-review/ws_my_repo.json"))
+        self.assertEqual(sdt_review_diff.default_memory_path("x", {"SDT_DIFF_REVIEW_MEMORY": "/m.json"}), Path("/m.json"))
+
+
 if __name__ == "__main__":
     unittest.main()
