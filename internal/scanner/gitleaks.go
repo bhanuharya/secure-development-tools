@@ -39,22 +39,36 @@ var gitleaksDefaults string
 
 // gitleaksDefaultConfig writes the sdt defaults into the cache and returns the
 // path. They extend the Gitleaks built-in rules, or the scanned repository's own
-// .gitleaks.toml when it has one, so a repository's allowlists keep working.
+// .gitleaks.toml when allowed and safe. A repository config with a catch-all
+// allowlist is not extended, so a pull request cannot switch secret scanning off
+// (see unsafeRepoGitleaksReason).
 func gitleaksDefaultConfig(cacheRoot, root string) (string, error) {
+	p, _, err := gitleaksDefaultConfigWithPolicy(cacheRoot, root, true)
+	return p, err
+}
+
+func gitleaksDefaultConfigWithPolicy(cacheRoot, root string, trustRepo bool) (string, string, error) {
 	extend := "useDefault = true"
+	note := ""
 	if repoCfg, err := filepath.Abs(filepath.Join(root, ".gitleaks.toml")); err == nil {
 		if info, statErr := os.Stat(repoCfg); statErr == nil && !info.IsDir() {
-			extend = "path = " + strconv.Quote(repoCfg)
+			if !trustRepo {
+				note = "ignored repository .gitleaks.toml (scanners.gitleaks.trustRepoConfig=false)"
+			} else if reason := unsafeRepoGitleaksReason(repoCfg); reason != "" {
+				note = "ignored repository .gitleaks.toml: " + reason
+			} else {
+				extend = "path = " + strconv.Quote(repoCfg)
+			}
 		}
 	}
 	path, err := nativeReportPath(cacheRoot, "gitleaks-config.toml")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if err := os.WriteFile(path, []byte("[extend]\n"+extend+"\n\n"+gitleaksDefaults), 0o644); err != nil {
-		return "", err
+		return "", "", err
 	}
-	return path, nil
+	return path, note, nil
 }
 
 // historyMode resolves the scan mode: explicit config history map wins,
@@ -107,6 +121,12 @@ func (a *GitleaksAdapter) PlanForProfile(ctx *sdtctx.ScanContext, cfg *config.Sc
 			base = ctx.BaseRevision
 		}
 		if base != "" {
+			if err := validateSafeArg(base, "base revision"); err != nil {
+				return Task{}, err
+			}
+			if err := validateSafeArg(ctx.HeadRevision, "head revision"); err != nil {
+				return Task{}, err
+			}
 			args = append(args, "--log-opts="+base+".."+ctx.HeadRevision)
 			targets = []string{root + "@history:" + base + "..HEAD"}
 		} else {
@@ -125,11 +145,21 @@ func (a *GitleaksAdapter) PlanForProfile(ctx *sdtctx.ScanContext, cfg *config.Sc
 	case os.Getenv("GITLEAKS_CONFIG") != "":
 		// The operator configured Gitleaks directly; leave that in charge.
 	default:
-		defaults, err := gitleaksDefaultConfig(ctx.CacheRoot, root)
+		trustRepo := true
+		if cfg.Scanners.Gitleaks.TrustRepoConfig != nil {
+			trustRepo = *cfg.Scanners.Gitleaks.TrustRepoConfig
+		}
+		if env := os.Getenv("SDT_GITLEAKS_TRUST_REPO_CONFIG"); env == "0" || env == "false" {
+			trustRepo = false
+		}
+		defaults, note, err := gitleaksDefaultConfigWithPolicy(ctx.CacheRoot, root, trustRepo)
 		if err != nil {
 			return Task{}, err
 		}
 		args = append(args, "--config", defaults)
+		if note != "" {
+			task.Note = note
+		}
 		sum := sha256.Sum256([]byte(gitleaksDefaults))
 		task.RuleBundle, task.RuleChecksums = "sdt-gitleaks-defaults", []string{"sha256:" + hex.EncodeToString(sum[:])}
 	}

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/secure-dev/invariants-v1alpha1.json",
+  "title": "SDT SecurityInvariants v1alpha1",
+  "type": "object",
+  "required": ["apiVersion", "kind"],
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": {"const": "secure-dev/invariants/v1alpha1"},
+    "kind": {"const": "SecurityInvariants"},
+    "routeInvariants": {
+      "type": "array",
+      "description": "Deterministic route-level access-control and logic contracts enforced during sdt scan.",
+      "items": {
+        "type": "object",
+        "required": ["id", "paths"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "description": {"type": "string"},
+          "service": {"type": "string"},
+          "paths": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "pattern": "^/"}
+          },
+          "methods": {
+            "type": "array",
+            "items": {"enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "ANY"]}
+          },
+          "forbidMethods": {
+            "type": "array",
+            "items": {"enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "ANY"]}
+          },
+          "minProtection": {"enum": ["authenticated", "role", "denied"]},
+          "failOnUnknown": {"type": "boolean"},
+          "requireRoles": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1}
+          },
+          "requireEvidence": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1}
+          },
+          "requirePrincipalCheck": {"type": "boolean"},
+          "severity": {"enum": ["error", "warning"]},
+          "cwe": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        }
+      }
+    },
+    "domainInvariants": {
+      "type": "array",
+      "description": "Semantic business-logic invariants injected into PR diff review for matching file paths.",
+      "items": {
+        "type": "object",
+        "required": ["id", "paths", "statement"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "paths": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "abuseClasses": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "statement": {"type": "string", "minLength": 1},
+          "severity": {"enum": ["high", "medium", "low"]}
+        }
+      }
+    }
+  }
+}

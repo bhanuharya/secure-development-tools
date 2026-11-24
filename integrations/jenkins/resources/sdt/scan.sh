@@ -92,16 +92,21 @@ if [ -n "${PR_ID:-}" ]; then
   # The target branch's scan is the same for every pull request on that commit. It is kept for the day
   # (the vulnerability database changes daily) under a key of everything else that decides its result.
   BASE_COMMIT=$(git -C "$SRC" rev-parse "origin/$PR_BASE^{commit}")
-  BASELINE_CACHE="${SDT_BASELINE_CACHE-${SDT_STATE_DIR:+$SDT_STATE_DIR/baselines}}"; CACHED=""
+  BASELINE_CACHE="${SDT_BASELINE_CACHE-${SDT_STATE_DIR:+$SDT_STATE_DIR/baselines}}"; CACHED=""; CACHED_ENDPOINTS=""
   if [ -n "$BASELINE_CACHE" ]; then
     KEY=$( { sha256sum < "$SDT_HOME/sdt"; echo "${SDT_SCAN_GENERATED_FILES:-}"; date -u +%F; cat "$SDT_CONFIG"; [ -f "$OUT/reviewed-exceptions.yaml" ] && cat "$OUT/reviewed-exceptions.yaml"
-             find "$RULES_DIR" -type f -print0 | sort -z | xargs -0 -r sha256sum; } 2>/dev/null | sha256sum | cut -c1-16 )
+             find "$RULES_DIR" -type f -print0 | sort -z | xargs -0 -r sha256sum
+             [ -d "$SDT_HOME/rules/endpoint-facts" ] && find "$SDT_HOME/rules/endpoint-facts" -type f -print0 | sort -z | xargs -0 -r sha256sum; } 2>/dev/null | sha256sum | cut -c1-16 )
     CACHED="$BASELINE_CACHE/$(printf '%s' "${WORKSPACE_NAME}_$REPO_SLUG" | tr -c 'A-Za-z0-9._-' '_')/$BASE_COMMIT-$KEY.json"
+    CACHED_ENDPOINTS="${CACHED%.json}.endpoints.json"
   fi
   mkdir -p "$OUT/base"
   if [ -n "$CACHED" ] && [ -s "$CACHED" ]; then
     log "baseline: origin/$PR_BASE at ${BASE_COMMIT:0:7} was scanned earlier today; reusing it"
     cp "$CACHED" "$OUT/base/findings.json"
+    if [ -n "$CACHED_ENDPOINTS" ] && [ -s "$CACHED_ENDPOINTS" ]; then
+      cp "$CACHED_ENDPOINTS" "$OUT/base/endpoints.json"
+    fi
   else
     log "baseline: full scan of origin/$PR_BASE"
     # In a repository of its own that holds the target branch only: the secret scan reads the history of
@@ -115,11 +120,18 @@ if [ -n "${PR_ID:-}" ]; then
     rm -rf "$OUT/base-src"
     if [ -n "$CACHED" ]; then
       # Best effort: a cache that cannot be written only costs the next scan its time.
-      { mkdir -p "$(dirname "$CACHED")" && cp "$OUT/base/findings.json" "$CACHED.$$" && mv "$CACHED.$$" "$CACHED" \
+      # Write endpoints.json before moving findings.json (the cache-hit sentinel) into place.
+      { mkdir -p "$(dirname "$CACHED")" \
+          && { [ ! -f "$OUT/base/endpoints.json" ] || { cp "$OUT/base/endpoints.json" "$CACHED_ENDPOINTS.$$" && mv "$CACHED_ENDPOINTS.$$" "$CACHED_ENDPOINTS"; }; } \
+          && cp "$OUT/base/findings.json" "$CACHED.$$" && mv "$CACHED.$$" "$CACHED" \
           && find "$(dirname "$CACHED")" -name '*.json' -mtime +2 -delete; } || log "baseline not kept for later scans"
     fi
   fi
-  ( cd "$SRC" && "$SDT_HOME/sdt" baseline create --config "$SDT_CONFIG" --from "$OUT/base/findings.json" )
+  BASELINE_ENDPOINTS_ARGS=()
+  if [ -f "$OUT/base/endpoints.json" ]; then
+    BASELINE_ENDPOINTS_ARGS=(--endpoints "$OUT/base/endpoints.json")
+  fi
+  ( cd "$SRC" && "$SDT_HOME/sdt" baseline create --config "$SDT_CONFIG" --from "$OUT/base/findings.json" "${BASELINE_ENDPOINTS_ARGS[@]}" )
   timing baseline-scan
 fi
 log "SDT scan (profile $PROFILE)"

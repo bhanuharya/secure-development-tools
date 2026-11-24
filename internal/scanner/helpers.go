@@ -33,7 +33,13 @@ func relToRoot(root, p string) string {
 	}
 	rel := p
 	if filepath.IsAbs(p) && root != "" {
-		if r, err := filepath.Rel(root, p); err == nil && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+		base := root
+		if !filepath.IsAbs(base) {
+			if abs, err := filepath.Abs(base); err == nil {
+				base = abs
+			}
+		}
+		if r, err := filepath.Rel(base, p); err == nil && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator)) {
 			rel = r
 		}
 	}
@@ -82,17 +88,36 @@ func opengrepExcludes() []string {
 	return base
 }
 
-// nativeReportPath returns a deterministic machine-output path under the
-// scan cache root so identical inputs produce identical plans (NFR-001).
+// nativeReportPath returns a deterministic absolute machine-output path under
+// the scan cache root so identical inputs produce identical plans (NFR-001) and
+// subdirectory project.root scans never resolve relative --output paths inside
+// the scanned subtree.
 func nativeReportPath(cacheRoot, name string) (string, error) {
 	if cacheRoot == "" {
 		cacheRoot = ".cache/sdt"
+	}
+	if abs, err := filepath.Abs(cacheRoot); err == nil {
+		cacheRoot = abs
 	}
 	native := filepath.Join(cacheRoot, "native")
 	if err := os.MkdirAll(native, 0o755); err != nil {
 		return "", err
 	}
 	return filepath.Join(native, name), nil
+}
+
+// validateSafeArg rejects flag-like or control-character strings before passing
+// user/config values into external scanner CLIs (CWE-88).
+func validateSafeArg(val, label string) error {
+	if strings.HasPrefix(val, "-") {
+		return fmt.Errorf("invalid %s %q: must not start with '-'", label, val)
+	}
+	for _, r := range val {
+		if r <= 0x20 || r == 0x7f {
+			return fmt.Errorf("invalid %s %q: contains control or whitespace character", label, val)
+		}
+	}
+	return nil
 }
 
 func truncate(s string, n int) string {

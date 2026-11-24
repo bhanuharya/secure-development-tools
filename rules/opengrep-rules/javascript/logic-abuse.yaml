@@ -1,0 +1,141 @@
+# Business-logic and abuse-case rules for JavaScript and TypeScript services: mass assignment
+# from req.body, predictable Math.random() OTPs/tokens, non-constant-time MAC/token comparisons,
+# spoofable identity headers, and unbounded pagination limits.
+rules:
+  - id: scp.javascript.logic.mass-assignment-req-body
+    languages: [javascript, typescript]
+    message: >-
+      req.body is passed directly into Object.assign or a database write without picking allowed
+      fields. An attacker can send extra JSON properties (role, isAdmin, balance, price, status)
+      to escalate privileges or overwrite protected columns. Validate req.body with a schema and
+      pick only explicit allowed fields.
+    severity: WARNING
+    metadata:
+      title: Mass assignment from unfiltered req.body
+      category: security
+      cwe: ["CWE-915"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/__tests__/**", "**/__mocks__/**", "*.spec.*", "*.test.*", "*.min.js"]
+    pattern-either:
+      - pattern: Object.assign($TARGET, req.body)
+      - pattern: '$PRISMA.$MODEL.create({ data: req.body })'
+      - pattern: '$PRISMA.$MODEL.update({ ..., data: req.body, ... })'
+      - pattern: $MODEL.create(req.body)
+      - pattern: $MODEL.findByIdAndUpdate($ID, req.body, ...)
+      - pattern: $MODEL.updateOne($FILTER, req.body, ...)
+
+  - id: scp.javascript.logic.weak-prng-otp-or-token
+    languages: [javascript, typescript]
+    message: >-
+      Math.random() is used to generate an OTP, PIN, reset token, or API key. Math.random() is
+      not cryptographically secure and can be predicted from observed values, enabling account
+      takeover. Use crypto.randomInt() or crypto.randomBytes() instead.
+    severity: ERROR
+    metadata:
+      title: Predictable Math.random() used for OTP or token
+      category: security
+      cwe: ["CWE-330"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      confidence: HIGH
+    paths:
+      exclude: ["**/__tests__/**", "**/__mocks__/**", "*.spec.*", "*.test.*", "*.min.js"]
+    patterns:
+      - pattern-either:
+          - pattern: const $V = <... Math.random() ...>;
+          - pattern: let $V = <... Math.random() ...>;
+          - pattern: var $V = <... Math.random() ...>;
+          - pattern: $V = <... Math.random() ...>;
+      - metavariable-regex:
+          metavariable: $V
+          regex: (?i).*(otp|pin|verification|verifycode|resettoken|sessiontoken|apitoken|apikey|invitecode|authcode|nonce|challenge).*
+
+  - id: scp.javascript.logic.non-constant-time-token-compare
+    languages: [javascript, typescript]
+    message: >-
+      A signature, HMAC digest, OTP, or API key is compared with === or !==. Standard string
+      equality returns early on the first differing byte, leaking timing information. Compare
+      equal-length Buffers with crypto.timingSafeEqual().
+    severity: WARNING
+    metadata:
+      title: Non-constant-time comparison of token or MAC
+      category: security
+      cwe: ["CWE-208"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/__tests__/**", "**/__mocks__/**", "*.spec.*", "*.test.*", "*.min.js"]
+    patterns:
+      - pattern-either:
+          - pattern: $A === $B
+          - pattern: $A !== $B
+          - pattern: $A == $B
+          - pattern: $A != $B
+      - metavariable-regex:
+          metavariable: $A
+          regex: (?i)^(?:\w+\.)*(?:expected|computed|calculated|webhook|header|provided|stored)?_?(?:hmac|sig|signature|digest|apiKey|api_key|webhookSecret|resetToken|otpCode)$
+      - pattern-not: $A === ""
+      - pattern-not: $A !== ""
+      - pattern-not: $A === null
+      - pattern-not: $A !== null
+      - pattern-not: $A === undefined
+      - pattern-not: $A !== undefined
+
+  - id: scp.javascript.logic.trust-spoofable-identity-header
+    languages: [javascript, typescript]
+    message: >-
+      A handler reads caller identity, tenant, or role directly from a spoofable HTTP header
+      ("$H"). Unless a trusted gateway strips and overwrites this header on every inbound request,
+      a caller can forge it to impersonate another user or admin. Read identity from a verified
+      session or signed JWT middleware (req.user).
+    severity: WARNING
+    metadata:
+      title: Trusting spoofable identity or role HTTP header
+      category: security
+      cwe: ["CWE-290", "CWE-807"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/__tests__/**", "**/__mocks__/**", "*.spec.*", "*.test.*", "*.min.js"]
+    patterns:
+      - pattern-either:
+          - pattern: $REQ.headers["$H"]
+          - pattern: $REQ.header("$H")
+          - pattern: $REQ.get("$H")
+      - metavariable-regex:
+          metavariable: $H
+          regex: (?i)^x-(user-id|userid|user-role|role|roles|admin|is-admin|forwarded-user|auth-user|remote-user|tenant-id|account-id)$
+      - focus-metavariable: $H
+
+  - id: scp.javascript.logic.unbounded-pagination-limit
+    languages: [javascript, typescript]
+    message: >-
+      A request-controlled limit or pageSize flows directly into a database limit/take query
+      without an upper bound. A caller can send limit=10000000 to dump whole tables or exhaust
+      Node memory. Clamp the value with Math.min(limit, MAX_LIMIT) before querying.
+    severity: WARNING
+    metadata:
+      title: Unbounded request limit passed to DB query
+      category: security
+      cwe: ["CWE-770"]
+      owasp: ["A04:2021 - Insecure Design"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/__tests__/**", "**/__mocks__/**", "*.spec.*", "*.test.*", "*.min.js"]
+    mode: taint
+    pattern-sources:
+      - patterns:
+          - pattern: req.query.$P
+          - metavariable-regex:
+              metavariable: $P
+              regex: (?i)^(limit|pageSize|page_size|perPage|per_page|count|max|size|take)$
+    pattern-sanitizers:
+      - pattern: Math.min(...)
+      - pattern: clampLimit(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $Q.limit($N)
+              - pattern: '$PRISMA.$MODEL.findMany({ ..., take: $N, ... })'
+          - focus-metavariable: $N

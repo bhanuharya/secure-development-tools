@@ -37,6 +37,9 @@ type Task struct {
 	UpdateMode        string   `json:"updateMode,omitempty"`
 	Note              string   `json:"note,omitempty"`
 	ExecArgs          []string `json:"execArgs,omitempty"`
+	// ReportPath carries an adapter's native report output file from planning
+	// to execution without leaking into the serialized plan or plan digest.
+	ReportPath string `json:"-"`
 	// Run is an in-process adapter's work, done at execution time. It is not
 	// serialized: the plan describes the invocation, and planning does no scanning.
 	Run func(ctx context.Context) ([]byte, usage.Usage, error) `json:"-"`

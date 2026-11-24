@@ -34,7 +34,7 @@
       "type": "object",
       "required": ["adapter", "tool"],
       "properties": {
-        "adapter": {"enum": ["opengrep", "gitleaks", "trivy-fs", "trivy-image"]},
+        "adapter": {"enum": ["opengrep", "gitleaks", "trivy-fs", "trivy-image", "endpoints"]},
         "tool": {"type": "string"},
         "version": {"type": "string"}
       }

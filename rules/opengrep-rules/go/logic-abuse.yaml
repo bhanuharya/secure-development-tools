@@ -1,0 +1,248 @@
+# Business-logic and abuse-case rules for Go services: race conditions / double-spend,
+# mass assignment into ORM models, predictable OTPs/tokens, spoofable identity headers,
+# unbounded pagination, and non-constant-time token comparisons.
+rules:
+  - id: scp.go.logic.check-then-act-balance-race
+    languages: [go]
+    message: >-
+      A balance, credit, quota, or inventory check is followed by mutating that same field without
+      a row lock or mutex. Under concurrent requests, two callers pass the check before either
+      deduction commits, enabling double-spend or quota bypass. Enforce the guard atomically in
+      SQL (UPDATE ... SET balance = balance - $1 WHERE id = $2 AND balance >= $1), lock the row
+      with SELECT ... FOR UPDATE inside a transaction, or synchronize with a distributed lock.
+    severity: WARNING
+    metadata:
+      title: Check-then-act balance mutation without lock
+      category: security
+      cwe: ["CWE-362", "CWE-367"]
+      owasp: ["A04:2021 - Insecure Design"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["*_test.go"]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              if $ACC.$BAL < $AMT {
+                ...
+                return ...
+              }
+              ...
+              $ACC.$BAL -= $AMT
+          - pattern: |
+              if $ACC.$BAL >= $AMT {
+                ...
+                $ACC.$BAL -= $AMT
+                ...
+              }
+          - pattern: |
+              if $ACC.$BAL < $AMT {
+                ...
+                return ...
+              }
+              ...
+              $ACC.$BAL = $ACC.$BAL - $AMT
+      - metavariable-regex:
+          metavariable: $BAL
+          regex: (?i)^(balance|availableBalance|credit|credits|quota|stock|inventory|remaining|funds|points)$
+      - pattern-not-inside: |
+          func $FN(...) {
+            ...
+            $MU.Lock()
+            ...
+          }
+      - pattern-not-inside: |
+          func $FN(...) $RET {
+            ...
+            $MU.Lock()
+            ...
+          }
+      - pattern-not-inside: |
+          func ($R $RT) $FN(...) {
+            ...
+            $MU.Lock()
+            ...
+          }
+      - pattern-not-inside: |
+          func ($R $RT) $FN(...) $RET {
+            ...
+            $MU.Lock()
+            ...
+          }
+      - pattern-not-regex: (?i)FOR\s+UPDATE|clause\.Locking|SetNX|TryLock
+
+  - id: scp.go.logic.mass-assignment-db-model
+    languages: [go]
+    message: >-
+      An HTTP request body is decoded straight into a struct that is passed directly to a database
+      Create, Save, or Updates call. Any extra JSON field matching a model column (such as Role,
+      IsAdmin, Balance, or Status) can be overwritten by the caller. Bind into a dedicated input
+      DTO with only the allowed fields and copy those fields explicitly into the model.
+    severity: WARNING
+    metadata:
+      title: Request body bound directly into DB write
+      category: security
+      cwe: ["CWE-915"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["*_test.go"]
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              $C.ShouldBindJSON(&$M)
+              ...
+          - pattern-inside: |
+              $C.BindJSON(&$M)
+              ...
+          - pattern-inside: |
+              $C.Bind(&$M)
+              ...
+          - pattern-inside: |
+              $C.BodyParser(&$M)
+              ...
+          - pattern-inside: |
+              json.NewDecoder(...).Decode(&$M)
+              ...
+          - pattern-inside: |
+              json.Unmarshal(..., &$M)
+              ...
+      - pattern-either:
+          - pattern: $DB.$OP(&$M)
+          - pattern: $DB.$OP($M)
+      - metavariable-regex:
+          metavariable: $DB
+          regex: (?i).*(db|tx|gorm|store|repo)$
+      - metavariable-regex:
+          metavariable: $OP
+          regex: ^(Create|Save|Updates)$
+
+  - id: scp.go.logic.weak-prng-otp-or-token
+    languages: [go]
+    message: >-
+      math/rand is used to generate a one-time code, PIN, reset token, or API key. math/rand is
+      predictable from its seed or prior outputs, letting an attacker guess valid codes and take
+      over accounts. Use crypto/rand (crypto/rand.Int or crypto/rand.Read) instead.
+    severity: ERROR
+    metadata:
+      title: Predictable math/rand used for OTP or token
+      category: security
+      cwe: ["CWE-330"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      confidence: HIGH
+    paths:
+      exclude: ["*_test.go"]
+    patterns:
+      - pattern-inside: |
+          import "math/rand"
+          ...
+      - pattern-either:
+          - pattern: $V := rand.$FN(...)
+          - pattern: $V = rand.$FN(...)
+          - pattern: $V := fmt.Sprintf(..., rand.$FN(...), ...)
+          - pattern: $V = fmt.Sprintf(..., rand.$FN(...), ...)
+      - metavariable-regex:
+          metavariable: $FN
+          regex: ^(Intn|Int|Int31n|Int63n|Uint32|Uint64|Read)$
+      - metavariable-regex:
+          metavariable: $V
+          regex: (?i).*(otp|pin|verification|verifycode|resettoken|sessiontoken|apitoken|apikey|secret|invitecode|authcode|nonce|challenge).*
+
+  - id: scp.go.logic.trust-spoofable-identity-header
+    languages: [go]
+    message: >-
+      A handler reads an identity, tenant, or role directly from a spoofable HTTP header ("$H").
+      Unless a trusted gateway strictly strips and re-sets this header on every inbound request,
+      any caller can send a forged header to impersonate another user or administrator. Read the
+      caller identity from a verified JWT/session or signed mTLS principal.
+    severity: WARNING
+    metadata:
+      title: Trusting spoofable identity or role HTTP header
+      category: security
+      cwe: ["CWE-290", "CWE-807"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["*_test.go"]
+    patterns:
+      - pattern-either:
+          - pattern: $R.Header.Get("$H")
+          - pattern: $C.GetHeader("$H")
+          - pattern: $C.Get("$H")
+      - metavariable-regex:
+          metavariable: $H
+          regex: (?i)^x-(user-id|userid|user-role|role|roles|admin|is-admin|forwarded-user|auth-user|remote-user|tenant-id|account-id)$
+      - focus-metavariable: $H
+
+  - id: scp.go.logic.unbounded-pagination-limit
+    languages: [go]
+    message: >-
+      A request-controlled page size or limit is passed directly to a database Limit() call
+      without an upper bound. A caller can send limit=10000000 to dump entire tables or exhaust
+      service memory and database CPU. Clamp the value to a fixed server-side maximum before
+      querying.
+    severity: WARNING
+    metadata:
+      title: Unbounded request limit passed to DB query
+      category: security
+      cwe: ["CWE-770"]
+      owasp: ["A04:2021 - Insecure Design"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["*_test.go"]
+    mode: taint
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: $C.Query("$P")
+              - pattern: $C.DefaultQuery("$P", ...)
+              - pattern: $R.URL.Query().Get("$P")
+              - pattern: $C.QueryInt("$P", ...)
+          - metavariable-regex:
+              metavariable: $P
+              regex: (?i)^(limit|page_?size|per_?page|count|max|size|take)$
+    pattern-sanitizers:
+      - pattern: min(...)
+      - pattern: clampLimit(...)
+      - by-side-effect: true
+        patterns:
+          - pattern-either:
+              - pattern: |
+                  if $X > $MAX {
+                    $X = $MAX
+                  }
+              - pattern: |
+                  if $X > $MAX {
+                    return ...
+                  }
+          - focus-metavariable: $X
+    pattern-sinks:
+      - patterns:
+          - pattern: $DB.Limit($N)
+          - focus-metavariable: $N
+
+  - id: scp.go.logic.non-constant-time-token-compare
+    languages: [go]
+    message: >-
+      A signature, HMAC, OTP, or API key is compared with == or !=. Standard string/byte
+      comparison stops at the first differing byte, leaking timing information that can allow
+      forging MACs or secrets byte by byte. Use hmac.Equal or subtle.ConstantTimeCompare.
+    severity: WARNING
+    metadata:
+      title: Non-constant-time comparison of token or MAC
+      category: security
+      cwe: ["CWE-208"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["*_test.go"]
+    patterns:
+      - pattern-either:
+          - pattern: $A == $B
+          - pattern: $A != $B
+      - metavariable-regex:
+          metavariable: $A
+          regex: (?i)^(?:\w+\.)*(?:expected|computed|calculated|webhook|header|provided|stored)?_?(?:hmac|sig|signature|digest|apiKey|api_key|webhookSecret|resetToken|otpCode)$
+      - pattern-not: $A == ""
+      - pattern-not: $A != ""
+      - pattern-not: $A == nil
+      - pattern-not: $A != nil

@@ -175,3 +175,14 @@ gateway/nginx/nginx-cidr-all-v6.conf	NGINX sensitive proxy with unrestricted IPv
 gateway/lookalike/nginx-cidr-private.conf	NGINX sensitive proxy with private CIDR allows (not unrestricted)	284	none
 android/app/src/main/AndroidManifest.xml	release manifest allows cleartext HTTP	319	rules
 android/lookalike/app/src/debug/AndroidManifest.xml	cleartext allowed in the debug manifest only (not shipped)	319	none
+go/balance_race.go	check-then-act balance mutation without lock	362,367	rules
+go/lookalike/balance_locked.go	balance mutation guarded by mutex lock (not a race)	362,367	none
+go/spoofable_header.go	caller identity read from spoofable X-User-Id header	290,807	rules
+java/BeanUtilsMassAssign.java	BeanUtils.copyProperties copies request DTO without ignore list	915	rules
+java/lookalike/BeanUtilsIgnored.java	BeanUtils.copyProperties excludes privileged properties	915	none
+node/mass-assign.js	unfiltered req.body passed directly to Prisma create	915	rules
+node/lookalike/explicit-fields.js	explicit allow-listed fields picked from req.body	915	none
+python/weak_otp.py	predictable random.randint used to issue OTP	330	rules
+python/lookalike/secrets_otp.py	cryptographically secure secrets.randbelow used for OTP	330	none
+endpoints/bola/main.go	authenticated parameterized route queries store without caller ownership check	639	endpoints
+endpoints/lookalike-bola/main.go	authenticated parameterized route scopes query to caller userID (not BOLA)	639	none

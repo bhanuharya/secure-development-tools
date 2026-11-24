@@ -71,6 +71,9 @@ func sanitizeInventory(inv *Inventory) *Inventory {
 
 func sanitizeRoute(route Route) Route {
 	route.Handler = redactText(route.Handler)
+	if route.ShadowedBy != "" {
+		route.ShadowedBy = redactText(route.ShadowedBy)
+	}
 	if len(route.Evidence) > 0 {
 		// Spring evidence is matcher paths, roles and access expressions, never middleware
 		// arguments, and the template logic finds the deciding matcher by its quoted pattern.

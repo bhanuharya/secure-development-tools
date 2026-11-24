@@ -1,0 +1,78 @@
+# Business-logic and abuse-case rules for Kotlin services: predictable PRNG OTPs/tokens,
+# spoofable identity headers, and BeanUtils mass assignment.
+rules:
+  - id: scp.kotlin.logic.weak-prng-otp-or-token
+    languages: [kotlin]
+    message: >-
+      kotlin.random.Random or java.util.Random is used to generate an OTP, PIN, reset token, or
+      API key. These PRNGs are predictable, letting attackers guess valid codes and take over
+      accounts. Use java.security.SecureRandom instead.
+    severity: ERROR
+    metadata:
+      title: Predictable Random used for OTP or token
+      category: security
+      cwe: ["CWE-330"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      confidence: HIGH
+    paths:
+      exclude: ["**/src/test/**", "**/src/androidTest/**"]
+    patterns:
+      - pattern-either:
+          - pattern: val $V = Random.$FN(...)
+          - pattern: var $V = Random.$FN(...)
+          - pattern: val $V = Random().$FN(...)
+          - pattern: var $V = Random().$FN(...)
+          - pattern: $V = Random.$FN(...)
+      - metavariable-regex:
+          metavariable: $FN
+          regex: ^(nextInt|nextLong|nextBytes)$
+      - metavariable-regex:
+          metavariable: $V
+          regex: (?i).*(otp|pin|verification|verifycode|resettoken|sessiontoken|apitoken|apikey|invitecode|authcode|nonce|challenge).*
+
+  - id: scp.kotlin.logic.trust-spoofable-identity-header
+    languages: [kotlin]
+    message: >-
+      A handler reads caller identity, tenant, or role directly from a spoofable HTTP header
+      ("$H"). Unless a trusted gateway strips and overwrites this header on every inbound request,
+      a caller can forge it to impersonate another user or admin. Read identity from the verified
+      SecurityContext or Principal instead.
+    severity: WARNING
+    metadata:
+      title: Trusting spoofable identity or role HTTP header
+      category: security
+      cwe: ["CWE-290", "CWE-807"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/src/test/**", "**/src/androidTest/**"]
+    pattern-either:
+      - patterns:
+          - pattern: $REQ.getHeader("$H")
+          - metavariable-regex:
+              metavariable: $H
+              regex: (?i)^x-(user-id|userid|user-role|role|roles|admin|is-admin|forwarded-user|auth-user|remote-user|tenant-id|account-id)$
+          - focus-metavariable: $H
+      - pattern-regex: (?i)@RequestHeader\s*\(\s*(?:(?:value|name)\s*=\s*)?"x-(?:user-id|userid|user-role|role|roles|admin|is-admin|forwarded-user|auth-user|remote-user|tenant-id|account-id)"
+
+  - id: scp.kotlin.logic.mass-assignment-beanutils
+    languages: [kotlin]
+    message: >-
+      BeanUtils.copyProperties copies every matching property from a request DTO into a target
+      object without an ignore list. If the target is a persisted entity, fields such as role,
+      authorities, activated, balance, or status can be overwritten from the request. Copy only
+      allow-listed fields explicitly.
+    severity: WARNING
+    metadata:
+      title: Mass assignment via BeanUtils.copyProperties
+      category: security
+      cwe: ["CWE-915"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/src/test/**", "**/src/androidTest/**"]
+    patterns:
+      - pattern: BeanUtils.copyProperties($SRC, $DST)
+      - metavariable-regex:
+          metavariable: $SRC
+          regex: (?i).*(dto|vm|request|req|body|form|input|payload)s?$

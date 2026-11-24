@@ -1,0 +1,143 @@
+# Business-logic and abuse-case rules for Python services: mass assignment from request JSON,
+# predictable PRNG OTPs/tokens, non-constant-time token/MAC checks, spoofable identity headers,
+# and unbounded pagination limits.
+rules:
+  - id: scp.python.logic.mass-assignment-from-request
+    languages: [python]
+    message: >-
+      Unfiltered request payload keys are unpacked directly into a model constructor or applied
+      with setattr(). An attacker can add extra JSON keys (such as is_admin, role, balance,
+      price, or status) to escalate privileges or tamper with business state. Validate input with
+      an explicit schema and copy only allow-listed fields.
+    severity: WARNING
+    metadata:
+      title: Mass assignment from unfiltered request payload
+      category: security
+      cwe: ["CWE-915"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["test_*.py", "*_test.py", "conftest.py"]
+    pattern-either:
+      - pattern: $MODEL(**request.json)
+      - pattern: $MODEL(**request.get_json(...))
+      - pattern: $MODEL(**request.form)
+      - pattern: |
+          for $K, $V in request.json.items():
+              ...
+              setattr($OBJ, $K, $V)
+      - pattern: |
+          for $K, $V in request.get_json(...).items():
+              ...
+              setattr($OBJ, $K, $V)
+
+  - id: scp.python.logic.weak-prng-otp-or-token
+    languages: [python]
+    message: >-
+      Python's random module (Mersenne Twister) is used to generate an OTP, PIN, reset token,
+      or API key. Its state can be recovered from observed outputs, letting an attacker predict
+      future codes. Use the secrets module (secrets.randbelow, secrets.token_urlsafe) instead.
+    severity: ERROR
+    metadata:
+      title: Predictable random module used for OTP or token
+      category: security
+      cwe: ["CWE-330"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      confidence: HIGH
+    paths:
+      exclude: ["test_*.py", "*_test.py", "conftest.py"]
+    patterns:
+      - pattern-either:
+          - pattern: $V = random.$FN(...)
+          - pattern: $V = "...".join(random.$FN(...))
+          - pattern: $V = f"...{random.$FN(...)}..."
+      - metavariable-regex:
+          metavariable: $FN
+          regex: ^(randint|randrange|choice|choices|sample|getrandbits|random)$
+      - metavariable-regex:
+          metavariable: $V
+          regex: (?i).*(otp|pin|verification|verify_?code|reset_?token|session_?token|api_?token|api_?key|invite_?code|auth_?code|nonce|challenge).*
+
+  - id: scp.python.logic.non-constant-time-token-compare
+    languages: [python]
+    message: >-
+      A signature, HMAC digest, OTP, or API key is compared with == or !=. Standard equality
+      short-circuits on the first differing byte, leaking timing information. Use
+      hmac.compare_digest(expected, provided) instead.
+    severity: WARNING
+    metadata:
+      title: Non-constant-time comparison of token or MAC
+      category: security
+      cwe: ["CWE-208"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["test_*.py", "*_test.py", "conftest.py"]
+    patterns:
+      - pattern-either:
+          - pattern: $A == $B
+          - pattern: $A != $B
+      - metavariable-regex:
+          metavariable: $A
+          regex: (?i)^(?:\w+\.)*(?:expected|computed|calculated|webhook|header|provided|stored)?_?(?:hmac|sig|signature|digest|api_key|webhook_secret|reset_token|otp_code)$
+      - pattern-not: $A == ""
+      - pattern-not: $A != ""
+      - pattern-not: $A == None
+      - pattern-not: $A != None
+
+  - id: scp.python.logic.trust-spoofable-identity-header
+    languages: [python]
+    message: >-
+      A handler reads caller identity, tenant, or role directly from a spoofable HTTP header
+      ("$H"). Unless a trusted reverse proxy strictly strips and overwrites this header on every
+      inbound request, any caller can forge it to impersonate another user or admin. Read identity
+      from a verified session or signed token instead.
+    severity: WARNING
+    metadata:
+      title: Trusting spoofable identity or role HTTP header
+      category: security
+      cwe: ["CWE-290", "CWE-807"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["test_*.py", "*_test.py", "conftest.py"]
+    patterns:
+      - pattern-either:
+          - pattern: $REQ.headers.get("$H", ...)
+          - pattern: $REQ.headers["$H"]
+      - metavariable-regex:
+          metavariable: $H
+          regex: (?i)^x-(user-id|userid|user-role|role|roles|admin|is-admin|forwarded-user|auth-user|remote-user|tenant-id|account-id)$
+      - focus-metavariable: $H
+
+  - id: scp.python.logic.unbounded-pagination-limit
+    languages: [python]
+    message: >-
+      A request-controlled limit or page_size flows straight into a database .limit(...) query
+      without an upper bound. A caller can pass limit=10000000 to scrape an entire table or
+      exhaust worker memory. Clamp the value with min(limit, MAX_LIMIT) before querying.
+    severity: WARNING
+    metadata:
+      title: Unbounded request limit passed to DB query
+      category: security
+      cwe: ["CWE-770"]
+      owasp: ["A04:2021 - Insecure Design"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["test_*.py", "*_test.py", "conftest.py"]
+    mode: taint
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get("$P", ...)
+              - pattern: request.query_params.get("$P", ...)
+          - metavariable-regex:
+              metavariable: $P
+              regex: (?i)^(limit|page_?size|per_?page|count|max|size|take)$
+    pattern-sanitizers:
+      - pattern: min(...)
+      - pattern: clamp_limit(...)
+    pattern-sinks:
+      - patterns:
+          - pattern: $Q.limit($N)
+          - focus-metavariable: $N

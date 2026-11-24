@@ -10,11 +10,15 @@ import (
 	"github.com/bhanuharya/secure-development-tools/internal/finding"
 )
 
-// Convention rule IDs (SPEC §6). T09 turns these into scan findings too.
+// Convention rule IDs (SPEC §6) and Milestone 1 logic-abuse rules.
 const (
-	RuleUnprotectedAmongProtected = "scp.endpoints.unprotected-among-protected"
-	RuleSensitiveRoutePublic      = "scp.endpoints.sensitive-route-public"
-	RuleSensitiveRouteWithoutRole = "scp.endpoints.sensitive-route-without-role"
+	RuleUnprotectedAmongProtected  = "scp.endpoints.unprotected-among-protected"
+	RuleSensitiveRoutePublic       = "scp.endpoints.sensitive-route-public"
+	RuleSensitiveRouteWithoutRole  = "scp.endpoints.sensitive-route-without-role"
+	RuleStateChangeOnGetOrAny      = "scp.endpoints.state-change-on-get-or-any"
+	RuleSpringMatcherDepthMismatch = "scp.endpoints.spring-matcher-depth-mismatch"
+	RuleBolaUnscopedObjectAccess   = "scp.endpoints.bola-unscoped-object-access"
+	RuleProtectionDowngraded       = "scp.endpoints.protection-downgraded"
 )
 
 // Default path lists from SPEC §7. Config entries are extras added to these.
@@ -31,6 +35,15 @@ const (
 // selfServicePath is the part of a sensitive route a logged-in user may change
 // for their own account (SPEC §6 rule 3).
 var selfServiceRe = regexp.MustCompile(`(?i)(change-password|update-password|update-email)`)
+
+// mutatingActionPathRe matches unmistakable state-changing action segments that
+// should never be served on GET (CSRF / prefetchable) or ANY (verb-tampering).
+// Read-only noun suffixes (history, policy, status, form, reasons, list, preview)
+// are excluded so GET /api/transfers/history or GET /reset-password/form stay clean.
+var (
+	mutatingActionPathRe = regexp.MustCompile(`(?i)/(delete|remove|destroy|revoke|cancel|approve|reject|transfer|withdraw|disburse|reset-password|change-password|update-password|activate|deactivate|suspend|ban|grant|promote|execute|refund|void|payout)(/|$)`)
+	readOnlyNounSuffixRe = regexp.MustCompile(`(?i)/(history|policy|policies|status|form|forms|reasons?|list|preview|summary|limits?|rates?|fees?|config|settings?|options?|eligibility|check|validate|info|details?|receipt|audit)(/|$)`)
+)
 
 // Analyze applies the SPEC §6 convention rules to an inventory and returns
 // findings in file, line order. A route produces at most one finding: the most
@@ -209,10 +222,29 @@ func (c *serviceConvention) findingFor(rt Route) *finding.Finding {
 	if c.ruleOneApplies(rt) {
 		return c.unprotectedFinding(rt)
 	}
+	if rt.ShadowedBy != "" && rt.Protection != ProtDenied {
+		return c.springMatcherShadowFinding(rt)
+	}
 	if sensitive && rt.Protection == ProtAuthenticated && c.hasRole && !c.rules.selfServicePath(rt.Path) {
 		return c.sensitiveWithoutRoleFinding(rt)
 	}
+	if stateChangeOnGetOrAny(rt) {
+		return c.stateChangeOnGetOrAnyFinding(rt)
+	}
 	return nil
+}
+
+func stateChangeOnGetOrAny(rt Route) bool {
+	if rt.Protection == ProtDenied {
+		return false
+	}
+	if rt.Method != "GET" && rt.Method != "ANY" {
+		return false
+	}
+	if !mutatingActionPathRe.MatchString(rt.Path) {
+		return false
+	}
+	return !readOnlyNounSuffixRe.MatchString(rt.Path)
 }
 
 // ruleOneApplies counts only state-changing routes that are not public by
@@ -261,6 +293,35 @@ func (c *serviceConvention) sensitiveWithoutRoleFinding(rt Route) *finding.Findi
 		"Sensitive route accepts any authenticated user",
 		"Add the role or permission gate the rest of the service uses (for example RequireRole) to this route.",
 		[]string{"CWE-285"}, "warning", msg)
+}
+
+func (c *serviceConvention) springMatcherShadowFinding(rt Route) *finding.Finding {
+	msg := fmt.Sprintf("%s %s fell through to %s protection because earlier single-wildcard matcher %q only matches one path segment, not nested subpaths. Replace `*` with `**` (or match this path explicitly) so the stricter rule covers nested routes.",
+		rt.Method, rt.shownPath(), rt.Protection, rt.ShadowedBy)
+	f := newConventionFinding(rt, RuleSpringMatcherDepthMismatch,
+		"Single-wildcard security matcher misses nested route",
+		"Use `**` instead of `*` in the Spring Security path matcher so nested subpaths receive the intended role or access restriction.",
+		[]string{"CWE-863", "CWE-862"}, "warning", msg)
+	f.Confidence = "high"
+	f.Metadata["shadowedBy"] = rt.ShadowedBy
+	return f
+}
+
+func (c *serviceConvention) stateChangeOnGetOrAnyFinding(rt Route) *finding.Finding {
+	var msg, help string
+	if rt.Method == "ANY" {
+		msg = fmt.Sprintf("ANY %s maps a state-changing action without restricting the HTTP method. Callers can invoke it via GET (bypassing CSRF defenses and method-scoped security matchers such as HttpMethod.POST). Restrict the mapping to an explicit mutating verb (POST, PUT, PATCH, or DELETE).",
+			rt.shownPath())
+		help = "Replace the unrestricted mapping (e.g. @RequestMapping without method, router.All/Any) with an explicit mutating verb such as @PostMapping or DELETE."
+	} else {
+		msg = fmt.Sprintf("GET %s maps a state-changing action on HTTP GET. GET requests bypass standard CSRF protections (SameSite=Lax cookies, CSRF tokens, CORS preflight) and can be triggered by links, images, or browser prefetching. Change the endpoint to POST, PUT, PATCH, or DELETE.",
+			rt.shownPath())
+		help = "Change this state-changing endpoint from GET to POST, PUT, PATCH, or DELETE and require CSRF protection or a non-cookie bearer token."
+	}
+	return newConventionFinding(rt, RuleStateChangeOnGetOrAny,
+		"State-changing action exposed on GET or unrestricted HTTP method",
+		help,
+		[]string{"CWE-352", "CWE-650"}, "warning", msg)
 }
 
 func newConventionFinding(rt Route, ruleID, name, help string, cwe []string, severity, message string) *finding.Finding {

@@ -266,7 +266,9 @@ func rulePackOfExecutable() string {
 }
 
 // rulePackDir is the rule pack a scan rooted at root uses. It is also where
-// the vendored-title overlay is read from.
+// the vendored-title overlay is read from. Always resolved to an absolute path
+// when the directory exists so subdirectory project.root scans do not break
+// relative --config arguments.
 func rulePackDir(root string) string {
 	pack := envOr("SDT_RULES_PACK_DIR", filepath.Join(root, "rules", "opengrep-rules"))
 	// Fall back to repo-bundled rules when scanning fixtures elsewhere.
@@ -278,6 +280,9 @@ func rulePackDir(root string) string {
 				pack = shipped
 			}
 		}
+	}
+	if abs, err := filepath.Abs(pack); err == nil {
+		return abs
 	}
 	return pack
 }

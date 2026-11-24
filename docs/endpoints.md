@@ -156,14 +156,15 @@ the repository root. Gate decorators (`login_required`, `jwt_required`,
 `roles_required("admin")`) and FastAPI `Depends`/`Security` parameters and router
 dependencies are matched by name.
 
-## The three findings
+## The findings
 
-A route produces at most one finding: the most severe applicable rule wins
-(`sensitive-route-public`, then `unprotected-among-protected`, then
-`sensitive-route-without-role`). Rule 1 counts only state-changing routes (POST,
-PUT, PATCH, DELETE, ANY) and leaves out public-by-design paths; the other two
-count every method. A public-by-design path is skipped by rule 1 only: a
-sensitive name such as `/auth/reset-password` is still an error when public.
+A route produces at most one route-level finding: the most severe applicable
+rule wins (`sensitive-route-public`, then `unprotected-among-protected`, then
+`spring-matcher-depth-mismatch`, then `sensitive-route-without-role`, then
+`state-change-on-get-or-any`). Rule 1 counts only state-changing routes (POST,
+PUT, PATCH, DELETE, ANY) and leaves out public-by-design paths; the other rules
+count every applicable method. A public-by-design path is skipped by rule 1 only:
+a sensitive name such as `/auth/reset-password` is still an error when public.
 Unknown routes are counted, never reported.
 
 **`scp.endpoints.unprotected-among-protected`** (warning, CWE-306, CWE-862).
@@ -203,6 +204,38 @@ checks roles (e.g. "main.go:18 middleware RequireRole(\"admin\") on group
 /admin"). Any authenticated user can reach this sensitive endpoint; add the role
 gate the rest of the service uses.
 ```
+
+**`scp.endpoints.spring-matcher-depth-mismatch`** (warning, high confidence,
+CWE-863, CWE-862). A Spring route fell through to weaker access control because
+an earlier stricter matcher or chain scope used a single `*` (e.g.
+`.antMatchers("/api/admin/*").hasRole("ADMIN")`), which only matches one segment
+and misses nested paths like `/api/admin/users/export`.
+
+**`scp.endpoints.state-change-on-get-or-any`** (warning, CWE-352, CWE-650). A
+route with an unmistakable state-changing path segment (`/delete`, `/approve`,
+`/revoke`, `/transfer`, `/refund`, ...) is mapped on `GET` (bypassing standard
+CSRF defenses and safe-method guarantees) or `ANY` (bypassing method-scoped
+security matchers such as `HttpMethod.POST`). Read-only noun suffixes such as
+`/transfers/history` or `/refund/policy` are excluded.
+
+**`scp.endpoints.bola-unscoped-object-access`** (warning, CWE-639). An
+`authenticated` (non-`role`) route accepts an object-identifying path parameter
+(`{id}`, `{orderId}`, `{accountId}`, ...) and its resolved handler body performs
+direct repository/ORM/SQL access (`findById`, `db.First`, `prisma.*.findUnique`,
+`db.query`, ...) without referencing the authenticated caller, owner, or tenant.
+Confidence upgrades to `high` when a peer handler in the same service binds
+caller identity. Handlers whose body cannot be resolved cleanly stay silent.
+
+**`scp.endpoints.protection-downgraded`** (error, high confidence, CWE-862).
+Emitted during `sdt scan` when the baseline holds an endpoint snapshot (recorded
+automatically by `sdt baseline create` when `endpoints.json` is present) or
+locally via `sdt endpoints --compare prev-endpoints.json` (which prints
+regressions and exits `1`, with or without `--findings`), whenever an existing
+route weakens protection (`denied` → `role` → `authenticated` → `public`) or
+broadens its allowed role set (e.g. `[ADMIN]` → `[ADMIN, SUPPORT]`; narrowing
+roles such as `[ADMIN, USER]` → `[ADMIN]` is not flagged). Transitions involving
+`unknown` are never reported. Because it is emitted as a new high-severity
+finding, it blocks pull requests under the default policy.
 
 ## Configuration
 
@@ -247,6 +280,24 @@ convention findings judge it as `authenticated`: no "public" finding, but
 checks roles elsewhere. The Word report leaves such routes out of the public
 list and says how many were declared. A declaration silences findings, so review
 changes to this file like any other security configuration.
+
+### Security invariants (`.secure-dev/invariants.yaml`)
+
+Services with domain-specific access-control or business-logic rules can declare
+them in `.secure-dev/invariants.yaml` (see
+[`.secure-dev/invariants.yaml.example`](../.secure-dev/invariants.yaml.example)
+and [`schemas/invariants-v1alpha1.json`](../schemas/invariants-v1alpha1.json)):
+
+- **`routeInvariants`** are enforced deterministically during `sdt scan` and
+  `sdt endpoints --findings`, emitting high-confidence
+  `scp.endpoints.invariant-violated` findings (default `error`, blocking PRs).
+  Each rule can enforce `minProtection`, `requireRoles`, `forbidMethods`,
+  `requireEvidence` (e.g. an idempotency or MFA middleware), and
+  `requirePrincipalCheck`. Unknown keys or malformed contracts fail closed.
+- **`domainInvariants`** attach natural-language business-logic rules to file
+  path globs (`payments/**`, `ledger/**`) and are injected automatically into
+  `tools/sdt_review_diff.py` alongside `endpoints.json` route protection and
+  1-hop local helper definitions.
 
 ## Limits
 

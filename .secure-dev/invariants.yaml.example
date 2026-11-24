@@ -1,0 +1,46 @@
+# Example declarative security invariants contract.
+# Copy to .secure-dev/invariants.yaml to enforce service-specific logic and
+# access-control contracts deterministically during `sdt scan` and semantically
+# during `tools/sdt_review_diff.py`.
+apiVersion: secure-dev/invariants/v1alpha1
+kind: SecurityInvariants
+
+# Enforced deterministically in Go by `sdt scan` / `sdt endpoints --findings`.
+# Violations default to severity: error (blocking in PR gates).
+routeInvariants:
+  - id: ledger-mutations-require-role-and-idempotency
+    description: Ledger transfers and disbursements require a dedicated role, POST/PUT only, and an idempotency gate.
+    paths: ["/api/v1/ledger/**", "/api/v1/payouts/**"]
+    forbidMethods: [GET, ANY]
+    minProtection: role
+    requireRoles: [LEDGER_WRITER, FINANCE_ADMIN]
+    requireEvidence: ["Idempotency"]
+    severity: error
+    cwe: ["CWE-862", "CWE-841"]
+
+  - id: user-objects-require-principal-binding
+    description: User-owned account and order routes must bind the authenticated caller in the handler.
+    paths: ["/api/v1/orders/**", "/api/v1/accounts/**"]
+    minProtection: authenticated
+    requirePrincipalCheck: true
+    severity: error
+    cwe: ["CWE-639"]
+
+# Injected as a domain-specific checklist into `tools/sdt_review_diff.py`
+# whenever a PR modifies files matching `paths`.
+domainInvariants:
+  - id: dual-control-payout-approval
+    paths: ["payments/**", "ledger/**", "**/payout*"]
+    abuseClasses: ["maker-checker", "state-machine", "race-double-spend"]
+    statement: >-
+      Payout approval must verify current state is PENDING_APPROVAL, require approverId != creatorId
+      (maker-checker separation), and debit funds inside a row-locked transaction or atomic conditional UPDATE.
+    severity: high
+
+  - id: refund-bounds-and-server-pricing
+    paths: ["checkout/**", "billing/**", "orders/**"]
+    abuseClasses: ["numeric-integrity", "mass-assignment"]
+    statement: >-
+      Order prices and discounts must be computed server-side from catalog records, never trusted from
+      request bodies; refunds must verify amount > 0 and cumulative refunded amount <= settled amount.
+    severity: high

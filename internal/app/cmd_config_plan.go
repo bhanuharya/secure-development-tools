@@ -89,7 +89,6 @@ func newPlanCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			pendingReportPaths = map[string]string{}
 			tasks, skipped := planTasks(cfg, g.Profile, ctx, root)
 			// Fail closed like scan: changed profiles need a merge base,
 			// and an empty task set must never read as a clean plan.
@@ -99,12 +98,13 @@ func newPlanCmd() *cobra.Command {
 			if len(tasks) == 0 {
 				return failf(ExitInvalidInput, "profile %q produced zero effective scanners; refusing empty plan", g.Profile)
 			}
-			// Planning must not execute anything: drop the empty report
-			// placeholders created while resolving task arguments.
-			for _, rp := range pendingReportPaths {
-				_ = os.Remove(rp)
+			// Planning must not execute anything: drop any report placeholders
+			// created while resolving task arguments.
+			for _, t := range tasks {
+				if t.ReportPath != "" {
+					_ = os.Remove(t.ReportPath)
+				}
 			}
-			pendingReportPaths = map[string]string{}
 			p, err := plan.Build(cfg, g.Profile, ctx, tasks, skipped)
 			if err != nil {
 				return err

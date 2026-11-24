@@ -90,11 +90,12 @@ type RulesRef struct {
 }
 
 type GitleaksCfg struct {
-	Type    string            `yaml:"type,omitempty" json:"type,omitempty"`
-	History map[string]string `yaml:"history,omitempty" json:"history,omitempty"`
-	Redact  string            `yaml:"redact,omitempty" json:"redact,omitempty"`
-	Config  string            `yaml:"config,omitempty" json:"config,omitempty"`
-	Timeout string            `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Type            string            `yaml:"type,omitempty" json:"type,omitempty"`
+	History         map[string]string `yaml:"history,omitempty" json:"history,omitempty"`
+	Redact          string            `yaml:"redact,omitempty" json:"redact,omitempty"`
+	Config          string            `yaml:"config,omitempty" json:"config,omitempty"`
+	TrustRepoConfig *bool             `yaml:"trustRepoConfig,omitempty" json:"trustRepoConfig,omitempty"`
+	Timeout         string            `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
 
 type TrivyFSCfg struct {
@@ -549,6 +550,10 @@ func Merge(base, over *ScanConfiguration) *ScanConfiguration {
 		if *limit.value != "" {
 			*scannerTimeouts(&out.Scanners)[i].value = *limit.value
 		}
+	}
+	if over.Scanners.Gitleaks.TrustRepoConfig != nil {
+		v := *over.Scanners.Gitleaks.TrustRepoConfig
+		out.Scanners.Gitleaks.TrustRepoConfig = &v
 	}
 	if over.Policy.DefaultAction != "" {
 		out.Policy.DefaultAction = over.Policy.DefaultAction
