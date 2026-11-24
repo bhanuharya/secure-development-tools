@@ -179,29 +179,41 @@ func TestCompareProtectionRegressions(t *testing.T) {
 		endpoints.Route{Service: ".", Method: "DELETE", Path: "/api/admin/users/{id}", File: "main.go", Line: 10, Protection: endpoints.ProtRole, Roles: []string{"ADMIN"}, Confidence: "high"},
 		endpoints.Route{Service: ".", Method: "POST", Path: "/api/orders", File: "main.go", Line: 11, Protection: endpoints.ProtAuthenticated, Confidence: "high"},
 		endpoints.Route{Service: ".", Method: "POST", Path: "/api/audit/export", File: "main.go", Line: 12, Protection: endpoints.ProtRole, Roles: []string{"ADMIN"}, Confidence: "high"},
-		endpoints.Route{Service: ".", Method: "GET", Path: "/api/public/ping", File: "main.go", Line: 13, Protection: endpoints.ProtPublic, Confidence: "high"},
-		endpoints.Route{Service: ".", Method: "POST", Path: "/api/unknown/op", File: "main.go", Line: 14, Protection: endpoints.ProtUnknown, Confidence: "low"},
-		endpoints.Route{Service: ".", Method: "GET", Path: "/api/internal/metrics", File: "main.go", Line: 15, Protection: endpoints.ProtDenied, Confidence: "high"},
+		endpoints.Route{Service: ".", Method: "POST", Path: "/api/billing/refund", File: "main.go", Line: 13, Protection: endpoints.ProtRole, Roles: []string{"ADMIN", "USER"}, Confidence: "high"},
+		endpoints.Route{Service: ".", Method: "POST", Path: "/api/roles/swap", File: "main.go", Line: 14, Protection: endpoints.ProtRole, Roles: []string{"ADMIN"}, Confidence: "high"},
+		endpoints.Route{Service: ".", Method: "POST", Path: "/api/roles/drop", File: "main.go", Line: 15, Protection: endpoints.ProtRole, Roles: []string{"ADMIN"}, Confidence: "high"},
+		endpoints.Route{Service: ".", Method: "POST", Path: "/api/roles/add", File: "main.go", Line: 16, Protection: endpoints.ProtRole, Roles: nil, Confidence: "high"},
+		endpoints.Route{Service: ".", Method: "GET", Path: "/api/public/ping", File: "main.go", Line: 17, Protection: endpoints.ProtPublic, Confidence: "high"},
+		endpoints.Route{Service: ".", Method: "POST", Path: "/api/unknown/op", File: "main.go", Line: 18, Protection: endpoints.ProtUnknown, Confidence: "low"},
+		endpoints.Route{Service: ".", Method: "GET", Path: "/api/internal/metrics", File: "main.go", Line: 19, Protection: endpoints.ProtDenied, Confidence: "high"},
 	)
 
 	curInv := testInventory(
-		// Downgraded role -> authenticated
+		// 1. Downgraded role -> authenticated (FLAG)
 		endpoints.Route{Service: ".", Method: "DELETE", Path: "/api/admin/users/{id}", File: "main.go", Line: 10, Protection: endpoints.ProtAuthenticated, Confidence: "high"},
-		// Downgraded authenticated -> public
+		// 2. Downgraded authenticated -> public (FLAG)
 		endpoints.Route{Service: ".", Method: "POST", Path: "/api/orders", File: "main.go", Line: 11, Protection: endpoints.ProtPublic, Confidence: "high"},
-		// Loosened roles ADMIN -> ADMIN, SUPPORT
+		// 3. Widened roles [ADMIN] -> [ADMIN, SUPPORT] (FLAG)
 		endpoints.Route{Service: ".", Method: "POST", Path: "/api/audit/export", File: "main.go", Line: 12, Protection: endpoints.ProtRole, Roles: []string{"ADMIN", "SUPPORT"}, Confidence: "high"},
+		// Narrowed roles [ADMIN, USER] -> [ADMIN] (must NOT flag)
+		endpoints.Route{Service: ".", Method: "POST", Path: "/api/billing/refund", File: "main.go", Line: 13, Protection: endpoints.ProtRole, Roles: []string{"ADMIN"}, Confidence: "high"},
+		// 4. Replaced with newly allowed role [ADMIN] -> [SUPPORT] (FLAG)
+		endpoints.Route{Service: ".", Method: "POST", Path: "/api/roles/swap", File: "main.go", Line: 14, Protection: endpoints.ProtRole, Roles: []string{"SUPPORT"}, Confidence: "high"},
+		// 5. Dropped explicit role list [ADMIN] -> [] (FLAG)
+		endpoints.Route{Service: ".", Method: "POST", Path: "/api/roles/drop", File: "main.go", Line: 15, Protection: endpoints.ProtRole, Roles: nil, Confidence: "high"},
+		// Added explicit role list [] -> [ADMIN] (must NOT flag)
+		endpoints.Route{Service: ".", Method: "POST", Path: "/api/roles/add", File: "main.go", Line: 16, Protection: endpoints.ProtRole, Roles: []string{"ADMIN"}, Confidence: "high"},
 		// Strengthened public -> authenticated (must NOT flag)
-		endpoints.Route{Service: ".", Method: "GET", Path: "/api/public/ping", File: "main.go", Line: 13, Protection: endpoints.ProtAuthenticated, Confidence: "high"},
+		endpoints.Route{Service: ".", Method: "GET", Path: "/api/public/ping", File: "main.go", Line: 17, Protection: endpoints.ProtAuthenticated, Confidence: "high"},
 		// Unknown -> public (uncertainty must NOT flag)
-		endpoints.Route{Service: ".", Method: "POST", Path: "/api/unknown/op", File: "main.go", Line: 14, Protection: endpoints.ProtPublic, Confidence: "high"},
+		endpoints.Route{Service: ".", Method: "POST", Path: "/api/unknown/op", File: "main.go", Line: 18, Protection: endpoints.ProtPublic, Confidence: "high"},
 		// Denied -> unknown (uncertainty must NOT flag)
-		endpoints.Route{Service: ".", Method: "GET", Path: "/api/internal/metrics", File: "main.go", Line: 15, Protection: endpoints.ProtUnknown, Confidence: "low"},
+		endpoints.Route{Service: ".", Method: "GET", Path: "/api/internal/metrics", File: "main.go", Line: 19, Protection: endpoints.ProtUnknown, Confidence: "low"},
 	)
 
 	regs := endpoints.CompareProtection(endpoints.Snapshot(prevInv), curInv)
-	if len(regs) != 3 {
-		t.Fatalf("want 3 protection regressions, got %d: %+v", len(regs), regs)
+	if len(regs) != 5 {
+		t.Fatalf("want 5 protection regressions, got %d: %+v", len(regs), regs)
 	}
 	for _, f := range regs {
 		if f.Rule.ID != endpoints.RuleProtectionDowngraded {
@@ -215,6 +227,9 @@ func TestCompareProtectionRegressions(t *testing.T) {
 		}
 		if f.Confidence != "high" {
 			t.Errorf("regression must be high confidence, got %s", f.Confidence)
+		}
+		if ep, _ := f.Metadata["endpoint"].(string); ep == "POST /api/billing/refund" {
+			t.Errorf("narrowing roles [ADMIN, USER] -> [ADMIN] must not be reported as a regression")
 		}
 	}
 }

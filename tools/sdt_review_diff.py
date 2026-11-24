@@ -582,12 +582,16 @@ def verify_findings(findings: list[dict], diff_map: dict[str, str], contexts: di
         if pos is None:
             kept.append(f)
             continue
-        if decided.get(pos, True):
+        verdict = decided.get(pos)
+        if verdict is True:
             item = dict(f)
             item["verified"] = True
             kept.append(item)
-        else:
+        elif verdict is False:
             dropped += 1
+        else:
+            # Model omitted this candidate: retain it without claiming verified.
+            kept.append(f)
     return kept, dropped
 
 

@@ -81,7 +81,7 @@ func CompareProtection(prev map[string]RouteSnapshot, current *Inventory) []*fin
 		case newRank < oldRank:
 			reason = fmt.Sprintf("protection weakened from %s to %s", formatProtection(oldProt, old.Roles), formatProtection(newProt, eff.Roles))
 		case oldProt == ProtRole && newProt == ProtRole && roleRequirementLoosened(old.Roles, eff.Roles):
-			reason = fmt.Sprintf("required roles changed from %s to %s", formatRoles(old.Roles), formatRoles(eff.Roles))
+			reason = fmt.Sprintf("allowed roles widened from %s to %s", formatRoles(old.Roles), formatRoles(eff.Roles))
 		default:
 			continue
 		}
@@ -130,25 +130,24 @@ func formatRoles(roles []string) string {
 	return "[" + strings.Join(sorted, ", ") + "]"
 }
 
-// roleRequirementLoosened reports whether a role-protected route dropped a
-// previously required role or added a new allowed role (broadening access).
+// roleRequirementLoosened reports whether a role-protected route widened
+// access. Roles on a route mean "any of these roles is permitted", so removing
+// a role (e.g. [ADMIN, USER] -> [ADMIN]) narrows access and is not a
+// regression, while adding any role not previously permitted (or dropping all
+// explicit roles) widens access.
 func roleRequirementLoosened(oldRoles, newRoles []string) bool {
 	if len(oldRoles) == 0 {
 		return false
+	}
+	if len(newRoles) == 0 {
+		return true
 	}
 	oldSet := map[string]bool{}
 	for _, r := range oldRoles {
 		oldSet[r] = true
 	}
-	newSet := map[string]bool{}
 	for _, r := range newRoles {
-		newSet[r] = true
-	}
-	if len(oldSet) != len(newSet) {
-		return true
-	}
-	for r := range oldSet {
-		if !newSet[r] {
+		if !oldSet[r] {
 			return true
 		}
 	}

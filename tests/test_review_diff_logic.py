@@ -209,6 +209,50 @@ class TestReviewDiffLogicAbuse(unittest.TestCase):
         self.assertIn("dismissed 1 speculative candidate(s)", md)
         self.assertIn("verified", md)
 
+    def test_verifier_omitted_finding_stays_unverified(self):
+        diffs = {
+            "payments/payout.py": "@@ -1,2 +1,3 @@\n-    require_admin(user)\n+    approve(payout_id)\n+    refund(order_id)\n",
+        }
+        call_num = 0
+
+        def call(codex, model, prompt, timeout, schema):
+            nonlocal call_num
+            call_num += 1
+            if call_num == 1:
+                return {"findings": [
+                    {
+                        "path": "payments/payout.py", "line": 1,
+                        "title": "Admin check removed from approve",
+                        "severity": "high", "confidence": "high",
+                        "evidence": "Line 1 drops require_admin.",
+                        "check": "Check middleware", "fix": "Restore require_admin",
+                    },
+                    {
+                        "path": "payments/payout.py", "line": 2,
+                        "title": "Unchecked refund call",
+                        "severity": "medium", "confidence": "medium",
+                        "evidence": "Line 2 calls refund without state check.",
+                        "check": "Check refund state", "fix": "Check status == PAID",
+                    },
+                ]}
+            # Verifier only answers index 0 and omits index 1.
+            return {"decisions": [
+                {"index": 0, "exploitable": True, "reason": "confirmed"},
+            ]}
+
+        report = sdt_review_diff.review(
+            diffs, "codex", "gpt-6.1-sol",
+            per_call_timeout=30, budget=300, call=call, verify=True,
+        )
+        self.assertEqual(report["dropped_by_verifier"], 0)
+        self.assertEqual(len(report["findings"]), 2)
+        by_line = {f["line"]: f for f in report["findings"]}
+        self.assertTrue(by_line[1].get("verified"))
+        self.assertFalse(by_line[2].get("verified", False))
+        md = sdt_review_diff.markdown(report, "origin/main", 0)
+        self.assertIn("(confidence high) · verified", md)
+        self.assertNotIn("(confidence medium) · verified", md)
+
 
 if __name__ == "__main__":
     unittest.main()

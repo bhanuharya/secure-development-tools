@@ -25,6 +25,14 @@ func TestGitleaksRejectsBlanketAllowlistRepoConfig(t *testing.T) {
 			toml: "[allowlist]\npaths = ['^.*$']\n",
 		},
 		{
+			name: "paths triple-quoted dot-star",
+			toml: "[allowlist]\npaths = ['''.*''']\n",
+		},
+		{
+			name: "regexes triple-double-quoted catch-all",
+			toml: "[allowlist]\nregexes = [\"\"\"^.+$\"\"\"]\n",
+		},
+		{
 			name: "regexes catch-all",
 			toml: "[allowlist]\nregexes = [\".+\"]\n",
 		},
@@ -58,6 +66,50 @@ func TestGitleaksRejectsBlanketAllowlistRepoConfig(t *testing.T) {
 			}
 			if strings.Contains(text, ".gitleaks.toml") {
 				t.Fatalf("rejected repo config must not be extended:\n%s", text)
+			}
+		})
+	}
+}
+
+func TestGitleaksAcceptsBenignTripleQuotedRepoAllowlists(t *testing.T) {
+	cases := []struct {
+		name string
+		toml string
+	}{
+		{
+			name: "gitleaks triple-single-quoted mock path",
+			toml: "[extend]\nuseDefault = true\n\n[allowlist]\ndescription = \"mock dataset\"\npaths = ['''(?:^|/)src/mock/''']\n",
+		},
+		{
+			name: "triple-single-quoted scoped wildcard path",
+			toml: "[extend]\nuseDefault = true\n[allowlist]\npaths = ['''testdata/fixtures/.*''']\n",
+		},
+		{
+			name: "triple-double-quoted scoped regex",
+			toml: "[extend]\nuseDefault = true\n[allowlist]\nregexes = [\"\"\"fake_fixture_token_[0-9]+\"\"\"]\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := t.TempDir()
+			cache := t.TempDir()
+			if err := os.WriteFile(filepath.Join(repo, ".gitleaks.toml"), []byte(tc.toml), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfgPath, note, err := gitleaksDefaultConfigWithPolicy(cache, repo, true)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if note != "" {
+				t.Fatalf("benign triple-quoted .gitleaks.toml was wrongly rejected: %s", note)
+			}
+			raw, err := os.ReadFile(cfgPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := string(raw)
+			if !strings.Contains(text, "path = ") || !strings.Contains(text, ".gitleaks.toml") {
+				t.Fatalf("expected benign repo .gitleaks.toml to be extended, got:\n%s", text)
 			}
 		})
 	}

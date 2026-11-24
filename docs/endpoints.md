@@ -229,10 +229,12 @@ caller identity. Handlers whose body cannot be resolved cleanly stay silent.
 **`scp.endpoints.protection-downgraded`** (error, high confidence, CWE-862).
 Emitted during `sdt scan` when the baseline holds an endpoint snapshot (recorded
 automatically by `sdt baseline create` when `endpoints.json` is present) or
-locally via `sdt endpoints --compare prev-endpoints.json --findings out.json`,
-whenever an existing route weakens protection (`denied` → `role` →
-`authenticated` → `public`) or changes/broadens its required role set. Transitions
-involving `unknown` are never reported. Because it is emitted as a new high-severity
+locally via `sdt endpoints --compare prev-endpoints.json` (which prints
+regressions and exits `1`, with or without `--findings`), whenever an existing
+route weakens protection (`denied` → `role` → `authenticated` → `public`) or
+broadens its allowed role set (e.g. `[ADMIN]` → `[ADMIN, SUPPORT]`; narrowing
+roles such as `[ADMIN, USER]` → `[ADMIN]` is not flagged). Transitions involving
+`unknown` are never reported. Because it is emitted as a new high-severity
 finding, it blocks pull requests under the default policy.
 
 ## Configuration

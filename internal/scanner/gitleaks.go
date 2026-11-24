@@ -18,8 +18,8 @@ import (
 )
 
 var (
-	// Matches blanket allowlist entries like paths = [".*"], paths = ['^.*$'], regexes = [".+"], paths = [""], or paths = ["**"].
-	blanketAllowlistRe = regexp.MustCompile(`(?m)\b(?:paths|regexes)\s*=\s*\[[^\]]*(?:'''|"""|['"])(?:\^?(?:\.\*|\.\+|\*\*)\$?|\s*)(?:'''|"""|['"])`)
+	// Matches blanket allowlist entries like paths = [".*"], paths = ['^.*$'], paths = ['''.*'''], regexes = [".+"], or paths = ["**"].
+	blanketAllowlistRe = regexp.MustCompile(`(?m)\b(?:paths|regexes)\s*=\s*\[[^\]]*(?:'''\s*\^?(?:\.\*|\.\+|\*\*)\$?\s*'''|"""\s*\^?(?:\.\*|\.\+|\*\*)\$?\s*"""|'\s*\^?(?:\.\*|\.\+|\*\*)\$?\s*'|"\s*\^?(?:\.\*|\.\+|\*\*)\$?\s*")`)
 	useDefaultFalseRe  = regexp.MustCompile(`(?im)^\s*useDefault\s*=\s*false\b`)
 	hasCustomRuleRe    = regexp.MustCompile(`(?m)^\s*\[\[rules\]\]`)
 )

@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bhanuharya/secure-development-tools/internal/endpoints"
+	"github.com/bhanuharya/secure-development-tools/internal/finding"
 	"github.com/bhanuharya/secure-development-tools/internal/report"
 )
 
@@ -63,48 +64,66 @@ func newEndpointsCmd() *cobra.Command {
 				// bad user input: the directory was valid.
 				return failf(ExitExecutionFailed, "endpoint inventory: %v", err)
 			}
-			if findingsPath != "" || comparePath != "" {
+			var regs []*finding.Finding
+			if comparePath != "" {
+				prevRaw, err := os.ReadFile(comparePath)
+				if err != nil {
+					return failf(ExitInvalidInput, "read --compare %s: %v", comparePath, err)
+				}
+				var prevInv endpoints.Inventory
+				if err := json.Unmarshal(prevRaw, &prevInv); err != nil {
+					return failf(ExitInvalidInput, "parse --compare %s: %v", comparePath, err)
+				}
+				regs = endpoints.CompareProtection(endpoints.Snapshot(&prevInv), inv)
+			}
+			if findingsPath != "" {
 				findings, err := endpoints.AnalyzeWithRoot(dir, inv, convCfg)
 				if err != nil {
 					return failf(ExitInvalidInput, "endpoint convention config: %v", err)
 				}
-				if comparePath != "" {
-					prevRaw, err := os.ReadFile(comparePath)
-					if err != nil {
-						return failf(ExitInvalidInput, "read --compare %s: %v", comparePath, err)
-					}
-					var prevInv endpoints.Inventory
-					if err := json.Unmarshal(prevRaw, &prevInv); err != nil {
-						return failf(ExitInvalidInput, "parse --compare %s: %v", comparePath, err)
-					}
-					regs := endpoints.CompareProtection(endpoints.Snapshot(&prevInv), inv)
-					findings = append(findings, regs...)
+				findings = append(findings, regs...)
+				raw, err := report.MarshalRedacted(findings)
+				if err != nil {
+					return failf(ExitInternalError, "render convention findings: %v", err)
 				}
-				if findingsPath != "" {
-					raw, err := report.MarshalRedacted(findings)
-					if err != nil {
-						return failf(ExitInternalError, "render convention findings: %v", err)
-					}
-					if err := os.WriteFile(findingsPath, append(raw, '\n'), 0o644); err != nil {
-						return failf(ExitInvalidInput, "write %s: %v", findingsPath, err)
-					}
-					fmt.Fprintf(cmd.ErrOrStderr(), "endpoints: %d convention finding(s) written to %s\n", len(findings), findingsPath)
+				if err := os.WriteFile(findingsPath, append(raw, '\n'), 0o644); err != nil {
+					return failf(ExitInvalidInput, "write %s: %v", findingsPath, err)
 				}
+				fmt.Fprintf(cmd.ErrOrStderr(), "endpoints: %d convention finding(s) written to %s\n", len(findings), findingsPath)
 			}
 			if out == "" {
 				if err := endpoints.Write(cmd.OutOrStdout(), inv, format); err != nil {
 					return failf(ExitInternalError, "write inventory: %v", err)
 				}
-				return nil
+			} else {
+				var buf bytes.Buffer
+				if err := endpoints.Write(&buf, inv, format); err != nil {
+					return failf(ExitInternalError, "render inventory: %v", err)
+				}
+				if err := os.WriteFile(out, buf.Bytes(), 0o644); err != nil {
+					return failf(ExitInvalidInput, "write %s: %v", out, err)
+				}
+				fmt.Fprintf(cmd.ErrOrStderr(), "endpoints: %d route(s) written to %s\n", len(inv.Routes), out)
 			}
-			var buf bytes.Buffer
-			if err := endpoints.Write(&buf, inv, format); err != nil {
-				return failf(ExitInternalError, "render inventory: %v", err)
+			if comparePath != "" {
+				if len(regs) == 0 {
+					fmt.Fprintf(cmd.ErrOrStderr(), "endpoints: no protection regressions compared to %s\n", comparePath)
+					return nil
+				}
+				fmt.Fprintf(cmd.ErrOrStderr(), "endpoints: %d protection regression(s) compared to %s:\n", len(regs), comparePath)
+				for _, r := range regs {
+					loc := ""
+					if r.Location != nil && r.Location.Path != "" {
+						loc = r.Location.Path
+						if r.Location.StartLine != nil && *r.Location.StartLine > 0 {
+							loc = fmt.Sprintf("%s:%d", loc, *r.Location.StartLine)
+						}
+						loc += ": "
+					}
+					fmt.Fprintf(cmd.ErrOrStderr(), "  - %s%s\n", loc, r.Message)
+				}
+				return failf(ExitPolicyFailed, "endpoints: %d route protection regression(s) detected compared to %s", len(regs), comparePath)
 			}
-			if err := os.WriteFile(out, buf.Bytes(), 0o644); err != nil {
-				return failf(ExitInvalidInput, "write %s: %v", out, err)
-			}
-			fmt.Fprintf(cmd.ErrOrStderr(), "endpoints: %d route(s) written to %s\n", len(inv.Routes), out)
 			return nil
 		},
 	}
