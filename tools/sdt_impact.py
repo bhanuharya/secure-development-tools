@@ -109,7 +109,9 @@ RULES: dict[str, RuleEntry] = {
     "scp.dart.injection.sql": ("C1", "Injection", "medium", True),
     "scp.dart.random.insecure": ("C3", "Defence in depth", "medium", False),
     "scp.dart.secrets.hardcoded-secret": ("C1", "Credential exposure", "medium", False),
-    "scp.dart.tls.disable-certificate-validation": ("C3", "Defence in depth", "high", False),
+    "scp.dart.tls.disable-certificate-validation": (
+        "C2", "Data exposure", "high", False,
+    ),  # completely disables TLS peer verification (active MITM traffic capture), stronger than weak cipher/TLS hardening
     "scp.dart.webview.javascript-unrestricted": ("C3", "Defence in depth", "medium", True),
     "scp.dart.webview.untrusted-script": ("C2", "Cross-site scripting", "medium", True),
     "scp.flutter.android.cleartext-traffic": ("C3", "Defence in depth", "high", False),
@@ -136,8 +138,8 @@ RULES: dict[str, RuleEntry] = {
     "scp.go.crypto.recoverable-password": ("C2", "Weak credential storage", "high", False),
     "scp.go.injection.command": ("C1", "Injection", "high", True),
     "scp.go.logging.secret-in-log": (
-        "C1", "Credential exposure", "medium", False,
-    ),  # password, token or OTP written to logs; medium because log calls can name benign fields
+        "C2", "Data exposure", "medium", False,
+    ),  # CWE-532 log-call rules can match benign names; stays P3 until confirmed, P2 when real, keeping P1 noise-free
     "scp.go.logic.check-then-act-balance-race": ("C2", "Logic abuse", "medium", True),
     "scp.go.logic.mass-assignment-db-model": ("C2", "Logic abuse", "medium", True),
     "scp.go.logic.non-constant-time-token-compare": ("C3", "Defence in depth", "medium", False),
@@ -180,8 +182,8 @@ RULES: dict[str, RuleEntry] = {
     "scp.java.debug.test-endpoint": ("C3", "Defence in depth", "medium", True),
     "scp.java.injection.command": ("C1", "Injection", "high", True),
     "scp.java.injection.sql-string-from-request": ("C1", "Injection", "high", True),
-    "scp.java.logging.secret-in-log-call": ("C1", "Credential exposure", "medium", False),
-    "scp.java.logging.tostring-prints-secret": ("C1", "Credential exposure", "medium", False),
+    "scp.java.logging.secret-in-log-call": ("C2", "Data exposure", "medium", False),
+    "scp.java.logging.tostring-prints-secret": ("C2", "Data exposure", "medium", False),
     "scp.java.logic.check-then-act-balance-race": ("C2", "Logic abuse", "medium", True),
     "scp.java.logic.float-for-currency": ("C2", "Logic abuse", "medium", False),
     "scp.java.logic.mass-assignment-beanutils": ("C2", "Logic abuse", "medium", True),
@@ -198,15 +200,17 @@ RULES: dict[str, RuleEntry] = {
     "scp.java.websocket.any-origin": (
         "C2", "Request forgery", "medium", False,
     ),  # cross-site WebSocket hijacking rides on an internal user's browser like CSRF
-    "scp.java.websocket.handler-without-interceptor": ("C1", "Authentication bypass", "medium", True),
+    "scp.java.websocket.handler-without-interceptor": (
+        "C2", "Logic abuse", "medium", True,
+    ),  # low-confidence rule because auth often lives in SecurityFilterChain; stays P3 unless review confirms
 
     # JavaScript and TypeScript
     "scp.javascript.authz.credential-change-by-request-id": ("C1", "Account takeover", "high", True),
     "scp.javascript.authz.route-without-auth-middleware": ("C1", "Authentication bypass", "medium", True),
     "scp.javascript.crypto.recoverable-password": ("C2", "Weak credential storage", "high", False),
     "scp.javascript.injection.eval": ("C1", "Injection", "high", True),
-    "scp.javascript.logging.secret-in-console": ("C1", "Credential exposure", "medium", False),
-    "scp.javascript.logging.secret-in-log": ("C1", "Credential exposure", "medium", False),
+    "scp.javascript.logging.secret-in-console": ("C2", "Data exposure", "medium", False),
+    "scp.javascript.logging.secret-in-log": ("C2", "Data exposure", "medium", False),
     "scp.javascript.logic.mass-assignment-req-body": ("C2", "Logic abuse", "medium", True),
     "scp.javascript.logic.non-constant-time-token-compare": ("C3", "Defence in depth", "medium", False),
     "scp.javascript.logic.trust-spoofable-identity-header": ("C1", "Authentication bypass", "medium", True),
@@ -222,7 +226,7 @@ RULES: dict[str, RuleEntry] = {
     # Kotlin
     "scp.kotlin.crypto.recoverable-password": ("C2", "Weak credential storage", "high", False),
     "scp.kotlin.injection.command": ("C1", "Injection", "high", True),
-    "scp.kotlin.logging.secret-in-log": ("C1", "Credential exposure", "medium", False),
+    "scp.kotlin.logging.secret-in-log": ("C2", "Data exposure", "medium", False),
     "scp.kotlin.logic.mass-assignment-beanutils": ("C2", "Logic abuse", "medium", True),
     "scp.kotlin.logic.trust-spoofable-identity-header": ("C1", "Authentication bypass", "medium", True),
     "scp.kotlin.logic.weak-prng-otp-or-token": ("C2", "Logic abuse", "high", False),
@@ -237,7 +241,7 @@ RULES: dict[str, RuleEntry] = {
     "scp.python.exec.eval": ("C1", "Injection", "high", True),
     "scp.python.injection.command": ("C1", "Injection", "high", True),
     "scp.python.injection.subprocess-shell": ("C1", "Injection", "high", True),
-    "scp.python.logging.secret-in-log": ("C1", "Credential exposure", "medium", False),
+    "scp.python.logging.secret-in-log": ("C2", "Data exposure", "medium", False),
     "scp.python.logic.mass-assignment-from-request": ("C2", "Logic abuse", "medium", True),
     "scp.python.logic.non-constant-time-token-compare": ("C3", "Defence in depth", "medium", False),
     "scp.python.logic.trust-spoofable-identity-header": ("C1", "Authentication bypass", "medium", True),
@@ -290,7 +294,7 @@ VENDOR_RULES: dict[str, RuleEntry] = {
     "vendor.semgrep.go.jwt-go.security.audit.jwt-go-parse-unverified": ("C1", "Authentication bypass", "medium", True),
     "vendor.semgrep.go.jwt-go.security.hardcoded-jwt-key": ("C1", "Credential exposure", "high", False),
     "vendor.semgrep.go.jwt-go.security.jwt-go-none-algorithm": ("C1", "Authentication bypass", "high", True),
-    "vendor.semgrep.go.lang.security.audit.crypto.avoid-ssh-insecure-ignore-host-key": ("C3", "Defence in depth", "high", False),
+    "vendor.semgrep.go.lang.security.audit.crypto.avoid-ssh-insecure-ignore-host-key": ("C2", "Data exposure", "high", False),
     "vendor.semgrep.go.lang.security.audit.crypto.math-random-used": ("C3", "Defence in depth", "medium", False),
     "vendor.semgrep.go.lang.security.audit.crypto.missing-ssl-minversion": ("C3", "Defence in depth", "medium", False),
     "vendor.semgrep.go.lang.security.audit.crypto.ssl-v3-is-insecure": ("C3", "Defence in depth", "high", False),
@@ -319,8 +323,8 @@ VENDOR_RULES: dict[str, RuleEntry] = {
     "vendor.semgrep.java.lang.security.audit.cookie-missing-httponly": ("C3", "Defence in depth", "medium", False),
     "vendor.semgrep.java.lang.security.audit.cookie-missing-secure-flag": ("C3", "Defence in depth", "medium", False),
     "vendor.semgrep.java.lang.security.audit.crypto.ecb-cipher": ("C3", "Defence in depth", "high", False),
-    "vendor.semgrep.java.lang.security.audit.crypto.ssl.insecure-hostname-verifier": ("C3", "Defence in depth", "high", False),
-    "vendor.semgrep.java.lang.security.audit.crypto.ssl.insecure-trust-manager": ("C3", "Defence in depth", "high", False),
+    "vendor.semgrep.java.lang.security.audit.crypto.ssl.insecure-hostname-verifier": ("C2", "Data exposure", "high", False),
+    "vendor.semgrep.java.lang.security.audit.crypto.ssl.insecure-trust-manager": ("C2", "Data exposure", "high", False),
     "vendor.semgrep.java.lang.security.audit.crypto.use-of-aes-ecb": ("C3", "Defence in depth", "high", False),
     "vendor.semgrep.java.lang.security.audit.crypto.use-of-md5": ("C3", "Defence in depth", "medium", False),
     "vendor.semgrep.java.lang.security.audit.crypto.use-of-sha1": ("C3", "Defence in depth", "medium", False),
@@ -409,8 +413,8 @@ VENDOR_RULES: dict[str, RuleEntry] = {
     "vendor.semgrep.python.lang.security.deserialization.avoid-pyyaml-load": ("C1", "Injection", "medium", True),
     "vendor.semgrep.python.lang.security.insecure-hash-algorithm-md5": ("C3", "Defence in depth", "medium", False),
     "vendor.semgrep.python.lang.security.insecure-hash-algorithm-sha1": ("C3", "Defence in depth", "medium", False),
-    "vendor.semgrep.python.lang.security.unverified-ssl-context": ("C3", "Defence in depth", "high", False),
-    "vendor.semgrep.python.requests.security.disabled-cert-validation": ("C3", "Defence in depth", "high", False),
+    "vendor.semgrep.python.lang.security.unverified-ssl-context": ("C2", "Data exposure", "high", False),
+    "vendor.semgrep.python.requests.security.disabled-cert-validation": ("C2", "Data exposure", "high", False),
     "vendor.semgrep.python.sqlalchemy.security.sqlalchemy-sql-injection": ("C1", "Injection", "high", True),
 }
 
@@ -480,8 +484,8 @@ SONAR_RULES: dict[str, RuleEntry] = _expand_sonar([
     (_APP_AND_DART, "S4426", ("C3", "Defence in depth", "high", False)),  # weak cryptographic key length
     (_APP_AND_DART, "S4423", ("C3", "Defence in depth", "high", False)),  # weak TLS protocol
     (_APP_LANGS, "S3329", ("C3", "Defence in depth", "high", False)),  # static IV
-    (_APP_AND_DART, "S4830", ("C3", "Defence in depth", "high", False)),  # disabled certificate validation
-    (_APP_AND_DART, "S5527", ("C3", "Defence in depth", "high", False)),  # disabled hostname verification
+    (_APP_AND_DART, "S4830", ("C2", "Data exposure", "high", False)),  # disabled certificate validation (active MITM)
+    (_APP_AND_DART, "S5527", ("C2", "Data exposure", "high", False)),  # disabled hostname verification (active MITM)
 
     # Weak PRNG, debug features, clear-text protocols, cookies, ReDoS and archives
     (_APP_AND_DART, "S2245", ("C3", "Defence in depth", "medium", False)),  # PRNG hotspot
@@ -574,8 +578,8 @@ CWE: dict[str, RuleEntry] = {
     "CWE-209": ("C3", "Defence in depth", "medium", True),
     "CWE-215": ("C3", "Defence in depth", "medium", True),
     "CWE-250": ("C3", "Defence in depth", "medium", False),
-    "CWE-295": ("C3", "Defence in depth", "medium", False),
-    "CWE-297": ("C3", "Defence in depth", "medium", False),
+    "CWE-295": ("C2", "Data exposure", "medium", False),
+    "CWE-297": ("C2", "Data exposure", "medium", False),
     "CWE-307": ("C3", "Defence in depth", "medium", True),
     "CWE-319": ("C3", "Defence in depth", "medium", False),
     "CWE-326": ("C3", "Defence in depth", "medium", False),

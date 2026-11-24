@@ -161,7 +161,7 @@ def test_vendored_rule_matches_both_raw_and_external_opengrep():
     ("typescript:S4502", "C2", "Request forgery", False),
     ("python:S5144", "C2", "Request forgery", True),
     ("go:S2083", "C1", "Injection", True),
-    ("dart:S4830", "C3", "Defence in depth", False),
+    ("dart:S4830", "C2", "Data exposure", False),
     ("docker:S6471", "C3", "Defence in depth", False),
     ("docker:S7031", "C1", "Credential exposure", False),
     ("java:S2755", "C1", "Injection", True),
@@ -171,6 +171,32 @@ def test_sonar_rules_cover_required_languages_and_families(rule, klass, label, n
     got = impact.classify(rule)
     assert got is not None and got.source == "sonar"
     assert (got.klass, got.label, got.needs_reach) == (klass, label, needs_reach)
+
+
+def test_refined_signal_to_noise_classifications():
+    # Disabled cert validation enables active MITM capture: C2 high (P2), not C3 hardening.
+    assert impact.classify("scp.dart.tls.disable-certificate-validation") == impact.Impact(
+        "C2", "Data exposure", "high", False, "rule"
+    )
+    assert impact.classify("java:S4830") == impact.Impact("C2", "Data exposure", "high", False, "sonar")
+    assert impact.classify("java:S5527") == impact.Impact("C2", "Data exposure", "high", False, "sonar")
+
+    # CWE-532 log-call rules stay C2 medium (P3 until confirmed, P2 when real) to keep P1 clean.
+    for rule_id in (
+        "scp.go.logging.secret-in-log",
+        "scp.java.logging.secret-in-log-call",
+        "scp.java.logging.tostring-prints-secret",
+        "scp.javascript.logging.secret-in-log",
+        "scp.javascript.logging.secret-in-console",
+        "scp.kotlin.logging.secret-in-log",
+        "scp.python.logging.secret-in-log",
+    ):
+        assert impact.classify(rule_id) == impact.Impact("C2", "Data exposure", "medium", False, "rule"), rule_id
+
+    # Low-confidence WebSocket interceptor check stays out of Fix First until confirmed.
+    assert impact.classify("scp.java.websocket.handler-without-interceptor") == impact.Impact(
+        "C2", "Logic abuse", "medium", True, "rule"
+    )
 
 
 # ----------------------------------------------------------------------- CWE fallback and unknown rules
