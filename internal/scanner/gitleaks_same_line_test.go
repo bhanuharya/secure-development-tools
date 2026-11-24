@@ -61,7 +61,7 @@ func TestGitleaksSingleMatchKeepsExistingFingerprint(t *testing.T) {
 func TestGitleaksHistoryScanKeepsBothSecrets(t *testing.T) {
 	bin, err := exec.LookPath("gitleaks")
 	if err != nil {
-		t.Skip("gitleaks not installed")
+		skipWithoutGitleaks(t, err)
 	}
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")

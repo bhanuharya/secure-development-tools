@@ -54,7 +54,7 @@ func gitleaksHits(t *testing.T, cfg *config.ScanConfiguration, root string) []st
 	a := &GitleaksAdapter{}
 	task, err := a.PlanForProfile(ctx, cfg, root, "pr")
 	if err != nil {
-		t.Skipf("gitleaks not installed: %v", err)
+		skipWithoutGitleaks(t, err)
 	}
 	if out, err := exec.Command(task.Executable, task.Args...).CombinedOutput(); err != nil {
 		t.Fatalf("gitleaks failed: %v\n%s", err, out)
@@ -77,7 +77,7 @@ func TestGitleaksPlanUsesSdtDefaults(t *testing.T) {
 	ctx.CacheRoot = t.TempDir()
 	task, err := (&GitleaksAdapter{}).PlanForProfile(ctx, config.Defaults(), t.TempDir(), "full")
 	if err != nil {
-		t.Skipf("gitleaks not installed: %v", err)
+		skipWithoutGitleaks(t, err)
 	}
 	want := filepath.Join(ctx.CacheRoot, "native", "gitleaks-config.toml")
 	if !strings.Contains(strings.Join(task.Args, " "), "--config "+want) {
@@ -102,7 +102,7 @@ func TestGitleaksExplicitConfigWins(t *testing.T) {
 	ctx.CacheRoot = t.TempDir()
 	task, err := (&GitleaksAdapter{}).PlanForProfile(ctx, cfg, t.TempDir(), "full")
 	if err != nil {
-		t.Skipf("gitleaks not installed: %v", err)
+		skipWithoutGitleaks(t, err)
 	}
 	joined := strings.Join(task.Args, " ")
 	if !strings.Contains(joined, "--config team.toml") || strings.Contains(joined, "gitleaks-config.toml") {

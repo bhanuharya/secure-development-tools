@@ -21,7 +21,7 @@ func TestGitleaksChangedModeUsesRange(t *testing.T) {
 	a := &GitleaksAdapter{}
 	task, err := a.PlanForProfile(testCtx(), cfg, "/repo", "pr")
 	if err != nil {
-		t.Skipf("gitleaks not installed: %v", err)
+		skipWithoutGitleaks(t, err)
 	}
 	joined := strings.Join(task.Args, " ")
 	if !strings.Contains(joined, "--log-opts=base456..head123") {
@@ -37,7 +37,7 @@ func TestGitleaksFullModeUsesAll(t *testing.T) {
 	a := &GitleaksAdapter{}
 	task, err := a.PlanForProfile(testCtx(), cfg, "/repo", "full")
 	if err != nil {
-		t.Skipf("gitleaks not installed: %v", err)
+		skipWithoutGitleaks(t, err)
 	}
 	if !strings.Contains(strings.Join(task.Args, " "), "--log-opts=--all") {
 		t.Fatalf("full mode must scan all history: %v", task.Args)
@@ -51,7 +51,7 @@ func TestGitleaksChangedWithoutBaseFallsBackToTree(t *testing.T) {
 	ctx.BaseRevision, ctx.MergeBase = "", ""
 	task, err := a.PlanForProfile(ctx, cfg, "/repo", "pr")
 	if err != nil {
-		t.Skipf("gitleaks not installed: %v", err)
+		skipWithoutGitleaks(t, err)
 	}
 	if !strings.Contains(strings.Join(task.Args, " "), "--no-git") {
 		t.Fatalf("missing base must fall back to tree: %v", task.Args)

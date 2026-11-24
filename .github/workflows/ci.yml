@@ -50,7 +50,18 @@ jobs:
           fi
       - run: go vet ./...
       - run: go build -o sdt ./cmd/sdt
+      - name: install pinned Gitleaks (its tests must run here, not skip)
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -sSLo /tmp/gitleaks.tgz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tgz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          install -m 0755 /tmp/gitleaks "$HOME/.local/bin/gitleaks"
+          echo "$HOME/.local/bin" >>"$GITHUB_PATH"
       - run: go test ./...
+        env:
+          SDT_TEST_REQUIRE_GITLEAKS: "1"
 
   rules:
     name: rule bundle (manifest hashes, validation, per-rule tests)
