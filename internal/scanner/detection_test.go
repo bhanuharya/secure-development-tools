@@ -52,8 +52,8 @@ func detectionCases(t *testing.T, table string) []detectionCase {
 			}
 			c.cwes[n] = true
 		}
-		if c.by != "rules" && c.by != "sonarqube" && c.by != "none" {
-			t.Fatalf("%s: %s is found by %q, want rules, sonarqube or none", table, c.path, c.by)
+		if c.by != "rules" && c.by != "endpoints" && c.by != "sonarqube" && c.by != "none" {
+			t.Fatalf("%s: %s is found by %q, want rules, endpoints, sonarqube or none", table, c.path, c.by)
 		}
 		cases = append(cases, c)
 	}
@@ -121,10 +121,14 @@ func TestRulePackFindsThePlantedWeaknesses(t *testing.T) {
 	inventoryReported := map[string]map[int]bool{}
 	recordCWEs(inventoryReported, inventoryParsed.Findings)
 
-	required, found, lookalikes, clean := 0, 0, 0, 0
+	required, found, lookalikes, clean, sonarCount := 0, 0, 0, 0, 0
 	for _, c := range cases {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(c.path))); err != nil {
 			t.Errorf("%s is in the table but not in testdata/detection", c.path)
+			continue
+		}
+		if c.by == "sonarqube" {
+			sonarCount++
 			continue
 		}
 		if c.by == "none" {
@@ -187,7 +191,7 @@ func TestRulePackFindsThePlantedWeaknesses(t *testing.T) {
 		}
 	}
 	t.Logf("%d of %d planted weaknesses the rule pack is responsible for are found; %d more are left to SonarQube; %d of %d safe look-alikes are not reported; endpoints adapter: %d of %d inventory samples reported, %d of %d inventory look-alikes not reported",
-		found, required, len(cases)-required-lookalikes, clean, lookalikes,
+		found, required, sonarCount, clean, lookalikes,
 		inventoryFound, inventoryRequired, inventoryClean, inventoryLookalikes)
 }
 

@@ -1,0 +1,224 @@
+# Business-logic and abuse-case rules for Java / Spring services: balance race conditions,
+# mass assignment via BeanUtils, floating-point money arithmetic, predictable OTPs/tokens,
+# spoofable identity headers, and unbounded pagination sizes.
+rules:
+  - id: scp.java.logic.check-then-act-balance-race
+    languages: [java]
+    message: >-
+      A balance, credit, quota, or inventory check is followed by updating the same record without
+      a pessimistic row lock or synchronization. Concurrent requests can pass the check together
+      and spend the same balance twice. Use a PESSIMISTIC_WRITE repository query inside a
+      transaction, @Version optimistic locking with retry, or an atomic conditional SQL UPDATE
+      (WHERE balance >= :amount).
+    severity: WARNING
+    metadata:
+      title: Check-then-act balance mutation without lock
+      category: security
+      cwe: ["CWE-362", "CWE-367"]
+      owasp: ["A04:2021 - Insecure Design"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/src/test/**"]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              if ($ACC.$GET().compareTo($AMT) < 0) {
+                ...
+              }
+              ...
+              $ACC.$SET($ACC.$GET().subtract($AMT));
+          - pattern: |
+              if ($ACC.$GET().compareTo($AMT) >= 0) {
+                ...
+                $ACC.$SET($ACC.$GET().subtract($AMT));
+                ...
+              }
+          - pattern: |
+              if ($ACC.$GET() < $AMT) {
+                ...
+              }
+              ...
+              $ACC.$SET($ACC.$GET() - $AMT);
+      - metavariable-regex:
+          metavariable: $GET
+          regex: ^get(Balance|AvailableBalance|Credit|Credits|Quota|Stock|Inventory|Points|Funds)$
+      - metavariable-regex:
+          metavariable: $SET
+          regex: ^set(Balance|AvailableBalance|Credit|Credits|Quota|Stock|Inventory|Points|Funds)$
+      - pattern-not-inside: |
+          synchronized (...) { ... }
+      - pattern-not-inside: |
+          $RET $M(...) {
+            ...
+            $VT $V = <... $R.findByIdForUpdate(...) ...>;
+            ...
+          }
+      - pattern-not-inside: |
+          $RET $M(...) {
+            ...
+            $VT $V = <... $R.findForUpdate(...) ...>;
+            ...
+          }
+      - pattern-not-inside: |
+          $RET $M(...) {
+            ...
+            $V = <... LockModeType.PESSIMISTIC_WRITE ...>;
+            ...
+          }
+      - pattern-not-inside: |
+          $RET $M(...) {
+            ...
+            $L.lock();
+            ...
+          }
+      - pattern-not-inside: |
+          $RET $M(...) {
+            ...
+            $L.tryLock(...);
+            ...
+          }
+
+  - id: scp.java.logic.mass-assignment-beanutils
+    languages: [java]
+    message: >-
+      BeanUtils.copyProperties copies every matching property from a request DTO into a target
+      object without an ignore list. If the target is a persisted entity, fields such as role,
+      authorities, activated, balance, or status can be overwritten from the request. Copy only
+      allow-listed fields explicitly (or use a mapper that ignores sensitive properties).
+    severity: WARNING
+    metadata:
+      title: Mass assignment via BeanUtils.copyProperties
+      category: security
+      cwe: ["CWE-915"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/src/test/**"]
+    patterns:
+      - pattern: BeanUtils.copyProperties($SRC, $DST)
+      - metavariable-regex:
+          metavariable: $SRC
+          regex: (?i).*(dto|vm|request|req|body|form|input|payload)s?$
+
+  - id: scp.java.logic.float-for-currency
+    languages: [java]
+    message: >-
+      A floating-point type (float or double) holds a monetary or balance value ("$VAR"). Binary
+      floating-point introduces rounding drift, accepts NaN/Infinity, and can be abused to bypass
+      bounds or leak fractional cents across repeated transfers. Use BigDecimal (with explicit
+      rounding mode) or integer minor units (e.g., long cents).
+    severity: WARNING
+    metadata:
+      title: Floating-point type used for monetary value
+      category: security
+      cwe: ["CWE-840", "CWE-681"]
+      owasp: ["A04:2021 - Insecure Design"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/src/test/**"]
+    patterns:
+      - pattern-either:
+          - pattern: double $VAR = ...;
+          - pattern: float $VAR = ...;
+          - pattern: Double $VAR = ...;
+          - pattern: Float $VAR = ...;
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: (?i)^(?:amount|price|unitPrice|totalPrice|totalAmount|balance|availableBalance|fee|discount|payout|refund|transferAmount|withdrawAmount|paymentAmount|creditAmount|debitAmount)$
+
+  - id: scp.java.logic.weak-prng-otp-or-token
+    languages: [java]
+    message: >-
+      java.util.Random, ThreadLocalRandom, or Math.random() is used to generate an OTP, PIN,
+      reset token, or API key. These PRNGs are predictable, letting attackers guess valid codes
+      and take over accounts. Use java.security.SecureRandom instead.
+    severity: ERROR
+    metadata:
+      title: Predictable PRNG used for OTP or token
+      category: security
+      cwe: ["CWE-330"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      confidence: HIGH
+    paths:
+      exclude: ["**/src/test/**"]
+    patterns:
+      - pattern-either:
+          - pattern: $T $V = <... new Random().$FN(...) ...>;
+          - pattern: $T $V = <... ThreadLocalRandom.current().$FN(...) ...>;
+          - pattern: $T $V = <... Math.random() ...>;
+          - pattern: $V = <... new Random().$FN(...) ...>;
+          - pattern: $V = <... ThreadLocalRandom.current().$FN(...) ...>;
+          - pattern: $V = <... Math.random() ...>;
+      - metavariable-regex:
+          metavariable: $V
+          regex: (?i).*(otp|pin|verification|verifycode|resettoken|sessiontoken|apitoken|apikey|invitecode|authcode|nonce|challenge).*
+
+  - id: scp.java.logic.trust-spoofable-identity-header
+    languages: [java]
+    message: >-
+      A controller reads caller identity, tenant, or role directly from a spoofable HTTP header
+      ("$H"). Unless a trusted gateway strips and overwrites this header on every inbound request,
+      a caller can forge it to impersonate another user or administrator. Derive identity from
+      the verified SecurityContext or Principal instead.
+    severity: WARNING
+    metadata:
+      title: Trusting spoofable identity or role HTTP header
+      category: security
+      cwe: ["CWE-290", "CWE-807"]
+      owasp: ["A01:2021 - Broken Access Control"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/src/test/**"]
+    patterns:
+      - pattern-either:
+          - pattern: $REQ.getHeader("$H")
+          - pattern: '@RequestHeader("$H")'
+          - pattern: '@RequestHeader(value = "$H", ...)'
+          - pattern: '@RequestHeader(name = "$H", ...)'
+      - metavariable-regex:
+          metavariable: $H
+          regex: (?i)^x-(user-id|userid|user-role|role|roles|admin|is-admin|forwarded-user|auth-user|remote-user|tenant-id|account-id)$
+      - focus-metavariable: $H
+
+  - id: scp.java.logic.unbounded-page-size
+    languages: [java]
+    message: >-
+      A request parameter is passed directly as the page size to PageRequest.of(...) without an
+      upper bound. A caller can send size=1000000 to scrape an entire table or exhaust JVM memory
+      and database CPU. Clamp the size with Math.min(size, MAX_PAGE_SIZE) or validate with @Max.
+    severity: WARNING
+    metadata:
+      title: Unbounded request size passed to PageRequest.of
+      category: security
+      cwe: ["CWE-770"]
+      owasp: ["A04:2021 - Insecure Design"]
+      confidence: MEDIUM
+    paths:
+      exclude: ["**/src/test/**"]
+    mode: taint
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  $RET $M(..., @RequestParam(...) int $SIZE, ...) { ... }
+              - pattern-inside: |
+                  $RET $M(..., @RequestParam int $SIZE, ...) { ... }
+              - pattern-inside: |
+                  $RET $M(..., @RequestParam(...) Integer $SIZE, ...) { ... }
+              - pattern-inside: |
+                  $RET $M(..., @RequestParam Integer $SIZE, ...) { ... }
+          - metavariable-regex:
+              metavariable: $SIZE
+              regex: (?i)^(size|limit|pageSize|perPage|count|max)$
+          - focus-metavariable: $SIZE
+    pattern-sanitizers:
+      - pattern: Math.min(...)
+      - pattern: clampPageSize(...)
+      - pattern: |
+          if ($X > $MAX) {
+            $X = $MAX;
+          }
+    pattern-sinks:
+      - patterns:
+          - pattern: PageRequest.of($PAGE, $S, ...)
+          - focus-metavariable: $S
