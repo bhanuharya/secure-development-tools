@@ -134,12 +134,19 @@ Then decide which case you are in:
    paths = ['''(?:^|/)src/mock/''']
    ```
 
-   The sdt defaults keep running on top of it. Two things to know:
+   The sdt defaults keep running on top of it. Three things to know:
    - Start paths with `(?:^|/)`, not `^`. Paths are absolute in a current-tree
      scan and relative in a history scan.
    - Use the global `[allowlist]` shown above. An allowlist that uses
      `targetRules` in the repository file is dropped by Gitleaks 8.30 when
      another configuration extends it.
+   - A file with a catch-all allowlist is not used at all. A `paths`, `regexes`
+     or `stopwords` entry is a catch-all when it lets every one of a few sample
+     paths or values through: `'''.*'''`, `'''(.*)'''`, `'''.'''` and an empty
+     string all are. sdt checks every allowlist in the file and in a file it
+     names under `[extend] path`, and also refuses `useDefault = false` without
+     rules of your own. The scan then runs without the repository file, and the
+     run notes say why.
 3. **It is not a credential, and any repository would hit it.** Propose a
    change to the sdt defaults (next section).
 
@@ -148,6 +155,13 @@ full-history scan still reports the earlier commits, so prefer a path allowlist.
 
 To replace the sdt defaults entirely, set `scanners.gitleaks.config` in the
 scan configuration or the `GITLEAKS_CONFIG` environment variable.
+
+The catch-all check tests how patterns behave on sample values, so a pattern
+written to let nearly everything through still passes it. Where the authors of
+a pull request should not be able to change what secret scanning reports, set
+`scanners.gitleaks.trustRepoConfig: false` in the scan configuration (or
+`SDT_GITLEAKS_TRUST_REPO_CONFIG=0`): sdt then ignores the repository's
+`.gitleaks.toml` entirely, including its allowlists.
 
 ## Secrets: change the defaults
 

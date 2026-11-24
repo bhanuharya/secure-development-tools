@@ -8,20 +8,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 
 	"github.com/bhanuharya/secure-development-tools/internal/config"
 	sdtctx "github.com/bhanuharya/secure-development-tools/internal/context"
 	"github.com/bhanuharya/secure-development-tools/internal/finding"
 	"github.com/bhanuharya/secure-development-tools/internal/report"
-)
-
-var (
-	// Matches blanket allowlist entries like paths = [".*"], paths = ['^.*$'], paths = ['''.*'''], regexes = [".+"], or paths = ["**"].
-	blanketAllowlistRe = regexp.MustCompile(`(?m)\b(?:paths|regexes)\s*=\s*\[[^\]]*(?:'''\s*\^?(?:\.\*|\.\+|\*\*)\$?\s*'''|"""\s*\^?(?:\.\*|\.\+|\*\*)\$?\s*"""|'\s*\^?(?:\.\*|\.\+|\*\*)\$?\s*'|"\s*\^?(?:\.\*|\.\+|\*\*)\$?\s*")`)
-	useDefaultFalseRe  = regexp.MustCompile(`(?im)^\s*useDefault\s*=\s*false\b`)
-	hasCustomRuleRe    = regexp.MustCompile(`(?m)^\s*\[\[rules\]\]`)
 )
 
 func init() { Register(&GitleaksAdapter{}) }
@@ -47,9 +39,9 @@ var gitleaksDefaults string
 
 // gitleaksDefaultConfig writes the sdt defaults into the cache and returns the
 // path. They extend the Gitleaks built-in rules, or the scanned repository's own
-// .gitleaks.toml when allowed and safe. A repository config that contains a
-// blanket catch-all allowlist (such as paths = [".*"] or regexes = [".*"]) is
-// rejected so a PR cannot silently disable secret scanning.
+// .gitleaks.toml when allowed and safe. A repository config with a catch-all
+// allowlist is not extended, so a pull request cannot switch secret scanning off
+// (see unsafeRepoGitleaksReason).
 func gitleaksDefaultConfig(cacheRoot, root string) (string, error) {
 	p, _, err := gitleaksDefaultConfigWithPolicy(cacheRoot, root, true)
 	return p, err
@@ -77,24 +69,6 @@ func gitleaksDefaultConfigWithPolicy(cacheRoot, root string, trustRepo bool) (st
 		return "", "", err
 	}
 	return path, note, nil
-}
-
-// unsafeRepoGitleaksReason rejects repository .gitleaks.toml files that would
-// effectively blind Gitleaks via blanket catch-all allowlists or useDefault=false
-// without explicit rules.
-func unsafeRepoGitleaksReason(path string) string {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return "unreadable config"
-	}
-	text := string(raw)
-	if blanketAllowlistRe.MatchString(text) {
-		return "blanket catch-all allowlist pattern would disable secret scanning"
-	}
-	if useDefaultFalseRe.MatchString(text) && !hasCustomRuleRe.MatchString(text) {
-		return "useDefault = false without custom rules would disable secret scanning"
-	}
-	return ""
 }
 
 // historyMode resolves the scan mode: explicit config history map wins,

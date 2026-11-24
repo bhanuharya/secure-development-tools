@@ -40,6 +40,22 @@ func TestGitleaksRejectsBlanketAllowlistRepoConfig(t *testing.T) {
 			name: "useDefault false without custom rules",
 			toml: "[extend]\nuseDefault = false\n",
 		},
+		// Catch-alls spelled differently: each one allows every sample path or value.
+		{name: "paths group dot-star", toml: "[allowlist]\npaths = ['''(.*)''']\n"},
+		{name: "paths lazy dot-star", toml: "[allowlist]\npaths = ['''.*?''']\n"},
+		{name: "regexes any-character class", toml: "[allowlist]\nregexes = ['''[\\s\\S]*''']\n"},
+		{name: "regexes single dot", toml: "[allowlist]\nregexes = ['.']\n"},
+		{name: "regexes empty string", toml: "[allowlist]\nregexes = ['']\n"},
+		{name: "basic string with escapes", toml: "[allowlist]\npaths = [\"\\\\S*\"]\n"},
+		{name: "stopword empty", toml: "[allowlist]\nstopwords = ['']\n"},
+		{name: "catch-all after an entry with a bracket", toml: "[allowlist]\npaths = [\n  '''[a-z]+\\.txt''', # fixtures\n  '''.*''',\n]\n"},
+		{name: "second allowlists table", toml: "[[allowlists]]\npaths = ['''(?:^|/)docs/''']\n\n[[allowlists]]\nregexes = ['''.+''']\n"},
+		{name: "rule allowlist table", toml: "[[rules]]\nid = \"custom\"\nregex = '''custom_[0-9]{8}'''\n\n[[rules.allowlists]]\npaths = ['''.*''']\n"},
+		{name: "rule allowlist as a dotted key", toml: "[[rules]]\nid = \"custom\"\nregex = '''custom_[0-9]{8}'''\nallowlist.paths = ['''.*''']\n"},
+		{name: "inline table", toml: "allowlist = { description = \"x\", paths = ['''.*'''] }\n"},
+		{name: "array of inline tables", toml: "allowlists = [\n  { paths = ['''(?:^|/)docs/'''] },\n  { regexes = ['''.+'''] },\n]\n"},
+		{name: "condition AND, every criterion a catch-all", toml: "[[allowlists]]\ncondition = \"AND\"\npaths = ['''.*''']\nregexes = ['''.*''']\n"},
+		{name: "TOML this check cannot read", toml: "[allowlist]\npaths = ['''never closed\n"},
 	}
 
 	for _, tc := range cases {
@@ -87,6 +103,22 @@ func TestGitleaksAcceptsBenignTripleQuotedRepoAllowlists(t *testing.T) {
 		{
 			name: "triple-double-quoted scoped regex",
 			toml: "[extend]\nuseDefault = true\n[allowlist]\nregexes = [\"\"\"fake_fixture_token_[0-9]+\"\"\"]\n",
+		},
+		{
+			name: "multi-line list with comments, like the Gitleaks defaults",
+			toml: "[allowlist]\npaths = [\n  '''gitleaks\\.toml''', # this file\n  '''(?i)\\.(?:bmp|gif|jpe?g|png|svg)$''',\n  '''(?:^|/)vendor/.*''',\n]\nstopwords = ['''example''', '''placeholder''']\n",
+		},
+		{
+			name: "condition AND narrows a catch-all path",
+			toml: "[[allowlists]]\ncondition = \"AND\"\npaths = ['''.*''']\nregexes = ['''^fake_fixture_[0-9]+$''']\n",
+		},
+		{
+			name: "condition AND with a commit list",
+			toml: "[[allowlists]]\ncondition = \"AND\"\ncommits = [\"0123456789abcdef0123456789abcdef01234567\"]\npaths = ['''.*''']\n",
+		},
+		{
+			name: "custom rule whose detection regex is broad",
+			toml: "[[rules]]\nid = \"custom\"\nregex = '''.*'''\n",
 		},
 	}
 	for _, tc := range cases {
