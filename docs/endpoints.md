@@ -279,6 +279,24 @@ checks roles elsewhere. The Word report leaves such routes out of the public
 list and says how many were declared. A declaration silences findings, so review
 changes to this file like any other security configuration.
 
+### Security invariants (`.secure-dev/invariants.yaml`)
+
+Services with domain-specific access-control or business-logic rules can declare
+them in `.secure-dev/invariants.yaml` (see
+[`.secure-dev/invariants.yaml.example`](../.secure-dev/invariants.yaml.example)
+and [`schemas/invariants-v1alpha1.json`](../schemas/invariants-v1alpha1.json)):
+
+- **`routeInvariants`** are enforced deterministically during `sdt scan` and
+  `sdt endpoints --findings`, emitting high-confidence
+  `scp.endpoints.invariant-violated` findings (default `error`, blocking PRs).
+  Each rule can enforce `minProtection`, `requireRoles`, `forbidMethods`,
+  `requireEvidence` (e.g. an idempotency or MFA middleware), and
+  `requirePrincipalCheck`. Unknown keys or malformed contracts fail closed.
+- **`domainInvariants`** attach natural-language business-logic rules to file
+  path globs (`payments/**`, `ledger/**`) and are injected automatically into
+  `tools/sdt_review_diff.py` alongside `endpoints.json` route protection and
+  1-hop local helper definitions.
+
 ## Limits
 
 - **Across files, with limits.** Go, Express, Flask and FastAPI follow routers

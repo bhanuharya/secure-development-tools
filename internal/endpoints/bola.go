@@ -13,8 +13,9 @@ import (
 )
 
 // AnalyzeWithRoot runs Analyze plus source-backed handler logic-abuse checks
-// (currently BOLA/IDOR unscoped object access on authenticated parameterized
-// routes). When root is empty, it falls back cleanly to route-only Analyze.
+// (BOLA/IDOR unscoped object access) and deterministic security invariants from
+// .secure-dev/invariants.yaml when present. When root is empty, it falls back
+// cleanly to route-only Analyze.
 func AnalyzeWithRoot(root string, inv *Inventory, cfg config.EndpointsCfg) ([]*finding.Finding, error) {
 	base, err := Analyze(inv, cfg)
 	if err != nil {
@@ -23,12 +24,17 @@ func AnalyzeWithRoot(root string, inv *Inventory, cfg config.EndpointsCfg) ([]*f
 	if strings.TrimSpace(root) == "" || inv == nil || len(inv.Routes) == 0 {
 		return base, nil
 	}
+	invDoc, err := LoadInvariants(root)
+	if err != nil {
+		return nil, err
+	}
 	rules, err := newConventionRules(cfg)
 	if err != nil {
 		return nil, err
 	}
 	bolaFindings := analyzeBOLA(root, sanitizeInventory(inv), rules)
-	if len(bolaFindings) == 0 {
+	invFindings := EvaluateInvariants(root, inv, invDoc)
+	if len(bolaFindings) == 0 && len(invFindings) == 0 {
 		return base, nil
 	}
 	// Avoid duplicating a route that already received a higher-severity route finding.
@@ -54,6 +60,9 @@ func AnalyzeWithRoot(root string, inv *Inventory, cfg config.EndpointsCfg) ([]*f
 		}
 		merged = append(merged, f)
 	}
+	// Explicit repo security invariants are always reported (never masked by
+	// heuristic convention warnings).
+	merged = append(merged, invFindings...)
 	sortFindings(merged)
 	for i, f := range merged {
 		f.ID = fmt.Sprintf("endpoints:%05d", i+1)
