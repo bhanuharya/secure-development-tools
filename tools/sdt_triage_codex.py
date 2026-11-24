@@ -303,7 +303,7 @@ def default_memory_path(project: str, environ) -> Path:
 
 def save_memory(path: Path, entries: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")  # two scans of one repository must not share it
     hidden: set = set()
     safe = redact_tree(entries, hidden)
     safe = {key: sanitise_review(value, withheld=hidden) for key, value in safe.items() if isinstance(value, dict)}

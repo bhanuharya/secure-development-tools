@@ -599,10 +599,12 @@ def verify_findings(findings: list[dict], diff_map: dict[str, str], contexts: di
     return kept, dropped
 
 
-def review_key(model: str, reasoning: str, path: str, text: str, context: str) -> str:
-    """Identity of one file's review question: same model, file, numbered diff and context -> same answer."""
-    digest = hashlib.sha256("\x00".join((PROMPT_VERSION, model, reasoning, path, text, context)).encode()).hexdigest()
-    return "sha256:" + digest
+def review_key(model: str, reasoning: str, path: str, text: str, context: str, verify: bool = False) -> str:
+    """Identity of one file's review question: same model, file, numbered diff and context -> same answer.
+    A review that also ran the verification pass is a different answer: turning --verify on must not
+    reuse unverified items (the part is added only then, so earlier keys stay valid)."""
+    parts = (PROMPT_VERSION, model, reasoning, path, text, context) + (("verify",) if verify else ())
+    return "sha256:" + hashlib.sha256("\x00".join(parts).encode()).hexdigest()
 
 
 def default_memory_path(project: str, environ) -> Path:
@@ -636,7 +638,7 @@ def save_memory(path: Path, entries: dict, today: str) -> None:
                     for f in entry.get("findings", []) if isinstance(f, dict)]
         kept[key] = {**entry, "findings": findings}
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")  # two scans of one repository must not share it
     temporary.write_text(json.dumps({"version": 1, "entries": kept}, indent=1) + "\n")
     temporary.replace(path)
 
@@ -694,7 +696,7 @@ def review(diffs: dict[str, str], codex: str, model: str, *, per_call_timeout: f
             report["files_partial"].append(path)
         callees = collect_callee_context(src_root, path, diffs[path])
         ctx_text = format_file_context(path, routes_by_file, invariants, callees)
-        key = review_key(model, reasoning, path, text, ctx_text)
+        key = review_key(model, reasoning, path, text, ctx_text, verify)
         entry = memory.get(key)
         if isinstance(entry, dict) and isinstance(entry.get("findings"), list):
             entry["used"] = today
