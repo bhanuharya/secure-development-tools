@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"errors"
 	"os"
 	"testing"
 )
@@ -13,5 +14,18 @@ func skipWithoutGitleaks(t *testing.T, err error) {
 	if os.Getenv("SDT_TEST_REQUIRE_GITLEAKS") == "1" {
 		t.Fatalf("gitleaks is required (SDT_TEST_REQUIRE_GITLEAKS=1) but not usable: %v", err)
 	}
-	skipWithoutGitleaks(t, err)
+	t.Skipf("gitleaks not installed: %v", err)
+}
+
+// Without the binary and without SDT_TEST_REQUIRE_GITLEAKS the helper skips (it once called itself).
+func TestSkipWithoutGitleaksSkips(t *testing.T) {
+	t.Setenv("SDT_TEST_REQUIRE_GITLEAKS", "")
+	var inner *testing.T
+	t.Run("gitleaks missing", func(t *testing.T) {
+		inner = t
+		skipWithoutGitleaks(t, errors.New("executable file not found"))
+	})
+	if !inner.Skipped() {
+		t.Fatal("expected the test to be skipped")
+	}
 }

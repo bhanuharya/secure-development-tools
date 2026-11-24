@@ -346,6 +346,24 @@ class TestReviewMemory(unittest.TestCase):
         self.assertEqual([f["title"] for f in second["findings"]], ["Owner check removed"])
         self.assertEqual(len(memory), 1)
 
+    def test_turning_verification_on_does_not_reuse_unverified_items(self):
+        prompts = []
+
+        def call(codex, model, prompt, timeout, schema):
+            prompts.append(prompt)
+            if "sceptical" in prompt:
+                return {"decisions": [{"index": 0, "exploitable": True, "reason": "no owner check"}]}
+            return {"findings": [OWNER_FINDING]}
+
+        memory: dict = {}
+        self.run_review({"routes/report.js": SAMPLE_DIFF}, call, memory)
+        verified = self.run_review({"routes/report.js": SAMPLE_DIFF}, call, memory, verify=True)
+        self.assertEqual(len(prompts), 3)  # first review; then review and verification again
+        self.assertEqual(verified["files_remembered"], [])
+        self.assertTrue(verified["findings"][0].get("verified"))
+        again = self.run_review({"routes/report.js": SAMPLE_DIFF}, call, memory, verify=True)
+        self.assertEqual((len(prompts), again["files_remembered"]), (3, ["routes/report.js"]))
+
     def test_memory_file_drops_old_reviews_and_redacts_values(self):
         value = "Zk81" + "mQ7vT2pL9xR4"
         memory = {
