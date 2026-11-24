@@ -38,6 +38,27 @@ type Route struct {
 	// UpstreamAuth names who authenticates the route before it reaches the service, when a
 	// repository or scan configuration declares it. Protection stays what the service enforces.
 	UpstreamAuth string `json:"upstreamAuth,omitempty"`
+	// ShadowedBy names an earlier stricter single-wildcard matcher (for example
+	// antMatchers("/api/admin/*").hasRole("ADMIN")) that missed this deeper path
+	// because `*` only matches one segment, leaving the route with weaker access.
+	ShadowedBy string `json:"shadowedBy,omitempty"`
+}
+
+// ProtectionRank orders access-control strength for regression and matcher
+// comparisons. Unknown is 0 and is never compared as stronger or weaker.
+func ProtectionRank(p Protection) int {
+	switch p {
+	case ProtPublic:
+		return 1
+	case ProtAuthenticated:
+		return 2
+	case ProtRole:
+		return 3
+	case ProtDenied:
+		return 4
+	default:
+		return 0
+	}
 }
 
 // Inventory is the document `sdt endpoints` writes.

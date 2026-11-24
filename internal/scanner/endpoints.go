@@ -54,7 +54,7 @@ func (a *EndpointsAdapter) Plan(ctx *sdtctx.ScanContext, cfg *config.ScanConfigu
 			if err != nil {
 				return nil, cost, fmt.Errorf("endpoint inventory: %w", err)
 			}
-			findings, err := endpoints.Analyze(inv, conv)
+			findings, err := endpoints.AnalyzeWithRoot(root, inv, conv)
 			if err != nil {
 				return nil, cost, fmt.Errorf("endpoint convention config: %w", err)
 			}

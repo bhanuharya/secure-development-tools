@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -15,12 +16,14 @@ func newEndpointsCmd() *cobra.Command {
 	var out string
 	var format string
 	var findingsPath string
+	var comparePath string
 	cmd := &cobra.Command{
 		Use:   "endpoints [DIR]",
 		Short: "Inventory HTTP routes and their effective access control",
 		Long: "Inventories HTTP routes from the framework facts under rules/endpoint-facts\n" +
 			"and shows the protection each route effectively has (SPEC §2).\n" +
-			"--findings also writes the convention findings (SPEC §6) as finding JSON.\n" +
+			"--findings also writes the convention and handler logic-abuse findings as finding JSON.\n" +
+			"--compare diffs against a previous endpoints.json to flag weakened route protection.\n" +
 			"DIR defaults to the current directory.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -60,19 +63,33 @@ func newEndpointsCmd() *cobra.Command {
 				// bad user input: the directory was valid.
 				return failf(ExitExecutionFailed, "endpoint inventory: %v", err)
 			}
-			if findingsPath != "" {
-				findings, err := endpoints.Analyze(inv, convCfg)
+			if findingsPath != "" || comparePath != "" {
+				findings, err := endpoints.AnalyzeWithRoot(dir, inv, convCfg)
 				if err != nil {
 					return failf(ExitInvalidInput, "endpoint convention config: %v", err)
 				}
-				raw, err := report.MarshalRedacted(findings)
-				if err != nil {
-					return failf(ExitInternalError, "render convention findings: %v", err)
+				if comparePath != "" {
+					prevRaw, err := os.ReadFile(comparePath)
+					if err != nil {
+						return failf(ExitInvalidInput, "read --compare %s: %v", comparePath, err)
+					}
+					var prevInv endpoints.Inventory
+					if err := json.Unmarshal(prevRaw, &prevInv); err != nil {
+						return failf(ExitInvalidInput, "parse --compare %s: %v", comparePath, err)
+					}
+					regs := endpoints.CompareProtection(endpoints.Snapshot(&prevInv), inv)
+					findings = append(findings, regs...)
 				}
-				if err := os.WriteFile(findingsPath, append(raw, '\n'), 0o644); err != nil {
-					return failf(ExitInvalidInput, "write %s: %v", findingsPath, err)
+				if findingsPath != "" {
+					raw, err := report.MarshalRedacted(findings)
+					if err != nil {
+						return failf(ExitInternalError, "render convention findings: %v", err)
+					}
+					if err := os.WriteFile(findingsPath, append(raw, '\n'), 0o644); err != nil {
+						return failf(ExitInvalidInput, "write %s: %v", findingsPath, err)
+					}
+					fmt.Fprintf(cmd.ErrOrStderr(), "endpoints: %d convention finding(s) written to %s\n", len(findings), findingsPath)
 				}
-				fmt.Fprintf(cmd.ErrOrStderr(), "endpoints: %d convention finding(s) written to %s\n", len(findings), findingsPath)
 			}
 			if out == "" {
 				if err := endpoints.Write(cmd.OutOrStdout(), inv, format); err != nil {
@@ -94,5 +111,6 @@ func newEndpointsCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&out, "output", "o", "", "write the inventory to FILE instead of stdout")
 	cmd.Flags().StringVar(&format, "format", "", "output format: json|csv|table (default table, or json with -o)")
 	cmd.Flags().StringVar(&findingsPath, "findings", "", "also write the convention findings (SPEC §6) to FILE as JSON")
+	cmd.Flags().StringVar(&comparePath, "compare", "", "previous endpoints.json to check for protection regressions")
 	return cmd
 }

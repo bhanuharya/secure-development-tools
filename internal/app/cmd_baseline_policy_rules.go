@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bhanuharya/secure-development-tools/internal/baseline"
+	"github.com/bhanuharya/secure-development-tools/internal/endpoints"
 	"github.com/bhanuharya/secure-development-tools/internal/finding"
 	"github.com/bhanuharya/secure-development-tools/internal/policy"
 	"github.com/bhanuharya/secure-development-tools/internal/report"
@@ -22,6 +23,7 @@ import (
 func newBaselineCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "baseline", Short: "Baseline operations"}
 	var from string
+	var endpointsFrom string
 	create := &cobra.Command{
 		Use:   "create",
 		Short: "Create a baseline from a canonical report",
@@ -41,6 +43,10 @@ func newBaselineCmd() *cobra.Command {
 			if err := json.Unmarshal(raw, &rep); err != nil {
 				return failf(ExitInvalidInput, "parse report: %v", err)
 			}
+			epSnap, err := loadEndpointSnapshot(endpointsFrom, filepath.Join(filepath.Dir(from), "endpoints.json"))
+			if err != nil {
+				return failf(ExitInvalidInput, "read endpoints inventory: %v", err)
+			}
 			head := ""
 			if out, err := gitHead(); err == nil {
 				head = out
@@ -50,14 +56,19 @@ func newBaselineCmd() *cobra.Command {
 				path = ".secure-dev/baseline.json"
 			}
 			_ = os.MkdirAll(filepath.Dir(path), 0o755)
-			if err := baseline.Create(path, rep.Findings, digest, head); err != nil {
+			if err := baseline.CreateWithEndpoints(path, rep.Findings, epSnap, digest, head); err != nil {
 				return failf(ExitInternalError, "write baseline: %v", err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "baseline created: %s (%d entries)\n", path, len(rep.Findings))
+			if len(epSnap) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "baseline created: %s (%d entries, %d routes)\n", path, len(rep.Findings), len(epSnap))
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "baseline created: %s (%d entries)\n", path, len(rep.Findings))
+			}
 			return nil
 		},
 	}
 	create.Flags().StringVar(&from, "from", "", "canonical findings.json path")
+	create.Flags().StringVar(&endpointsFrom, "endpoints", "", "endpoints.json path (defaults to sibling of --from when present)")
 	compare := &cobra.Command{
 		Use:   "compare",
 		Short: "Show new, existing, and resolved states",
@@ -100,6 +111,38 @@ func newBaselineCmd() *cobra.Command {
 	compare.Flags().StringVar(&from, "from", "", "canonical findings.json path")
 	cmd.AddCommand(create, compare)
 	return cmd
+}
+
+func loadEndpointSnapshot(explicit, fallback string) (map[string]baseline.EndpointSnapshot, error) {
+	path := explicit
+	if path == "" {
+		path = fallback
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if explicit == "" && os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var inv endpoints.Inventory
+	if err := json.Unmarshal(raw, &inv); err != nil {
+		return nil, err
+	}
+	snap := endpoints.Snapshot(&inv)
+	out := make(map[string]baseline.EndpointSnapshot, len(snap))
+	for k, v := range snap {
+		out[k] = baseline.EndpointSnapshot{
+			Service:    v.Service,
+			Method:     v.Method,
+			Path:       v.Path,
+			Protection: v.Protection,
+			Roles:      v.Roles,
+			File:       v.File,
+			Line:       v.Line,
+		}
+	}
+	return out, nil
 }
 
 func newPolicyCmd() *cobra.Command {

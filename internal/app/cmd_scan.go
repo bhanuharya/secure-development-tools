@@ -19,6 +19,7 @@ import (
 	"github.com/bhanuharya/secure-development-tools/internal/config"
 	sdtctx "github.com/bhanuharya/secure-development-tools/internal/context"
 	"github.com/bhanuharya/secure-development-tools/internal/detect"
+	"github.com/bhanuharya/secure-development-tools/internal/endpoints"
 	"github.com/bhanuharya/secure-development-tools/internal/execute"
 	"github.com/bhanuharya/secure-development-tools/internal/finding"
 	"github.com/bhanuharya/secure-development-tools/internal/plan"
@@ -453,6 +454,12 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 		return finalize(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, "invalid_input", ExitInvalidInput, extra, err.Error())
 	}
 	bl.Apply(findings)
+	if regs, rdiag := endpointRegressions(bl, extra); len(regs) > 0 || rdiag != "" {
+		if rdiag != "" {
+			diagnostics = append(diagnostics, rdiag)
+		}
+		findings = append(findings, regs...)
+	}
 	if err := applyExceptions(cfg, findings, time.Now()); err != nil {
 		return finalize(cmd, cfg, p, runID, started, findings, diagnostics, taskRecords, health, toolVersions, "invalid_input", ExitInvalidInput, extra, err.Error())
 	}
@@ -781,4 +788,44 @@ func profileTimeout(s string) (time.Duration, bool) {
 		return 45 * time.Minute, true
 	}
 	return d, true
+}
+
+// endpointRegressions compares the baseline's recorded route protections
+// against the current scan's endpoints.json artifact. Regressions are returned
+// as new high-severity findings so PR policy gates block access-control downgrades.
+func endpointRegressions(bl *baseline.Baseline, extra []extraArtifact) ([]*finding.Finding, string) {
+	if bl == nil || len(bl.Endpoints) == 0 {
+		return nil, ""
+	}
+	var raw []byte
+	for _, art := range extra {
+		if art.name == "endpoints.json" {
+			raw = art.data
+			break
+		}
+	}
+	if len(raw) == 0 {
+		return nil, ""
+	}
+	var inv endpoints.Inventory
+	if err := json.Unmarshal(raw, &inv); err != nil {
+		return nil, fmt.Sprintf("endpoints regression check skipped: parse endpoints.json: %v", err)
+	}
+	prev := make(map[string]endpoints.RouteSnapshot, len(bl.Endpoints))
+	for k, v := range bl.Endpoints {
+		prev[k] = endpoints.RouteSnapshot{
+			Service:    v.Service,
+			Method:     v.Method,
+			Path:       v.Path,
+			Protection: v.Protection,
+			Roles:      v.Roles,
+			File:       v.File,
+			Line:       v.Line,
+		}
+	}
+	regs := endpoints.CompareProtection(prev, &inv)
+	if len(regs) == 0 {
+		return nil, ""
+	}
+	return regs, fmt.Sprintf("endpoints: %d route protection regression(s) detected against baseline", len(regs))
 }

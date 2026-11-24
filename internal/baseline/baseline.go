@@ -16,11 +16,24 @@ import (
 
 // Baseline is the explicit known-fingerprint set. Never holds raw secrets.
 type Baseline struct {
-	SchemaVersion      string           `json:"schemaVersion"`
-	FingerprintVersion string           `json:"fingerprintVersion"`
-	ConfigDigest       string           `json:"configDigest"`
-	CreatedRevision    string           `json:"createdRevision"`
-	Entries            map[string]Entry `json:"entries"`
+	SchemaVersion      string                      `json:"schemaVersion"`
+	FingerprintVersion string                      `json:"fingerprintVersion"`
+	ConfigDigest       string                      `json:"configDigest"`
+	CreatedRevision    string                      `json:"createdRevision"`
+	Entries            map[string]Entry            `json:"entries"`
+	Endpoints          map[string]EndpointSnapshot `json:"endpoints,omitempty"`
+}
+
+// EndpointSnapshot records one route's effective protection at baseline time so
+// pull-request scans can detect and block access-control downgrades.
+type EndpointSnapshot struct {
+	Service    string   `json:"service"`
+	Method     string   `json:"method"`
+	Path       string   `json:"path"`
+	Protection string   `json:"protection"`
+	Roles      []string `json:"roles,omitempty"`
+	File       string   `json:"file,omitempty"`
+	Line       int      `json:"line,omitempty"`
 }
 
 // Entry is one accepted finding identity.
@@ -151,12 +164,19 @@ func (b *Baseline) Apply(findings []*finding.Finding) (resolved []string) {
 
 // Create writes a baseline from canonical findings.
 func Create(path string, findings []*finding.Finding, configDigest, revision string) error {
+	return CreateWithEndpoints(path, findings, nil, configDigest, revision)
+}
+
+// CreateWithEndpoints writes a baseline from canonical findings plus an
+// optional route-protection snapshot for PR access-control regression gating.
+func CreateWithEndpoints(path string, findings []*finding.Finding, eps map[string]EndpointSnapshot, configDigest, revision string) error {
 	b := &Baseline{
 		SchemaVersion:      "secure-dev/baseline/v1alpha1",
 		FingerprintVersion: finding.FingerprintVersion,
 		ConfigDigest:       configDigest,
 		CreatedRevision:    revision,
 		Entries:            map[string]Entry{},
+		Endpoints:          eps,
 	}
 	for _, f := range findings {
 		loc := ""

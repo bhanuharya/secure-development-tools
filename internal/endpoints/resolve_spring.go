@@ -237,6 +237,10 @@ func springRoute(f Fact, prefix string, classGates, methodGates map[string][]spr
 	verb := springVerb(f.Metavars["$VERB"])
 	path := joinPaths([]string{prefix}, springPathVarRe.ReplaceAllString(f.Metavars["$PATH"], "{$1}"))
 	protection, roles, evidence, confidence, note := springProtection(f, class, method, verb, path, classGates, methodGates, cfg)
+	shadowedBy := ""
+	if cfg != nil && len(methodGates[springMethodKey(f)]) == 0 && len(classGates[class]) == 0 {
+		shadowedBy = cfg.shadowedBy(path, verb, protection)
+	}
 	sentence := ""
 	if protection == ProtUnknown {
 		switch {
@@ -260,6 +264,7 @@ func springRoute(f Fact, prefix string, classGates, methodGates map[string][]spr
 		Roles:      roles,
 		Evidence:   evidence,
 		Confidence: confidence,
+		ShadowedBy: shadowedBy,
 	}, sentence, nil
 }
 
