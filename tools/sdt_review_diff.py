@@ -24,13 +24,14 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 try:
@@ -64,6 +65,9 @@ MAX_FILE_LINES = 400    # of numbered diff per file; a larger change is cut and 
 MAX_CALL_CHARS = 28000  # of numbered diff + context per Codex call
 MAX_CALLEE_SNIPPETS = 4
 MAX_CALLEE_LINES = 30
+PROMPT_VERSION = "1"    # part of every remembered review: change it when the prompt or context changes
+MEMORY_DAYS = 90        # a remembered review not used for this long is dropped
+MAX_CARRIED = 10        # earlier problems shown to the model when a file changed
 
 CODE_FILE = re.compile(r"\.(js|jsx|mjs|cjs|ts|tsx|vue|svelte|py|go|java|kt|kts|dart|swift|php|rb|cs|rs|scala|sql|"
                        r"ya?ml|json|tf|sh|gradle|xml|properties|env)$|(^|/)Dockerfile[^/]*$", re.IGNORECASE)
@@ -595,18 +599,89 @@ def verify_findings(findings: list[dict], diff_map: dict[str, str], contexts: di
     return kept, dropped
 
 
+def review_key(model: str, reasoning: str, path: str, text: str, context: str) -> str:
+    """Identity of one file's review question: same model, file, numbered diff and context -> same answer."""
+    digest = hashlib.sha256("\x00".join((PROMPT_VERSION, model, reasoning, path, text, context)).encode()).hexdigest()
+    return "sha256:" + digest
+
+
+def default_memory_path(project: str, environ) -> Path:
+    """$SDT_DIFF_REVIEW_MEMORY, else one file per project under $SDT_STATE_DIR/ai-change-review (the
+    state a CI agent keeps between scans), else under the user's cache directory."""
+    if environ.get("SDT_DIFF_REVIEW_MEMORY"):
+        return Path(environ["SDT_DIFF_REVIEW_MEMORY"])
+    base = (Path(environ["SDT_STATE_DIR"]) / "ai-change-review" if environ.get("SDT_STATE_DIR")
+            else Path.home() / ".cache" / "sdt" / "ai-change-review")
+    return base / (re.sub(r"[^\w.-]", "_", project) + ".json")
+
+
+def load_memory(path: Path | None) -> dict:
+    """Remembered reviews; an unreadable or foreign file is an empty memory, never an error."""
+    try:
+        data = json.loads(path.read_text()) if path and path.is_file() else {}
+    except (OSError, ValueError):
+        return {}
+    entries = data.get("entries") if isinstance(data, dict) else None
+    return entries if isinstance(entries, dict) else {}
+
+
+def save_memory(path: Path, entries: dict, today: str) -> None:
+    """Keep the reviews used in the last MEMORY_DAYS, with likely secret values redacted."""
+    cutoff = (datetime.fromisoformat(today) - timedelta(days=MEMORY_DAYS)).date().isoformat()
+    kept = {}
+    for key, entry in entries.items():
+        if not isinstance(entry, dict) or str(entry.get("used", "")) < cutoff:
+            continue
+        findings = [{k: redact(v) if isinstance(v, str) else v for k, v in f.items()}
+                    for f in entry.get("findings", []) if isinstance(f, dict)]
+        kept[key] = {**entry, "findings": findings}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps({"version": 1, "entries": kept}, indent=1) + "\n")
+    temporary.replace(path)
+
+
+def earlier_findings(memory: dict, path: str, scope: str) -> list[dict]:
+    """What the latest earlier review of this file in the same scope (pull request) reported."""
+    if not scope:
+        return []
+    best: dict | None = None
+    for entry in memory.values():
+        if (isinstance(entry, dict) and entry.get("path") == path and entry.get("scope") == scope
+                and entry.get("findings") and str(entry.get("saved", "")) > str((best or {}).get("saved", ""))):
+            best = entry
+    return [f for f in (best or {}).get("findings", []) if isinstance(f, dict)][:MAX_CARRIED]
+
+
+def carry_forward_note(findings: list[dict]) -> str:
+    lines = [f"- ({f.get('severity', '')}) {f.get('title', '')} [was line {f.get('line', '?')}]" for f in findings]
+    return ("An earlier review of this file in this pull request, before its latest change, reported the problems "
+            "below. If one still applies, report it again with exactly the same title, severity and abuse_class, "
+            "at the line where it is now. Leave out any that the change fixed or that no longer hold.\n"
+            + redact("\n".join(lines)))
+
+
 def review(diffs: dict[str, str], codex: str, model: str, *, per_call_timeout: float, budget: float,
            max_failures: int = 2, call=sdt_triage_codex.run_codex, clock=time.monotonic,
            src_root: Path | None = None, routes_by_file: dict[str, list[dict]] | None = None,
-           invariants: list[dict] | None = None, verify: bool = False) -> dict:
-    """Review the per-file diffs; ``diffs`` maps path -> unified diff."""
+           invariants: list[dict] | None = None, verify: bool = False,
+           memory: dict | None = None, reasoning: str = "", scope: str = "") -> dict:
+    """Review the per-file diffs; ``diffs`` maps path -> unified diff.
+
+    ``memory`` holds earlier reviews by review_key. A file whose numbered diff and context are the
+    same as in an earlier review is not sent again: its earlier findings are reused, so a rescan
+    reads the same. A changed file is sent with what the latest review of it in the same ``scope``
+    reported, so a problem that still applies keeps its title. ``memory`` is updated in place."""
     routes_by_file = routes_by_file or {}
     invariants = invariants or []
+    memory = {} if memory is None else memory
+    now = datetime.now(timezone.utc)
+    today = now.date().isoformat()
     report = {"engine": "codex", "model": model, "advisory": True,
-              "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-              "files_reviewed": [], "files_partial": [], "calls": 0, "failed_calls": 0,
+              "generated_at": now.isoformat(timespec="seconds"),
+              "files_reviewed": [], "files_remembered": [], "files_partial": [], "calls": 0, "failed_calls": 0,
               "stopped": "", "findings": [], "dropped_by_verifier": 0}
-    files, added, contexts, diff_map = [], {}, {}, {}
+    files, added, contexts, diff_map, keys, remembered = [], {}, {}, {}, {}, []
     ranked_paths = sorted(
         diffs,
         key=lambda p: (-risk_score(p, diffs[p], routes_by_file, invariants), p),
@@ -615,16 +690,30 @@ def review(diffs: dict[str, str], codex: str, model: str, *, per_call_timeout: f
         text, lines, cut = numbered_diff(diffs[path])
         if not lines:
             continue
+        if cut:
+            report["files_partial"].append(path)
+        callees = collect_callee_context(src_root, path, diffs[path])
+        ctx_text = format_file_context(path, routes_by_file, invariants, callees)
+        key = review_key(model, reasoning, path, text, ctx_text)
+        entry = memory.get(key)
+        if isinstance(entry, dict) and isinstance(entry.get("findings"), list):
+            entry["used"] = today
+            report["files_reviewed"].append(path)
+            report["files_remembered"].append(path)
+            remembered += [dict(f) for f in entry["findings"]
+                           if isinstance(f, dict) and f.get("path") == path and f.get("line") in lines]
+            continue
+        keys[path] = key
+        earlier = earlier_findings(memory, path, scope)
+        if earlier:
+            ctx_text = (ctx_text + "\n\n" if ctx_text else "") + carry_forward_note(earlier)
         files.append((path, text))
         added[path] = lines
         diff_map[path] = text
-        callees = collect_callee_context(src_root, path, diffs[path])
-        ctx_text = format_file_context(path, routes_by_file, invariants, callees)
         if ctx_text:
             contexts[path] = ctx_text
-        if cut:
-            report["files_partial"].append(path)
     started, failures = clock(), 0
+    reviewed_now: list[str] = []
     for group in batches(files, contexts):
         remaining = budget - (clock() - started)
         if remaining < 10:
@@ -645,9 +734,13 @@ def review(diffs: dict[str, str], codex: str, model: str, *, per_call_timeout: f
             continue
         failures = 0
         report["files_reviewed"] += [path for path, _ in group]
+        reviewed_now += [path for path, _ in group]
         report["findings"] += found
 
+    # Only this run's findings are verified; remembered ones were verified (or not) when first found.
+    complete = True
     if verify and report["findings"]:
+        complete = False
         remaining = budget - (clock() - started)
         if remaining >= 15:
             report["calls"] += 1
@@ -658,10 +751,18 @@ def review(diffs: dict[str, str], codex: str, model: str, *, per_call_timeout: f
                 )
                 report["findings"] = kept
                 report["dropped_by_verifier"] = dropped
+                complete = True
             except (subprocess.TimeoutExpired, RuntimeError, ValueError, OSError) as exc:
                 report["failed_calls"] += 1
                 print(f"sdt_review_diff: verifier failed ({str(exc)[:160]}), keeping unverified findings", file=sys.stderr)
 
+    # Remember what was read in full: a file whose call or verification failed is asked again next time.
+    if complete:
+        saved = now.isoformat(timespec="seconds")
+        for path in reviewed_now:
+            memory[keys[path]] = {"path": path, "scope": scope, "used": today, "saved": saved,
+                                  "findings": [f for f in report["findings"] if f["path"] == path]}
+    report["findings"] = remembered + report["findings"]
     order = {s: n for n, s in enumerate(SEVERITIES)}
     report["findings"].sort(key=lambda f: (order[f["severity"]], f["path"], f["line"]))
     return report
@@ -676,6 +777,9 @@ def markdown(report: dict, base: str, skipped: int, over_limit: int = 0) -> str:
              "not sent (tests, lock files, generated or non-code files).",
              "This is advice for the reviewer: confirm each item in the code before acting on it. "
              "No finding here blocks the build or enters SonarQube.", ""]
+    if report.get("files_remembered"):
+        lines += [f"{len(report['files_remembered'])} of these files are unchanged since an earlier review: its results "
+                  "are reused as they were, so a rescan reads the same.", ""]
     if report.get("dropped_by_verifier"):
         lines += [f"A sceptical verification pass dismissed {report['dropped_by_verifier']} speculative candidate(s).", ""]
     if over_limit:
@@ -722,6 +826,12 @@ def main() -> int:
     ap.add_argument("--per-call-timeout", type=float, default=float(os.environ.get("SDT_CODEX_TIMEOUT", 120)) * 2)
     ap.add_argument("--budget", type=float, default=float(os.environ.get("SDT_CODEX_BUDGET", 600)))
     ap.add_argument("--max-files", type=int, default=60, help="most changed code files to send; the rest are named as unread")
+    ap.add_argument("--project-key", default="", help="names the memory file (default: the source directory's name)")
+    ap.add_argument("--scope", default="", help="what one review belongs to, e.g. pr-42: a changed file is sent with "
+                                                "what the latest review in the same scope reported")
+    ap.add_argument("--memory", type=Path, help="file of remembered reviews (default: $SDT_DIFF_REVIEW_MEMORY, else "
+                                                "$SDT_STATE_DIR/ai-change-review/<project>.json, else ~/.cache/sdt/ai-change-review/)")
+    ap.add_argument("--refresh", action="store_true", help="ignore remembered reviews and ask again")
     args = ap.parse_args()
     codex = sdt_triage_codex.find_codex(args.codex)
     if not codex or os.environ.get("SDT_AI_DIFF_REVIEW", "0") != "1":
@@ -743,12 +853,19 @@ def main() -> int:
     except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
         print(f"sdt_review_diff: cannot read the change ({exc}): no change review", file=sys.stderr)
         return 0
+    memory_path = args.memory or default_memory_path(args.project_key or args.src_root.resolve().name, os.environ)
+    memory = {} if args.refresh else load_memory(memory_path)
     report = review(
         diffs, codex, args.model,
         per_call_timeout=args.per_call_timeout, budget=args.budget,
         src_root=args.src_root, routes_by_file=routes_by_file,
         invariants=invariants, verify=args.verify,
+        memory=memory, reasoning=reasoning, scope=args.scope,
     )
+    try:
+        save_memory(memory_path, memory, report["generated_at"][:10])
+    except OSError as exc:
+        print(f"sdt_review_diff: could not keep the review for next time ({exc})", file=sys.stderr)
     report["reasoning"] = reasoning
     report["base"] = args.base
     report["files_over_limit"] = ranked[len(chosen):]
@@ -758,6 +875,7 @@ def main() -> int:
         args.markdown.write_text(markdown(report, args.base, len(changed) - len(code), len(code) - len(chosen)))
     print(f"sdt_review_diff: {len(report['findings'])} possible problems in {len(report['files_reviewed'])} of "
           f"{len(code)} changed code files ({len(code) - len(chosen)} over the limit, not read), "
+          f"{len(report['files_remembered'])} unchanged since an earlier review, "
           f"{report['calls']} calls ({report['failed_calls']} failed)"
           f"{'; stopped: ' + report['stopped'] if report['stopped'] else ''}")
     return 0  # advisory: never fails the build

@@ -90,8 +90,12 @@ timing report
 if [ "${SDT_AI_DIFF_REVIEW:-0}" = 1 ] && [ -n "${PR_ID:-}" ] && [ -n "${PR_BASE:-}" ]; then
   DIFF_EP_ARGS=()
   [ -s "$OUT/sdt/endpoints.json" ] && DIFF_EP_ARGS=(--endpoints "$OUT/sdt/endpoints.json")
+  # Remembered per repository under $SDT_STATE_DIR: a file whose change is unchanged since the last
+  # scan keeps its earlier review instead of being asked again (the model words it differently each time).
+  DIFF_PROJECT=$(cat "$OUT/sonar-project-key" 2>/dev/null || true)
   timeout "$(( ${SDT_CODEX_BUDGET:-600} + 120 ))" python3 "$SDT_HOME/tools/sdt_review_diff.py" --src-root "$SRC" \
     --base "origin/$PR_BASE" "${DIFF_EP_ARGS[@]}" --out "$OUT/ai-change-review.json" --markdown "$OUT/ai-change-review.md" \
+    --project-key "${DIFF_PROJECT:-${WORKSPACE_NAME:-}_${REPO_SLUG:-repository}}" --scope "pr-$PR_ID" \
     --budget "${SDT_CODEX_BUDGET:-600}" || log "AI change review skipped (error or timeout)"
   timing ai-change-review
 fi

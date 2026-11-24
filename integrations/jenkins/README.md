@@ -209,6 +209,7 @@ secret-looking values.
 | `SDT_TRIAGE_MEMORY` | `~/.cache/sdt/triage/<project>.json` | remembered verdicts: unchanged code is not asked again |
 | `SDT_AI_AUTOCLOSE` | `0` | `1` marks the clearest false positives Safe in SonarQube (see SDT's `docs/sast-report.md`) |
 | `SDT_AI_DIFF_REVIEW` | `0` | `1` adds an AI read of each pull request's changed lines (`ai-change-review.md`), advisory only |
+| `SDT_DIFF_REVIEW_MEMORY` | `$SDT_STATE_DIR/ai-change-review/<project>.json`, else `~/.cache/sdt/ai-change-review/` | remembered change reviews: a file whose change is unchanged keeps its earlier review, so a rescan reads the same |
 | `SDT_AI_DIFF_REASONING` | (unset) | reasoning depth for that change review only (`minimal`/`low`/`medium`/`high`/`max`); unset uses `SDT_CODEX_REASONING`, so the finding triage keeps its own depth |
 
 Without Codex every code finding still gets a **deterministic** advisory: fixed per-rule checks (what to confirm
