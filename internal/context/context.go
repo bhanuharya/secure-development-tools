@@ -92,7 +92,10 @@ func Resolve(in Inputs, repoRoot string) (*ScanContext, []string, error) {
 	if head == "" {
 		head = "HEAD"
 	}
-	headOID, err := gitOutput(repoRoot, "rev-parse", "--verify", head)
+	if err := validateGitRef(head, "head"); err != nil {
+		return nil, nil, err
+	}
+	headOID, err := gitOutput(repoRoot, "rev-parse", "--verify", "--end-of-options", head)
 	if err != nil && in.Staged {
 		// The first commit of a repository is being made: there is no head
 		// yet, and a staged scan reads the index, not the head.
@@ -123,7 +126,10 @@ func Resolve(in Inputs, repoRoot string) (*ScanContext, []string, error) {
 		return ctx, warnings, nil
 	}
 	if in.Base != "" {
-		baseOID, err := gitOutput(repoRoot, "rev-parse", "--verify", in.Base)
+		if err := validateGitRef(in.Base, "base"); err != nil {
+			return nil, nil, err
+		}
+		baseOID, err := gitOutput(repoRoot, "rev-parse", "--verify", "--end-of-options", in.Base)
 		if err != nil {
 			return nil, nil, fmt.Errorf("resolve base %q: %w", in.Base, err)
 		}
@@ -144,8 +150,22 @@ func Resolve(in Inputs, repoRoot string) (*ScanContext, []string, error) {
 	return ctx, warnings, nil
 }
 
+// validateGitRef rejects revision inputs that start with '-' or contain
+// whitespace/control characters so they can never be parsed as git flags (CWE-88).
+func validateGitRef(ref, label string) error {
+	if strings.HasPrefix(ref, "-") {
+		return fmt.Errorf("invalid %s revision %q: must not start with '-'", label, ref)
+	}
+	for _, r := range ref {
+		if r <= 0x20 || r == 0x7f {
+			return fmt.Errorf("invalid %s revision %q: contains control or whitespace character", label, ref)
+		}
+	}
+	return nil
+}
+
 func changedPaths(root, mb, head string) ([]string, error) {
-	out, err := gitOutput(root, "diff", "--name-only", "-z", mb, head)
+	out, err := gitOutput(root, "diff", "--name-only", "-z", mb, head, "--")
 	if err != nil {
 		return nil, err
 	}

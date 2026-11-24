@@ -105,3 +105,18 @@ func TestEnvOverlayNeverTouchesPolicy(t *testing.T) {
 		t.Fatal("policy digest must not change via env overlay")
 	}
 }
+
+func TestParseAndMergeGitleaksTrustRepoConfig(t *testing.T) {
+	raw := []byte("apiVersion: secure-dev/v1alpha1\nkind: ScanConfiguration\nmetadata:\n  name: t\nprofiles:\n  pr:\n    mode: changed\n    scanners: [gitleaks]\n    requiredScanners: [gitleaks]\nscanners:\n  gitleaks:\n    trustRepoConfig: false\n")
+	cfg, _, err := Parse(raw, "test")
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if cfg.Scanners.Gitleaks.TrustRepoConfig == nil || *cfg.Scanners.Gitleaks.TrustRepoConfig {
+		t.Fatalf("expected TrustRepoConfig=false, got %v", cfg.Scanners.Gitleaks.TrustRepoConfig)
+	}
+	merged := Merge(Defaults(), cfg)
+	if merged.Scanners.Gitleaks.TrustRepoConfig == nil || *merged.Scanners.Gitleaks.TrustRepoConfig {
+		t.Fatalf("expected merged TrustRepoConfig=false, got %v", merged.Scanners.Gitleaks.TrustRepoConfig)
+	}
+}

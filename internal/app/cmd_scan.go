@@ -83,16 +83,11 @@ func planTasksFull(cfg *config.ScanConfiguration, profile string, ctx *sdtctx.Sc
 			Adapter: t.Adapter, Tool: t.Tool, Executable: t.Executable, Args: t.Args,
 			Targets: t.Targets, TimeoutSeconds: t.TimeoutSeconds, Mode: t.Mode, RuleBundle: t.RuleBundle,
 			RuleChecksums: t.RuleChecksums, Excludes: t.SkippedFiles, Note: t.Note, ExecArgs: t.ExecArgs,
-			Run: t.Run,
+			ReportPath: t.ReportPath, Run: t.Run,
 		})
-		// stash report path via parallel slice hack: re-lookup after build.
-		pendingReportPaths[t.Adapter] = t.ReportPath
 	}
 	return tasks, skipped
 }
-
-// pendingReportPaths carries adapter report-file paths from planning to execution.
-var pendingReportPaths = map[string]string{}
 
 func newScanCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -201,7 +196,6 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 			}
 		}
 	}
-	pendingReportPaths = map[string]string{}
 	tasks, skipped := planTasks(cfg, g.Profile, ctx, scanRoot)
 	p, err := plan.Build(cfg, g.Profile, ctx, tasks, skipped)
 	if err != nil {
@@ -271,7 +265,7 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 		}
 		execTasks = append(execTasks, execute.Task{
 			Adapter: t.Adapter, Executable: t.Executable, Args: args,
-			TimeoutSeconds: t.TimeoutSeconds, Dir: scanRoot, ReportPath: pendingReportPaths[t.Adapter],
+			TimeoutSeconds: t.TimeoutSeconds, Dir: scanRoot, ReportPath: t.ReportPath,
 			Run: t.Run,
 		})
 	}
@@ -341,7 +335,7 @@ func runScan(cmd *cobra.Command, runID string, started time.Time) (int, error) {
 			extra = append(extra, extraArtifact{name: art.Name, data: art.Data, media: art.MediaType, schema: art.Schema})
 		}
 		// Clean up temp report files.
-		if rp := pendingReportPaths[r.Adapter]; rp != "" {
+		if rp := planned[r.Adapter].ReportPath; rp != "" {
 			_ = os.Remove(rp)
 		}
 	}
@@ -730,12 +724,25 @@ func writeArtifacts(cmd *cobra.Command, cfg *config.ScanConfiguration, p *plan.P
 	}
 	manifest.Artifacts = recs
 	mJSON, _ := json.MarshalIndent(manifest, "", "  ")
+	manifestBytes := append(mJSON, '\n')
 	mPath := filepath.Join(outDir, "run-manifest.json")
-	if err := report.WriteAtomic(mPath, append(mJSON, '\n'), 0o644); err != nil {
+	if err := report.WriteAtomic(mPath, manifestBytes, 0o644); err != nil {
 		if firstErr == nil {
 			firstErr = fmt.Errorf("write run-manifest.json: %w", err)
 		}
 		return firstErr
+	}
+	if wantsFormat(cfg, "attestation") || os.Getenv("SDT_ATTESTATION") == "1" {
+		attBytes, err := report.ToAttestation(manifest, manifestBytes, p, out)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("build run-attestation.intoto.jsonl: %w", err)
+			}
+		} else if err := report.WriteAtomic(filepath.Join(outDir, "run-attestation.intoto.jsonl"), attBytes, 0o644); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("write run-attestation.intoto.jsonl: %w", err)
+			}
+		}
 	}
 	_ = diagnostics
 	return firstErr

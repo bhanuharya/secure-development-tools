@@ -727,8 +727,10 @@ def main() -> int:
     routes_by_file = load_endpoint_context(args.endpoints)
     invariants = load_domain_invariants(args.src_root, args.invariants)
     try:
+        if args.base.startswith("-") or any(ord(c) <= 0x20 or ord(c) == 0x7F for c in args.base):
+            raise RuntimeError(f"invalid --base revision {args.base!r}")
         scope = f"{args.base}...HEAD"
-        changed = [p for p in git(args.src_root, "diff", "--name-only", "--diff-filter=AMR", scope).splitlines() if p]
+        changed = [p for p in git(args.src_root, "diff", "--name-only", "--diff-filter=AMR", scope, "--").splitlines() if p]
         code = [p for p in changed if reviewable(p)]
         all_diffs = {p: git(args.src_root, "diff", f"-U{CONTEXT}", scope, "--", p) for p in code}
         ranked = sorted(code, key=lambda p: (-risk_score(p, all_diffs[p], routes_by_file, invariants), p))

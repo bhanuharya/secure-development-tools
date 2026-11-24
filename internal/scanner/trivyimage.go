@@ -29,6 +29,9 @@ func (a *TrivyImageAdapter) Plan(ctx *sdtctx.ScanContext, cfg *config.ScanConfig
 	if ctx.ImageReference == "" {
 		return Task{}, fmt.Errorf("release profile requires an image reference (--image or SDT_IMAGE)")
 	}
+	if err := validateSafeArg(ctx.ImageReference, "image reference"); err != nil {
+		return Task{}, err
+	}
 	bin := whichBin(envOr("SDT_TRIVY_BIN", "trivy"))
 	if bin == "" {
 		return Task{}, fmt.Errorf("trivy executable not found")
