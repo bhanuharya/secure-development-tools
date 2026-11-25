@@ -108,7 +108,7 @@ Vulnerable packages are grouped into the upgrades that fix them:
 
 * Maven packages managed by a Spring Boot parent or BOM (`spring-boot-starter-parent`, `spring-boot-dependencies`,
   or a JHipster `jhipster-dependencies` BOM; read from the `pom.xml` under `--src-root`) are one action, "Upgrade
-  JHipster (currently 7.0.1; Spring Boot 2.4.4)". The managed group list is deliberately short; anything outside
+  JHipster (currently 7.2.0; Spring Boot 2.5.6)". The managed group list is deliberately short; anything outside
   it, and any other Maven package, is its own action.
 * A lock file (npm, Yarn, pnpm, Poetry, ...) or another manifest (`go.mod`, `requirements.txt`, `build.gradle`,
   `pubspec.yaml`, ...) is one action. Java archives (`.jar`, `.war`, `.ear`) stay one action per package.

@@ -63,11 +63,10 @@ fact. Developers act on P1 and mostly leave P2. On a typical Spring Boot 2.4 ser
 ## Consequences
 
 - **What moves up.** Account takeover, authentication bypass, hard-coded production credentials and injection
-  from high-precision rules are P1 without depending on the AI review. On one Spring Boot 2.4 service, scanned
-  without the AI review: P1 in Fix First went from 17 rows (16 packages and a secret, no code) to 6 actions
-  (account takeover, authentication bypass, production credentials, the secret); the account-takeover routes
-  went from P3, outside Fix First, to P1; Fix First went from 72 P1 and P2 rows (40 shown) to 19 actions plus 7
-  upgrades; 87 vulnerable packages became 14 upgrade actions, one of them covering 30 packages.
+  from high-precision rules are P1 without depending on the AI review. On one service, scanned without the AI
+  review: P1 in Fix First went from 17 rows, 16 of them packages, to 6 code and secret actions; Fix First went
+  from 72 P1 and P2 rows (40 shown) to 19 actions plus 7 upgrades; 87 vulnerable packages became 14 upgrade
+  actions, one of them covering 30 packages.
 - **What moves down.** Dependencies leave P1 unless an advisory is known to be exploited, because one upgrade is
   a planned change, not a hotfix, and most advisories are never exploited. The cost: a Critical advisory that is
   exploited but not yet on the list waits for the release. The Top risks line and the upgrade table keep the
