@@ -669,3 +669,21 @@ def test_merge_takes_sdt_rule_help_when_sonarqube_has_no_description():
     by_rule = {g.rule: g.fixes for g in merged["code"]}
     assert by_rule[sonar_group.rule] == ["Scope the query to the caller."]
     assert by_rule["java:S3649"] == ["Use bound parameters."]
+
+
+def test_report_survives_a_withheld_value_equal_to_a_section_name(tmp_path):
+    """A repository whose code holds `("secret", "dependency", "config")` (SDT scanning itself) made the
+    redaction rename the resolved findings' "dependency" key, and the report crashed with KeyError."""
+    src = tmp_path / "src"
+    (src / "tools").mkdir(parents=True)
+    (src / "tools" / "report.py").write_text('for key in ("secret", "dependency", "config"):\n    pass\n')
+    group = sdt_to_docx.Group("python:S1", "A rule", "Vulnerability", "High",
+                              occurrences=[sdt_to_docx.Occurrence("tools/report.py", 1, "m", "Open", "")])
+    decided = sdt_to_docx.Group("python:S2", "Decided", "Vulnerability", "High",
+                                occurrences=[sdt_to_docx.Occurrence("tools/report.py", 2, "m", "Safe", "")])
+    resolved = {"code": [decided], "secret": [], "dependency": [], "config": []}
+    report = sdt_to_docx.Report("app", "ws/app", "main", "", "abc", "SDT", [group], [], [], [],
+                                sdt_to_docx.date(2026, 11, 25), resolved=resolved)
+    out = tmp_path / "r.docx"
+    sdt_to_docx.write_docx(report, src, out)
+    assert out.stat().st_size > 0

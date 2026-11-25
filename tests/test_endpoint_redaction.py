@@ -130,3 +130,14 @@ def test_secret_corpus_never_survives_redaction(case):
     withheld: set = set()
     advisory.redact(text, path, withheld)
     assert secret not in json.dumps(advisory.redact_tree({"answer": text}, withheld))
+
+
+def test_structured_pass_keeps_keys_when_a_withheld_value_equals_one():
+    # `("secret", "dependency", "config")` reads like a secret lookup with the default "dependency", so that
+    # word is withheld. The report's own dictionary keys must survive: renaming one crashed the report.
+    withheld: set = set()
+    advisory.redact('for key in ("secret", "dependency", "config"):', "tools/report.py", withheld)
+    assert "dependency" in withheld
+    safe = advisory.redact_tree({"dependency": ["a dependency value"], "code": []}, withheld)
+    assert list(safe) == ["dependency", "code"]
+    assert "dependency" not in safe["dependency"][0]

@@ -336,14 +336,16 @@ def redact_lines(lines: dict[int, str], path: str = "", flagged: frozenset | set
 
 def redact_tree(value, withheld: set | None = None):
     """Last pass for structured output, including unrecognised model fields and report dataclasses.
-    Discover values in all fields before removing their echoes in any other field."""
+    Discover values in all fields before removing their echoes in any other field. Dictionary keys are
+    structure, not content, and stay as they are: a withheld value that happens to equal a key (the word
+    "dependency", read as a secret's default in `("secret", "dependency", "config")`) must not rename it."""
     withheld = set() if withheld is None else withheld
 
     def walk(item, clean):
         if isinstance(item, str):
             return clean(item)
         if isinstance(item, dict):
-            return {clean(k) if isinstance(k, str) else k: walk(v, clean) for k, v in item.items()}
+            return {k: walk(v, clean) for k, v in item.items()}
         if isinstance(item, (list, tuple)):
             return type(item)(walk(v, clean) for v in item)
         if dataclasses.is_dataclass(item) and not isinstance(item, type):

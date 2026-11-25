@@ -297,6 +297,17 @@ CLASS
   JAVA_ARGS=(-Dsonar.java.binaries="$OUT/java-classes")
 fi
 log "SonarQube analysis of $PROJECT_KEY"
+# sonar-flutter reads pubspec.yaml at the repository root as soon as there is a .dart file, and without one
+# it fails the whole analysis (Dart test fixtures, a Flutter app in a subfolder). It only reads the file;
+# the Dart lint above ran where a pubspec.yaml is. A placeholder is there for this step only.
+PUBSPEC_PLACEHOLDER=""
+if [ ! -e "$SRC/pubspec.yaml" ] \
+   && [ -n "$(find "$SRC" -name .git -prune -o -name node_modules -prune -o -name '*.dart' -print -quit)" ]; then
+  PUBSPEC_PLACEHOLDER="$SRC/pubspec.yaml"
+  printf 'name: sdt_scan_placeholder\nversion: 0.0.0\ndependencies: {}\n' > "$PUBSPEC_PLACEHOLDER"
+  log "Dart files without a root pubspec.yaml: a placeholder lets SonarQube's Dart sensor run"
+fi
+SONAR_RC=0
 ( cd "$SRC" && "$SONAR_SCANNER" -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.projectKey="$PROJECT_KEY" \
     -Dsonar.projectName="$WORKSPACE_NAME/$REPO_SLUG" -Dsonar.sources=. "${TEST_ARGS[@]}" "${JAVA_ARGS[@]}" \
     -Dsonar.testExecutionReportPaths= \
@@ -304,8 +315,9 @@ log "SonarQube analysis of $PROJECT_KEY"
     -Dsonar.opengrep.reportPaths="$REPORT_FINDINGS" -Dsonar.xml.file.suffixes=.xml,.plist \
     -Dsonar.dart.analyzer.mode=MANUAL -Dsonar.dart.analyzer.report.mode=MACHINE \
     -Dsonar.dart.analyzer.report.path="$DART_REPORT" -Dsonar.dart.analyzer.options.override=false \
-    -Dsonar.working.directory="$OUT/scannerwork" "${SCOPE_ARGS[@]}" ) > "$OUT/sonar-scanner.log" 2>&1 \
-  || { tail -30 "$OUT/sonar-scanner.log"; log "sonar-scanner failed"; exit 1; }
+    -Dsonar.working.directory="$OUT/scannerwork" "${SCOPE_ARGS[@]}" ) > "$OUT/sonar-scanner.log" 2>&1 || SONAR_RC=$?
+[ -z "$PUBSPEC_PLACEHOLDER" ] || rm -f "$PUBSPEC_PLACEHOLDER"
+[ "$SONAR_RC" = 0 ] || { tail -30 "$OUT/sonar-scanner.log"; log "sonar-scanner failed"; exit 1; }
 grep -E "OpenGrep:" "$OUT/sonar-scanner.log" || true
 timing sonar-analysis
 
