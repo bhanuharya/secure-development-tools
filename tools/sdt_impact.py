@@ -706,6 +706,34 @@ BOLA_IMPACTS: dict[str, RuleEntry] = {
     "data-exposure": ("C2", "Data exposure", "high", True),
 }
 
+# Explicit rule families for duplicate-finding merging in reports. Two overlapping
+# findings in the same file merge only when both rules belong to the same family,
+# so unrelated Data exposure rules (such as secret logging inside a reset handler)
+# stay separate fixes. Every key here must exist in RULES (enforced by tests).
+MERGE_FAMILIES: dict[str, str] = {
+    # object-access: unscoped access to another account's record or credentials
+    "scp.endpoints.bola-unscoped-object-access": "object-access",
+    "scp.java.authz.credential-change-by-request-id": "object-access",
+    "scp.javascript.authz.credential-change-by-request-id": "object-access",
+    "scp.python.authz.credential-change-by-request-id": "object-access",
+    # open-route: missing or weakened authentication or role gate on a route
+    "scp.endpoints.sensitive-route-public": "open-route",
+    "scp.endpoints.sensitive-route-without-role": "open-route",
+    "scp.endpoints.unprotected-among-protected": "open-route",
+    "scp.endpoints.protection-downgraded": "open-route",
+    "scp.java.authz.permitall-wildcard-prefix": "open-route",
+    "scp.java.authz.permitall-credential-check": "open-route",
+    "scp.java.authz.permitall-internal-path": "open-route",
+    "scp.go.authz.route-without-auth-middleware": "open-route",
+    "scp.javascript.authz.route-without-auth-middleware": "open-route",
+}
+
+
+def merge_family(rule: str) -> str:
+    """Return the duplicate-merge family for `rule` (via its normalized key), or ''."""
+    return MERGE_FAMILIES.get(normalize_rule_key(rule), "")
+
+
 _IMPACT_TAG = re.compile(r"\s*\[impact:\s*([a-z0-9_-]+)\]", re.I)
 
 

@@ -160,7 +160,7 @@ class Occurrence:
     priority: sdt_priority.Priority | None = None  # set by prioritize()
     end_line: int = 0  # closing line of the handler/span (defaults to line)
     impact: str = ""  # per-finding impact hint (e.g. BOLA metadata.impact)
-    same_handler: list[tuple[str, str, int]] = field(default_factory=list)
+    same_handler: list[str] = field(default_factory=list)
     merged_into: tuple[str, str, int] | None = None
     merged_rules: list[tuple[str, str]] = field(default_factory=list)
 
@@ -959,13 +959,6 @@ DECIDED = {"Safe": "likely_false_positive", "False positive": "likely_false_posi
            "Acknowledged": "likely_true_positive", "Confirmed": "likely_true_positive", "Accepted": "likely_true_positive"}
 
 
-DUPLICATE_MERGE_LABELS = frozenset({
-    "Account takeover",
-    "Authentication bypass",
-    "Data exposure",
-})
-
-
 def _spans_overlap_handler(a: Occurrence, b: Occurrence) -> bool:
     """True when either occurrence's start line lies inside the other's [line, end_line] span."""
     if a.line <= 0 or b.line <= 0:
@@ -975,27 +968,32 @@ def _spans_overlap_handler(a: Occurrence, b: Occurrence) -> bool:
     return (a.line <= b.line <= end_a) or (b.line <= a.line <= end_b)
 
 
-def merge_duplicate_handlers(report: Report) -> None:
-    """Merge duplicate code findings that flag the same handler (PLAN D6).
+def _same_note(a: Occurrence, b: Occurrence, other_name: str, other_path: str, other_line: int) -> str:
+    """'Same handler as ...' when either occurrence has a span, else 'Same line as ...'."""
+    prefix = "Same handler" if (a.end_line > a.line or b.end_line > b.line) else "Same line"
+    return f"{prefix} as {other_name} at {other_path}:{other_line}"
 
-    Two open occurrences in the same file from different rules merge when both
-    carry an impact label in DUPLICATE_MERGE_LABELS and one's line lies inside
-    the other's [line, end_line] span. The most urgent occurrence stays primary
-    for priority counts and Fix First; every rule section keeps its occurrence
-    with a cross-reference to the peer rule.
+
+def merge_duplicate_handlers(report: Report) -> None:
+    """Merge duplicate code findings that report the same weakness (PLAN D6).
+
+    Two open occurrences in the same file from different rules merge only when
+    both rules belong to the same explicit family in sdt_impact.MERGE_FAMILIES
+    and one's line lies inside the other's [line, end_line] span. The most
+    urgent occurrence stays primary for priority counts and Fix First; every
+    rule section keeps its occurrence with a cross-reference to the peer rule.
     """
-    by_file: dict[str, list[tuple[Group, Occurrence]]] = {}
+    by_file_family: dict[tuple[str, str], list[tuple[Group, Occurrence]]] = {}
     for g in report.code:
+        family = sdt_impact.merge_family(g.rule)
         for o in g.occurrences:
             o.same_handler = []
             o.merged_into = None
             o.merged_rules = []
-            if (o.path and o.line > 0 and o.status in OPEN_STATES
-                    and o.priority and o.priority.impact
-                    and o.priority.impact.label in DUPLICATE_MERGE_LABELS):
-                by_file.setdefault(o.path, []).append((g, o))
+            if family and o.path and o.line > 0 and o.status in OPEN_STATES and o.priority:
+                by_file_family.setdefault((o.path, family), []).append((g, o))
 
-    for items in by_file.values():
+    for items in by_file_family.values():
         n = len(items)
         if n < 2:
             continue
@@ -1037,20 +1035,20 @@ def merge_duplicate_handlers(report: Report) -> None:
             for other_g, other_o in members[1:]:
                 other_o.merged_into = (primary_g.name, primary_o.path, primary_o.line)
                 if other_g.rule != primary_g.rule:
-                    ref_primary = (primary_g.name, primary_o.path, primary_o.line)
-                    if ref_primary not in other_o.same_handler:
-                        other_o.same_handler.append(ref_primary)
-                    ref_other = (other_g.name, other_o.path, other_o.line)
-                    if ref_other not in primary_o.same_handler:
-                        primary_o.same_handler.append(ref_other)
+                    note_for_other = _same_note(other_o, primary_o, primary_g.name, primary_o.path, primary_o.line)
+                    if note_for_other not in other_o.same_handler:
+                        other_o.same_handler.append(note_for_other)
+                    note_for_primary = _same_note(primary_o, other_o, other_g.name, other_o.path, other_o.line)
+                    if note_for_primary not in primary_o.same_handler:
+                        primary_o.same_handler.append(note_for_primary)
                     if other_g.rule not in seen_rules:
                         seen_rules.add(other_g.rule)
                         primary_o.merged_rules.append((other_g.name, other_g.rule))
                 elif first_peer is not None:
                     peer_g, peer_o = first_peer
-                    ref_peer = (peer_g.name, peer_o.path, peer_o.line)
-                    if ref_peer not in other_o.same_handler:
-                        other_o.same_handler.append(ref_peer)
+                    note_for_other = _same_note(other_o, peer_o, peer_g.name, peer_o.path, peer_o.line)
+                    if note_for_other not in other_o.same_handler:
+                        other_o.same_handler.append(note_for_other)
 
 
 def prioritize(report: Report) -> None:
@@ -1717,8 +1715,7 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
                     parts.append(para(run(f"#{i} ", bold=True) + run(flagged), before=160, after=0))
                     parts += [code_block(block) for block in blocks]
                 if occurrence.same_handler:
-                    same_notes = "; ".join(f"Same handler as {name} at {path}:{line}"
-                                           for name, path, line in occurrence.same_handler)
+                    same_notes = "; ".join(occurrence.same_handler)
                     prefix = run(f"#{i} ", bold=True) if not blocks else ""
                     parts.append(para(prefix + run(same_notes, size=18, color="4B5563"), before=40, after=40))
                 if occurrence.ai:
@@ -1768,8 +1765,7 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
                 else:
                     text = o.message or g.name
                 if o.same_handler:
-                    same_notes = "; ".join(f"Same handler as {name} at {path}:{line}"
-                                           for name, path, line in o.same_handler)
+                    same_notes = "; ".join(o.same_handler)
                     text = f"{text}. {same_notes}" if text else same_notes
                 url = target([o]) if o.path else ""
                 line_cell = (str(o.line or "-"), link_run(str(o.line or "-"), links.rid(url), 18)) if url \

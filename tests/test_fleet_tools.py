@@ -2993,3 +2993,70 @@ def test_different_handlers_in_same_file_do_not_merge():
     assert len(sdt_to_docx.priorities(report)["code"]) == 2
     assert len(sdt_to_docx.fix_first(report)) == 2
     assert bola.occurrences[0].same_handler == [] and cred_change.occurrences[0].same_handler == []
+
+
+def test_secret_logging_inside_bola_span_does_not_merge(tmp_path):
+    bola = sdt_to_docx.Group(
+        "endpoints:scp.endpoints.bola-unscoped-object-access",
+        "Authenticated object route accesses store without caller ownership check",
+        "Finding", "High",
+        occurrences=[
+            sdt_to_docx.Occurrence("src/UserController.java", 46, "PUT /api/users/{id}/reset-pin",
+                                   "Not reviewed", "", end_line=52, impact="account-takeover"),
+        ],
+    )
+    secret_log = sdt_to_docx.Group(
+        "external_opengrep:scp.java.logging.secret-in-log-call",
+        "Secret passed to a log call",
+        "Vulnerability", "Medium",
+        occurrences=[
+            sdt_to_docx.Occurrence("src/UserController.java", 49, "Logs PIN value", "Open", "",
+                                   ai={"verdict": "likely_true_positive", "confidence": "high"}),
+        ],
+    )
+    report = sdt_to_docx.Report("app", "ws/app", "branch main", "", "abc", "SDT",
+                                [bola, secret_log], [], [], [], sdt_to_docx.date(2026, 11, 24))
+    sdt_to_docx.prioritize(report)
+    assert len(sdt_to_docx.priorities(report)["code"]) == 2
+    assert sdt_to_docx.level_counts(sdt_to_docx.priorities(report)["code"]) == "P1 1, P2 1"
+    rows = sdt_to_docx.fix_first(report)
+    assert len(rows) == 2
+    assert bola.occurrences[0].same_handler == [] and secret_log.occurrences[0].same_handler == []
+    out = tmp_path / "no-merge-secret-log.docx"
+    sdt_to_docx.write_docx(report, None, out)
+    text = _docx(out)[0]
+    assert "Same handler" not in text and "Same line" not in text
+
+
+def test_same_line_open_route_rules_merge_with_same_line_wording(tmp_path):
+    wildcard = sdt_to_docx.Group(
+        "external_opengrep:scp.java.authz.permitall-wildcard-prefix",
+        "Broad permitAll wildcard prefix",
+        "Vulnerability", "High",
+        occurrences=[
+            sdt_to_docx.Occurrence("src/SecurityConfig.java", 24, "permitAll on /api/**", "Open", ""),
+        ],
+    )
+    cred_check = sdt_to_docx.Group(
+        "external_opengrep:scp.java.authz.permitall-credential-check",
+        "Credential check endpoint is permitAll",
+        "Vulnerability", "High",
+        occurrences=[
+            sdt_to_docx.Occurrence("src/SecurityConfig.java", 24, "permitAll on /api/check-pin", "Open", ""),
+        ],
+    )
+    report = sdt_to_docx.Report("app", "ws/app", "branch main", "", "abc", "SDT",
+                                [wildcard, cred_check], [], [], [], sdt_to_docx.date(2026, 11, 24))
+    sdt_to_docx.prioritize(report)
+    assert len(sdt_to_docx.priorities(report)["code"]) == 1
+    rows = sdt_to_docx.fix_first(report)
+    assert len(rows) == 1
+    assert "Broad permitAll wildcard prefix" in rows[0][1]
+    assert "Credential check endpoint is permitAll" in rows[0][1]
+
+    out = tmp_path / "same-line-permitall.docx"
+    sdt_to_docx.write_docx(report, None, out)
+    text = _docx(out)[0]
+    assert "Same line as Broad permitAll wildcard prefix at src/SecurityConfig.java:24" in text
+    assert "Same line as Credential check endpoint is permitAll at src/SecurityConfig.java:24" in text
+    assert "Same handler" not in text

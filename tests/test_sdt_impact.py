@@ -257,3 +257,16 @@ def test_parse_impact_tag_extracts_and_strips_tag():
         "PUT /api/users/{id}/pin",
     )
     assert impact.parse_impact_tag("Plain finding message") == ("", "Plain finding message")
+
+
+def test_every_merge_family_member_is_in_rules():
+    assert impact.MERGE_FAMILIES
+    missing = sorted(set(impact.MERGE_FAMILIES) - set(impact.RULES))
+    assert not missing, f"merge family keys missing from sdt_impact.RULES: {missing}"
+    assert set(impact.MERGE_FAMILIES.values()) == {"object-access", "open-route"}
+    bola_ext = f"external_sdt-endpoints:{sdt_to_sonar._rule_key('endpoints', 'scp.endpoints.bola-unscoped-object-access')}"
+    assert impact.merge_family(bola_ext) == "object-access"
+    assert impact.merge_family("external_opengrep:scp.java.authz.credential-change-by-request-id") == "object-access"
+    assert impact.merge_family("external_opengrep:scp.java.authz.permitall-wildcard-prefix") == "open-route"
+    assert impact.merge_family("scp.java.authz.permitall-credential-check") == "open-route"
+    assert impact.merge_family("scp.java.logging.secret-in-log-call") == ""
