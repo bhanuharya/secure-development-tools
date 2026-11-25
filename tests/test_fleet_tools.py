@@ -2359,8 +2359,10 @@ def test_run_codex_passes_reasoning_effort_only_when_set(tmp_path, monkeypatch):
     monkeypatch.setattr(sdt_triage_codex.subprocess, "run", fake_run)
 
     monkeypatch.delenv("SDT_CODEX_REASONING", raising=False)
+    monkeypatch.delenv("SDT_CODEX_SERVICE_TIER", raising=False)
     sdt_triage_codex.run_codex("codex", "gpt-6.1-sol", "prompt", 30)
     assert captured["cmd"][captured["cmd"].index("--model") + 1] == "gpt-6.1-sol"
+    assert not any(c.startswith("service_tier=") for c in captured["cmd"])  # unset: the codex config decides
     assert "model_reasoning_effort=medium" in captured["cmd"]  # default is medium, not the slower high/max
 
     monkeypatch.setenv("SDT_CODEX_REASONING", "high")
@@ -2368,6 +2370,15 @@ def test_run_codex_passes_reasoning_effort_only_when_set(tmp_path, monkeypatch):
     assert "model_reasoning_effort=high" in captured["cmd"]
 
     monkeypatch.setenv("SDT_CODEX_REASONING", "inherit")  # fall back to the agent's codex config
+    sdt_triage_codex.run_codex("codex", "gpt-6.1-sol", "prompt", 30)
+    assert "-c" not in captured["cmd"]
+
+    monkeypatch.setenv("SDT_CODEX_SERVICE_TIER", "fast")
+    sdt_triage_codex.run_codex("codex", "gpt-6.1-sol", "prompt", 30)
+    assert captured["cmd"][captured["cmd"].index("service_tier=fast") - 1] == "-c"
+    assert captured["cmd"].index("service_tier=fast") < captured["cmd"].index("-")  # before the prompt marker
+
+    monkeypatch.setenv("SDT_CODEX_SERVICE_TIER", "fast\nmodel=other")  # not a tier name: ignored
     sdt_triage_codex.run_codex("codex", "gpt-6.1-sol", "prompt", 30)
     assert "-c" not in captured["cmd"]
 
@@ -2682,23 +2693,37 @@ def _priority_report(tmp_path, ctx):
 
 def test_report_ranks_findings_by_priority_and_says_why(tmp_path):
     text, fix_first = _priority_report(tmp_path, sdt_priority.Context("internal", source="inventory"))
-    # The key is P1 although only in history and the service is internal; the weak hash is not lowered
-    # for an internal service; the injection and the unused package are, and leave Fix First.
+    # The key is P1 although only in history and the service is internal; the C1 injection drops from P1
+    # to P2 for an internal service and stays in Fix First; the C3 weak hash hotspot (P4) and unused
+    # package (P3) stay out of Fix First.
     assert "Secret: private-key (git history only)" in fix_first and "working credential by its format" in fix_first
-    assert fix_first.index("private-key") < fix_first.index("Using weak hashing")
-    assert "Database queries" not in fix_first and "lodash" not in fix_first
-    assert "PriorityP1 1, P2 1, P3 2" in text  # the cover
+    assert fix_first.index("private-key") < fix_first.index("Database queries")
+    assert "Using weak hashing" not in fix_first and "lodash" not in fix_first
+    assert "PriorityP1 1, P2 1, P3 1, P4 1" in text  # the cover
     assert "Service ExposureInternal network only, normal business criticality (from the inventory)" in text
-    assert "1.1 Using weak hashing" in text and "1.2 Database queries" in text  # most urgent rule first
-    assert "P3 (High severity; internal service ↓)" in text  # the rule's priority with its reason
+    assert "1.1 Database queries" in text and "1.2 Using weak hashing" in text  # most urgent rule first
+    assert "P2 (Injection (C1), high-precision rule; internal service ↓)" in text  # the rule's priority with its reason
+    assert "P4 (Defence in depth (C3), medium-precision rule)" in text
     assert "How Priority Is Set" in text
     assert "Service exposure: internal network only; business criticality: normal (from the inventory)." in text
     assert "service exposure is not recorded" not in text
 
 
+def test_prioritize_passes_group_cwe_and_kind():
+    cwe_group = sdt_to_docx.Group("custom:cwe-only", "Custom query check", "Security Hotspot", "Low",
+                                  cwe=("CWE-89",))
+    cwe_group.occurrences = [sdt_to_docx.Occurrence("src/query.py", 12, "raw query", "To review", "")]
+    report = sdt_to_docx.Report("app", "ws/app", "branch main", "", "abc", "SDT", [cwe_group], [], [], [],
+                                sdt_to_docx.date(2026, 11, 3))
+    sdt_to_docx.prioritize(report)
+    p = cwe_group.occurrences[0].priority
+    assert p is not None and p.level == "P2"
+    assert p.impact is not None and p.impact.source == "cwe" and p.impact.klass == "C1" and p.impact.precision == "medium"
+
+
 def test_report_without_a_recorded_exposure_lowers_nothing_and_asks_for_it(tmp_path):
     text, fix_first = _priority_report(tmp_path, sdt_priority.Context())
-    assert "Database queries" in fix_first  # High stays P2: an unknown fact never lowers
+    assert "Database queries" in fix_first  # C1 stays P1: an unknown fact never lowers
     assert "Not recorded, so treated as reachable from the internet" in text
     assert "This repository's service exposure is not recorded" in text
 
@@ -2747,3 +2772,304 @@ def test_ai_status_makes_a_missing_or_cut_short_review_visible():
     cut = sdt_to_docx.ai_status({"engine": "codex", "calls": 3, "failed_calls": 3,
                                  "stopped": "3 consecutive failed calls (last: out of credits)"})
     assert cut.startswith("AI review incomplete (3 of 3 calls failed; stopped: 3 consecutive") and "rule advice" in cut
+
+
+def test_bola_impact_and_end_line_reach_priority_in_both_report_modes():
+    findings_doc = {"findings": [
+        {
+            "scanner": {"adapter": "endpoints"}, "category": "sast",
+            "rule": {"id": "scp.endpoints.bola-unscoped-object-access",
+                     "name": "Authenticated object route accesses store without caller ownership check",
+                     "cwe": ["CWE-639"]},
+            "severity": {"canonical": "high", "original": "error"},
+            "message": "PUT /api/users/{id}/reset-pin performs direct store access without caller binding.",
+            "location": {"path": "src/UserController.java", "startLine": 46, "endLine": 52},
+            "metadata": {"impact": "account-takeover"},
+        },
+        {
+            "scanner": {"adapter": "endpoints"}, "category": "sast",
+            "rule": {"id": "scp.endpoints.bola-unscoped-object-access",
+                     "name": "Authenticated object route accesses store without caller ownership check",
+                     "cwe": ["CWE-639"]},
+            "severity": {"canonical": "high", "original": "error"},
+            "message": "DELETE /api/orders/{id} performs direct store access without caller binding.",
+            "location": {"path": "src/OrderController.java", "startLine": 20, "endLine": 25},
+            "metadata": {"impact": "logic-abuse"},
+        },
+        {
+            "scanner": {"adapter": "endpoints"}, "category": "sast",
+            "rule": {"id": "scp.endpoints.bola-unscoped-object-access",
+                     "name": "Authenticated object route accesses store without caller ownership check",
+                     "cwe": ["CWE-639"]},
+            "severity": {"canonical": "medium", "original": "warning"},
+            "message": "GET /api/orders/{id} performs direct store access without caller binding.",
+            "location": {"path": "src/OrderController.java", "startLine": 30, "endLine": 34},
+            "metadata": {"impact": "data-exposure"},
+        },
+    ]}
+
+    # Mode 1: directly from findings.json (endpoints:<rule>)
+    sdt_found = sdt_to_docx.from_findings(findings_doc)
+    sdt_report = sdt_to_docx.Report("app", "ws/app", "branch main", "", "abc", "SDT",
+                                    sdt_found["code"], [], [], [], sdt_to_docx.date(2026, 11, 24))
+    sdt_to_docx.prioritize(sdt_report)
+    by_line_sdt = {(o.path, o.line): o for g in sdt_report.code for o in g.occurrences}
+    assert by_line_sdt[("src/UserController.java", 46)].end_line == 52
+    assert by_line_sdt[("src/UserController.java", 46)].priority.level == "P1"
+    assert by_line_sdt[("src/UserController.java", 46)].priority.impact.label == "Account takeover"
+    assert by_line_sdt[("src/OrderController.java", 20)].end_line == 25
+    assert by_line_sdt[("src/OrderController.java", 20)].priority.level == "P2"
+    assert by_line_sdt[("src/OrderController.java", 20)].priority.impact.label == "Logic abuse"
+    assert by_line_sdt[("src/OrderController.java", 30)].end_line == 34
+    assert by_line_sdt[("src/OrderController.java", 30)].priority.level == "P2"
+    assert by_line_sdt[("src/OrderController.java", 30)].priority.impact.label == "Data exposure"
+
+    # Mode 2: SonarQube-only via sdt_to_sonar -> SonarQube issues API -> from_sonar
+    payload, skipped = sdt_to_sonar.convert(findings_doc)
+    assert skipped == 0 and len(payload["issues"]) == 3
+    rule_id = payload["rules"][0]["id"]
+    sonar_rule_key = f"external_sdt-endpoints:{rule_id}"
+    sonar_issues = []
+    for idx, issue in enumerate(payload["issues"], 1):
+        pl = issue["primaryLocation"]
+        tr = pl["textRange"]
+        sonar_issues.append({
+            "key": f"ISS-{idx}",
+            "rule": sonar_rule_key,
+            "severity": "MAJOR",
+            "status": "OPEN",
+            "component": f"proj:{pl['filePath']}",
+            "line": tr["startLine"],
+            "textRange": tr,
+            "message": pl["message"],
+        })
+
+    class FakeSonar:
+        url = "http://sonar.local"
+
+        def get(self, endpoint, **params):
+            if endpoint == "/api/components/show":
+                return {"component": {"name": "app"}}
+            if endpoint == "/api/rules/show":
+                return {"rule": {"name": "Authenticated object route accesses store without caller ownership check",
+                                 "sysTags": ["cwe-639"]}}
+            return {}
+
+        def paged(self, endpoint, key, **params):
+            return sonar_issues if key == "issues" else []
+
+    _, sonar_found = sdt_to_docx.from_sonar(FakeSonar(), "proj", "main", "")
+    sonar_report = sdt_to_docx.Report("app", "ws/app", "branch main", "", "abc", "SonarQube",
+                                      sonar_found["code"], [], [], [], sdt_to_docx.date(2026, 11, 24))
+    sdt_to_docx.prioritize(sonar_report)
+    by_line_sonar = {(o.path, o.line): o for g in sonar_report.code for o in g.occurrences}
+    assert by_line_sonar[("src/UserController.java", 46)].end_line == 52
+    assert by_line_sonar[("src/UserController.java", 46)].priority.level == "P1"
+    assert by_line_sonar[("src/UserController.java", 46)].priority.impact.label == "Account takeover"
+    assert "[impact:" not in by_line_sonar[("src/UserController.java", 46)].message
+    assert by_line_sonar[("src/OrderController.java", 20)].end_line == 25
+    assert by_line_sonar[("src/OrderController.java", 20)].priority.level == "P2"
+    assert by_line_sonar[("src/OrderController.java", 20)].priority.impact.label == "Logic abuse"
+    assert by_line_sonar[("src/OrderController.java", 30)].end_line == 34
+    assert by_line_sonar[("src/OrderController.java", 30)].priority.level == "P2"
+    assert by_line_sonar[("src/OrderController.java", 30)].priority.impact.label == "Data exposure"
+
+
+def test_triage_caps_endpoint_rules_higher_than_other_rules(tmp_path):
+    (tmp_path / "Controller.java").write_text("\n".join(f"line {i}();" for i in range(1, 25)) + "\n")
+    ep_sonar = sdt_to_docx.Group(
+        "external_sdt-endpoints:sdt-endpoints-bola-unscoped-object-access-0123456789abcdef",
+        "BOLA", "Vulnerability", "High",
+        occurrences=[sdt_to_docx.Occurrence("Controller.java", i, "bola", "Open", "") for i in range(1, 13)],
+    )
+    ep_raw = sdt_to_docx.Group(
+        "scp.endpoints.sensitive-route-public",
+        "Sensitive route public", "Vulnerability", "High",
+        occurrences=[sdt_to_docx.Occurrence("Controller.java", i, "pub", "Open", "") for i in range(1, 13)],
+    )
+    regular = sdt_to_docx.Group(
+        "java:S2068",
+        "Hard-coded credential", "Vulnerability", "High",
+        occurrences=[sdt_to_docx.Occurrence("Controller.java", i, "pw", "Open", "") for i in range(1, 13)],
+    )
+
+    def fake_codex(codex, model, prompt, timeout):
+        ids = re.findall(r"^### (o\d+):", prompt, re.M)
+        return {"results": [{"id": item_id, "verdict": "likely_true_positive", "confidence": "high",
+                             "reason": "confirmed", "check": "inspect line", "suggested_fix": "fix"}
+                            for item_id in ids]}
+
+    custom = sdt_triage_codex.triage(
+        [ep_sonar, ep_raw, regular], tmp_path, "fake", "test",
+        per_call_timeout=30, budget=600, max_rules=10, max_per_rule=3, max_per_endpoint_rule=10,
+        max_failures=2, call=fake_codex,
+    )
+    counts = Counter(r["rule"] for r in custom["results"])
+    assert counts[ep_sonar.rule] == 10
+    assert counts[ep_raw.rule] == 10
+    assert counts[regular.rule] == 3
+
+    default = sdt_triage_codex.triage(
+        [ep_sonar, regular], tmp_path, "fake", "test",
+        per_call_timeout=30, budget=600, max_rules=10, max_per_rule=6, max_failures=2, call=fake_codex,
+    )
+    default_counts = Counter(r["rule"] for r in default["results"])
+    assert default_counts[ep_sonar.rule] == 12  # below default endpoint cap of 30
+    assert default_counts[regular.rule] == 6
+
+
+def test_duplicate_handler_merge_deduplicates_priority_counts_and_fix_first(tmp_path, monkeypatch):
+    bola = sdt_to_docx.Group(
+        "endpoints:scp.endpoints.bola-unscoped-object-access",
+        "Authenticated object route accesses store without caller ownership check",
+        "Finding", "High",
+        occurrences=[
+            sdt_to_docx.Occurrence("src/UserController.java", 46, "PUT /api/users/{id}/reset-pin",
+                                   "Not reviewed", "", end_line=52, impact="account-takeover"),
+            sdt_to_docx.Occurrence("src/UserController.java", 60, "GET /api/users/{id}/profile",
+                                   "Not reviewed", "", end_line=66, impact="data-exposure"),
+        ],
+    )
+    cred_change = sdt_to_docx.Group(
+        "external_opengrep:scp.java.authz.credential-change-by-request-id",
+        "Credential change for an account named in the URL",
+        "Vulnerability", "High",
+        occurrences=[
+            sdt_to_docx.Occurrence("src/UserController.java", 48, "Changes password for URL account", "Open", ""),
+        ],
+    )
+    # Different impact label (Injection) inside the same span must NOT merge with Account takeover.
+    sqli = sdt_to_docx.Group(
+        "java:S3649",
+        "Database queries should not be vulnerable to injection attacks",
+        "Vulnerability", "High",
+        occurrences=[
+            sdt_to_docx.Occurrence("src/UserController.java", 49, "SQL injection", "Open", ""),
+        ],
+    )
+    report = sdt_to_docx.Report("app", "ws/app", "branch main", "", "abc", "SDT",
+                                [bola, cred_change, sqli], [], [], [], sdt_to_docx.date(2026, 11, 24))
+    sdt_to_docx.prioritize(report)
+    sdt_to_docx.prioritize(report)  # idempotent
+
+    # Priority counts: merged handler (lines 46..52 + 48) counts once (P1), SQLi at 49 is P1, GET at 60 is P2.
+    code_prios = sdt_to_docx.priorities(report)["code"]
+    assert len(code_prios) == 3
+    assert sdt_to_docx.level_counts(code_prios) == "P1 2, P2 1"
+
+    # Fix First: one row for the merged handler naming both rules, plus SQLi and separate handler at line 60.
+    rows = sdt_to_docx.fix_first(report)
+    assert len(rows) == 3
+    merged_rows = [r for r in rows if r[3] == "src/UserController.java:46"]
+    assert len(merged_rows) == 1
+    assert merged_rows[0][1] == "Account takeover"
+    assert "Authenticated object route accesses store without caller ownership check" in merged_rows[0][2]
+    assert "Credential change for an account named in the URL" in merged_rows[0][2]
+    assert all(r[3] != "src/UserController.java:48" for r in rows)
+    assert any(r[3] == "src/UserController.java:60" and r[1] == "Data exposure" for r in rows)
+    assert any(r[3] == "src/UserController.java:49" and r[1] == "Injection" for r in rows)
+
+    # Rendered DOCX: cover counts P1 2, P2 1, and BOTH rule sections list their occurrence with the cross-reference.
+    out = tmp_path / "merged.docx"
+    sdt_to_docx.write_docx(report, None, out)
+    text = _docx(out)[0]
+    assert "PriorityP1 2, P2 1" in text
+    assert "Same handler as Credential change for an account named in the URL at src/UserController.java:48" in text
+    assert ("Same handler as Authenticated object route accesses store without caller ownership check "
+            "at src/UserController.java:46") in text
+
+    # File-grouped rendering (> GROUP_THRESHOLD) also includes the Same handler cross-reference.
+    monkeypatch.setattr(sdt_to_docx, "GROUP_THRESHOLD", 1)
+    grouped_out = tmp_path / "merged-grouped.docx"
+    sdt_to_docx.write_docx(report, None, grouped_out)
+    grouped_text = _docx(grouped_out)[0]
+    assert "Same handler as Credential change for an account named in the URL at src/UserController.java:48" in grouped_text
+
+
+def test_different_handlers_in_same_file_do_not_merge():
+    bola = sdt_to_docx.Group(
+        "endpoints:scp.endpoints.bola-unscoped-object-access",
+        "BOLA", "Finding", "High",
+        occurrences=[sdt_to_docx.Occurrence("src/UserController.java", 10, "PUT /api/users/{id}/pin",
+                                            "Not reviewed", "", end_line=15, impact="account-takeover")],
+    )
+    cred_change = sdt_to_docx.Group(
+        "scp.java.authz.credential-change-by-request-id",
+        "Credential change", "Finding", "High",
+        occurrences=[sdt_to_docx.Occurrence("src/UserController.java", 22, "Changes email",
+                                            "Not reviewed", "", end_line=26)],
+    )
+    report = sdt_to_docx.Report("app", "ws/app", "branch main", "", "abc", "SDT",
+                                [bola, cred_change], [], [], [], sdt_to_docx.date(2026, 11, 24))
+    sdt_to_docx.prioritize(report)
+    assert len(sdt_to_docx.priorities(report)["code"]) == 2
+    assert len(sdt_to_docx.fix_first(report)) == 2
+    assert bola.occurrences[0].same_handler == [] and cred_change.occurrences[0].same_handler == []
+
+
+def test_secret_logging_inside_bola_span_does_not_merge(tmp_path):
+    bola = sdt_to_docx.Group(
+        "endpoints:scp.endpoints.bola-unscoped-object-access",
+        "Authenticated object route accesses store without caller ownership check",
+        "Finding", "High",
+        occurrences=[
+            sdt_to_docx.Occurrence("src/UserController.java", 46, "PUT /api/users/{id}/reset-pin",
+                                   "Not reviewed", "", end_line=52, impact="account-takeover"),
+        ],
+    )
+    secret_log = sdt_to_docx.Group(
+        "external_opengrep:scp.java.logging.secret-in-log-call",
+        "Secret passed to a log call",
+        "Vulnerability", "Medium",
+        occurrences=[
+            sdt_to_docx.Occurrence("src/UserController.java", 49, "Logs PIN value", "Open", "",
+                                   ai={"verdict": "likely_true_positive", "confidence": "high"}),
+        ],
+    )
+    report = sdt_to_docx.Report("app", "ws/app", "branch main", "", "abc", "SDT",
+                                [bola, secret_log], [], [], [], sdt_to_docx.date(2026, 11, 24))
+    sdt_to_docx.prioritize(report)
+    assert len(sdt_to_docx.priorities(report)["code"]) == 2
+    assert sdt_to_docx.level_counts(sdt_to_docx.priorities(report)["code"]) == "P1 1, P2 1"
+    rows = sdt_to_docx.fix_first(report)
+    assert len(rows) == 2
+    assert bola.occurrences[0].same_handler == [] and secret_log.occurrences[0].same_handler == []
+    out = tmp_path / "no-merge-secret-log.docx"
+    sdt_to_docx.write_docx(report, None, out)
+    text = _docx(out)[0]
+    assert "Same handler" not in text and "Same line" not in text
+
+
+def test_same_line_open_route_rules_merge_with_same_line_wording(tmp_path):
+    wildcard = sdt_to_docx.Group(
+        "external_opengrep:scp.java.authz.permitall-wildcard-prefix",
+        "Broad permitAll wildcard prefix",
+        "Vulnerability", "High",
+        occurrences=[
+            sdt_to_docx.Occurrence("src/SecurityConfig.java", 24, "permitAll on /api/**", "Open", ""),
+        ],
+    )
+    cred_check = sdt_to_docx.Group(
+        "external_opengrep:scp.java.authz.permitall-credential-check",
+        "Credential check endpoint is permitAll",
+        "Vulnerability", "High",
+        occurrences=[
+            sdt_to_docx.Occurrence("src/SecurityConfig.java", 24, "permitAll on /api/check-pin", "Open", ""),
+        ],
+    )
+    report = sdt_to_docx.Report("app", "ws/app", "branch main", "", "abc", "SDT",
+                                [wildcard, cred_check], [], [], [], sdt_to_docx.date(2026, 11, 24))
+    sdt_to_docx.prioritize(report)
+    assert len(sdt_to_docx.priorities(report)["code"]) == 1
+    rows = sdt_to_docx.fix_first(report)
+    assert len(rows) == 1
+    assert rows[0][1] == "Authentication bypass"
+    assert "Broad permitAll wildcard prefix" in rows[0][2]
+    assert "Credential check endpoint is permitAll" in rows[0][2]
+
+    out = tmp_path / "same-line-permitall.docx"
+    sdt_to_docx.write_docx(report, None, out)
+    text = _docx(out)[0]
+    assert "Same line as Broad permitAll wildcard prefix at src/SecurityConfig.java:24" in text
+    assert "Same line as Credential check endpoint is permitAll at src/SecurityConfig.java:24" in text
+    assert "Same handler" not in text

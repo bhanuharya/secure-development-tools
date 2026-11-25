@@ -1,7 +1,8 @@
 # ADR 0009: Priority from severity and what is known about the service
 
 Date: 2026-11-03
-Status: accepted
+Status: accepted, amended by [ADR 0010](0010-impact-classes-and-upgrade-actions.md) (impact classes for code, a P2 cap
+for dependencies without a known-exploited advisory, level meanings)
 
 ## Context
 

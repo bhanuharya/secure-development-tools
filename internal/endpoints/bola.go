@@ -1,6 +1,7 @@
 package endpoints
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -144,12 +145,86 @@ type bolaCandidate struct {
 	route      Route
 	params     []string
 	dataAccess string
+	endLine    int
 }
 
 type boundPeer struct {
 	handler string
 	file    string
 	line    int
+}
+
+// credentialOrContactWords are whole-word tokens in route paths or handler
+// names that indicate a state-changing BOLA endpoint can take over an account.
+var credentialOrContactWords = map[string]bool{
+	"password": true,
+	"passwd":   true,
+	"pin":      true,
+	"otp":      true,
+	"email":    true,
+	"mobile":   true,
+	"phone":    true,
+	"mfa":      true,
+	"session":  true,
+	"token":    true,
+}
+
+// splitIdentifierWords splits s on non-ASCII letters and camelCase boundaries,
+// returning lowercased whole words ("reset-pin", "resetPin", "reset_pin" all
+// yield "reset" and "pin"; "shipping", "mapping", "opinion", "tokenizer" stay
+// intact and do not match "pin" or "token").
+func splitIdentifierWords(s string) []string {
+	var words []string
+	n := len(s)
+	start := -1
+	isLower := func(b byte) bool { return b >= 'a' && b <= 'z' }
+	isUpper := func(b byte) bool { return b >= 'A' && b <= 'Z' }
+	isLetter := func(b byte) bool { return isLower(b) || isUpper(b) }
+	for i := 0; i < n; i++ {
+		b := s[i]
+		if !isLetter(b) {
+			if start >= 0 {
+				words = append(words, strings.ToLower(s[start:i]))
+				start = -1
+			}
+			continue
+		}
+		if start < 0 {
+			start = i
+			continue
+		}
+		prev := s[i-1]
+		if isUpper(b) && (isLower(prev) || (i+1 < n && isLower(s[i+1]))) {
+			words = append(words, strings.ToLower(s[start:i]))
+			start = i
+		}
+	}
+	if start >= 0 {
+		words = append(words, strings.ToLower(s[start:]))
+	}
+	return words
+}
+
+func hasCredentialOrContactWord(s string) bool {
+	for _, w := range splitIdentifierWords(s) {
+		if credentialOrContactWords[w] {
+			return true
+		}
+	}
+	return false
+}
+
+// bolaImpact classifies a BOLA finding from its HTTP verb and target resource:
+// state-changing credential/contact routes are account-takeover, other state
+// changes are logic-abuse, and reads (GET/HEAD) are data-exposure.
+func bolaImpact(rt Route) string {
+	if !isStateChanging(rt.Method) {
+		return "data-exposure"
+	}
+	if hasCredentialOrContactWord(rt.Path) || hasCredentialOrContactWord(rt.Handler) {
+		return "account-takeover"
+	}
+	return "logic-abuse"
 }
 
 func analyzeBOLA(root string, inv *Inventory, rules *conventionRules) []*finding.Finding {
@@ -190,7 +265,7 @@ func analyzeBOLA(root string, inv *Inventory, rules *conventionRules) []*finding
 			if len(params) == 0 {
 				continue
 			}
-			body, ok := extractHandlerBody(absRoot, rt)
+			body, endLine, ok := extractHandlerBody(absRoot, rt)
 			if !ok || strings.TrimSpace(body) == "" {
 				continue // soundness: unreadable or unresolvable handler -> stay silent
 			}
@@ -202,7 +277,7 @@ func analyzeBOLA(root string, inv *Inventory, rules *conventionRules) []*finding
 			if access == "" {
 				continue // soundness: only flag concrete direct store access, not opaque delegates
 			}
-			candidates = append(candidates, bolaCandidate{route: rt, params: params, dataAccess: access})
+			candidates = append(candidates, bolaCandidate{route: rt, params: params, dataAccess: access, endLine: endLine})
 		}
 		for _, cand := range candidates {
 			out = append(out, bolaFinding(cand, peers))
@@ -251,13 +326,22 @@ func bolaFinding(cand bolaCandidate, peers []boundPeer) *finding.Finding {
 	}
 	msg := fmt.Sprintf("%s %s accepts object parameter %s and performs direct store access (%s) without referencing the authenticated caller, owner, or tenant.%s Any logged-in user who guesses or enumerates %s may read or modify another user's record (BOLA/IDOR). Scope the query to the authenticated principal or tenant ID.",
 		rt.Method, rt.shownPath(), paramList, cand.dataAccess, peerNote, paramList)
+	severity := "warning"
+	if isStateChanging(rt.Method) {
+		severity = "error"
+	}
 	f := newConventionFinding(rt, RuleBolaUnscopedObjectAccess,
 		"Authenticated object route accesses store without caller ownership check",
 		"Derive the caller or tenant identity from the verified session/token and filter the database query (or verify record ownership) before returning or mutating the object.",
-		[]string{"CWE-639"}, "warning", msg)
+		[]string{"CWE-639"}, severity, msg)
+	if cand.endLine > rt.Line {
+		endLine := cand.endLine
+		f.Location.EndLine = &endLine
+	}
 	f.Confidence = confidence
 	f.Metadata["objectParams"] = cand.params
 	f.Metadata["dataAccess"] = cand.dataAccess
+	f.Metadata["impact"] = bolaImpact(rt)
 	return f
 }
 
@@ -283,12 +367,14 @@ func readConfinedFile(absRoot, rel string) ([]byte, bool) {
 }
 
 // extractHandlerBody locates the route's handler source (signature + body) for
-// Spring, Go, Express/NestJS, and Flask/FastAPI. Returns ("", false) whenever
-// the body cannot be located cleanly.
-func extractHandlerBody(absRoot string, rt Route) (string, bool) {
+// Spring, Go, Express/NestJS, and Flask/FastAPI. It also returns the 1-based
+// closing line in rt.File when the handler body is anchored at rt.Line (0 when
+// the named handler lives elsewhere in the file or in a sibling file). Returns
+// ("", 0, false) whenever the body cannot be located cleanly.
+func extractHandlerBody(absRoot string, rt Route) (string, int, bool) {
 	src, ok := readConfinedFile(absRoot, rt.File)
 	if !ok {
-		return "", false
+		return "", 0, false
 	}
 	switch {
 	case strings.HasPrefix(rt.Framework, "spring"):
@@ -298,14 +384,14 @@ func extractHandlerBody(absRoot string, rt Route) (string, bool) {
 	case rt.Framework == "nestjs":
 		return extractBraceDeclFromLine(src, rt.Line)
 	case rt.Framework == "express":
-		if body, ok := extractInlineJSFromLine(src, rt.Line); ok {
-			return body, true
+		if body, endLine, ok := extractInlineJSFromLine(src, rt.Line); ok {
+			return body, endLine, true
 		}
 		return extractNamedJSHandler(src, rt.Handler)
 	default:
 		// Go frameworks: gin, echo, fiber, chi, nethttp.
-		if body, ok := extractInlineGoFromLine(src, rt.Line); ok {
-			return body, true
+		if body, endLine, ok := extractInlineGoFromLine(src, rt.Line); ok {
+			return body, endLine, true
 		}
 		return extractNamedGoHandler(absRoot, rt.File, src, rt.Handler)
 	}
@@ -328,9 +414,21 @@ func lineStartOffset(src []byte, line int) int {
 	return -1
 }
 
-// extractBalancedBlock returns src[sigStart : closeBrace+1] starting from the
-// first `{` at or after searchFrom, skipping strings and // or /* */ comments.
-func extractBalancedBlock(src []byte, sigStart, searchFrom int) (string, bool) {
+// lineNumberAt returns the 1-based line number of byte offset in src.
+func lineNumberAt(src []byte, offset int) int {
+	if offset < 0 {
+		return 0
+	}
+	if offset > len(src) {
+		offset = len(src)
+	}
+	return 1 + bytes.Count(src[:offset], []byte{'\n'})
+}
+
+// extractBalancedBlock returns src[sigStart : closeBrace+1] and the 1-based
+// line of closeBrace starting from the first `{` at or after searchFrom,
+// skipping strings and // or /* */ comments.
+func extractBalancedBlock(src []byte, sigStart, searchFrom int) (string, int, bool) {
 	open := -1
 	quote := byte(0)
 	for i := searchFrom; i < len(src); i++ {
@@ -352,7 +450,7 @@ func extractBalancedBlock(src []byte, sigStart, searchFrom int) (string, bool) {
 			continue
 		}
 		if c == ';' {
-			return "", false // abstract/interface declaration without a body
+			return "", 0, false // abstract/interface declaration without a body
 		}
 		if c == '{' {
 			open = i
@@ -360,7 +458,7 @@ func extractBalancedBlock(src []byte, sigStart, searchFrom int) (string, bool) {
 		}
 	}
 	if open < 0 {
-		return "", false
+		return "", 0, false
 	}
 	depth := 0
 	quote = 0
@@ -386,29 +484,30 @@ func extractBalancedBlock(src []byte, sigStart, searchFrom int) (string, bool) {
 		case '}':
 			depth--
 			if depth == 0 {
-				return string(src[sigStart : i+1]), true
+				return string(src[sigStart : i+1]), lineNumberAt(src, i), true
 			}
 		}
 	}
-	return "", false
+	return "", 0, false
 }
 
 // extractBraceDeclFromLine extracts a Spring/NestJS annotated method starting
 // at or just after rt.Line.
-func extractBraceDeclFromLine(src []byte, line int) (string, bool) {
+func extractBraceDeclFromLine(src []byte, line int) (string, int, bool) {
 	start := lineStartOffset(src, line)
 	if start < 0 {
-		return "", false
+		return "", 0, false
 	}
 	return extractBalancedBlock(src, start, start)
 }
 
 // extractPythonDefFromLine extracts the `def` / `async def` block at or after
-// decorator line `line`, stopping when indentation returns to or left of `def`.
-func extractPythonDefFromLine(src []byte, line int) (string, bool) {
+// decorator line `line`, stopping when indentation returns to or left of `def`,
+// and returns the 1-based line of the handler body's last non-blank line.
+func extractPythonDefFromLine(src []byte, line int) (string, int, bool) {
 	lines := strings.Split(string(src), "\n")
 	if line < 1 || line > len(lines) {
-		return "", false
+		return "", 0, false
 	}
 	defIdx := -1
 	defIndent := 0
@@ -421,9 +520,10 @@ func extractPythonDefFromLine(src []byte, line int) (string, bool) {
 		}
 	}
 	if defIdx < 0 {
-		return "", false
+		return "", 0, false
 	}
 	end := defIdx + 1
+	lastBodyIdx := defIdx
 	for end < len(lines) {
 		l := lines[end]
 		trimmed := strings.TrimSpace(l)
@@ -435,15 +535,16 @@ func extractPythonDefFromLine(src []byte, line int) (string, bool) {
 		if indent <= defIndent {
 			break
 		}
+		lastBodyIdx = end
 		end++
 	}
-	return strings.Join(lines[defIdx:end], "\n"), true
+	return strings.Join(lines[defIdx:end], "\n"), lastBodyIdx + 1, true
 }
 
-func extractInlineGoFromLine(src []byte, line int) (string, bool) {
+func extractInlineGoFromLine(src []byte, line int) (string, int, bool) {
 	start := lineStartOffset(src, line)
 	if start < 0 {
-		return "", false
+		return "", 0, false
 	}
 	endLine := start
 	for endLine < len(src) && src[endLine] != '\n' {
@@ -454,15 +555,15 @@ func extractInlineGoFromLine(src []byte, line int) (string, bool) {
 		idx = strings.Index(string(src[start:endLine]), "func (")
 	}
 	if idx < 0 {
-		return "", false
+		return "", 0, false
 	}
 	return extractBalancedBlock(src, start+idx, start+idx)
 }
 
-func extractInlineJSFromLine(src []byte, line int) (string, bool) {
+func extractInlineJSFromLine(src []byte, line int) (string, int, bool) {
 	start := lineStartOffset(src, line)
 	if start < 0 {
-		return "", false
+		return "", 0, false
 	}
 	endLine := start
 	for endLine < len(src) && src[endLine] != '\n' {
@@ -470,39 +571,41 @@ func extractInlineJSFromLine(src []byte, line int) (string, bool) {
 	}
 	lineText := string(src[start:endLine])
 	if !strings.Contains(lineText, "=>") && !strings.Contains(lineText, "function") {
-		return "", false
+		return "", 0, false
 	}
 	return extractBalancedBlock(src, start, start)
 }
 
-func extractNamedJSHandler(src []byte, handler string) (string, bool) {
+func extractNamedJSHandler(src []byte, handler string) (string, int, bool) {
 	name := trailingIdentifier(handler)
 	if name == "" {
-		return "", false
+		return "", 0, false
 	}
 	re := regexp.MustCompile(`(?m)(?:^|\s)(?:async\s+)?(?:function\s+` + regexp.QuoteMeta(name) + `\s*\(|(?:const|let|var)\s+` + regexp.QuoteMeta(name) + `\s*=\s*(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>)`)
 	loc := re.FindIndex(src)
 	if loc == nil {
-		return "", false
+		return "", 0, false
 	}
-	return extractBalancedBlock(src, loc[0], loc[0])
+	body, _, ok := extractBalancedBlock(src, loc[0], loc[0])
+	return body, 0, ok
 }
 
-func extractNamedGoHandler(absRoot, relFile string, src []byte, handler string) (string, bool) {
+func extractNamedGoHandler(absRoot, relFile string, src []byte, handler string) (string, int, bool) {
 	name := trailingIdentifier(handler)
 	if name == "" {
-		return "", false
+		return "", 0, false
 	}
 	re := regexp.MustCompile(`(?m)^func\s+(?:\([^)]*\)\s+)?` + regexp.QuoteMeta(name) + `\s*\(`)
 	if loc := re.FindIndex(src); loc != nil {
-		return extractBalancedBlock(src, loc[0], loc[0])
+		body, _, ok := extractBalancedBlock(src, loc[0], loc[0])
+		return body, 0, ok
 	}
 	// Check sibling non-test .go files in the same package directory.
 	pkgDir := filepath.Dir(filepath.FromSlash(relFile))
 	absDir := filepath.Join(absRoot, pkgDir)
 	entries, err := os.ReadDir(absDir)
 	if err != nil {
-		return "", false
+		return "", 0, false
 	}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
@@ -517,10 +620,11 @@ func extractNamedGoHandler(absRoot, relFile string, src []byte, handler string) 
 			continue
 		}
 		if loc := re.FindIndex(sibSrc); loc != nil {
-			return extractBalancedBlock(sibSrc, loc[0], loc[0])
+			body, _, ok := extractBalancedBlock(sibSrc, loc[0], loc[0])
+			return body, 0, ok
 		}
 	}
-	return "", false
+	return "", 0, false
 }
 
 func trailingIdentifier(handler string) string {

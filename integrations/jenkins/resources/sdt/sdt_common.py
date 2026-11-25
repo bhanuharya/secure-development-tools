@@ -83,3 +83,14 @@ def report_docx(out, repo):
     the plain 'SAST Report - <repo>.docx' of older builds is found too (newest wins)."""
     found = glob.glob(os.path.join(glob.escape(out), f"SAST Report - {glob.escape(repo)}*.docx"))
     return max(found, key=os.path.getmtime) if found else os.path.join(out, f"SAST Report - {repo}.docx")
+
+
+TARGET_REPORT_DIR = "target-branch"
+TARGET_PUBLISHED_NAME = "SAST Report - target branch.docx"  # its name in the reports repository
+
+
+def target_report_docx(out):
+    """A pull request build's report of its target branch (reports.sh writes it to out/target-branch/),
+    or "" when there is none."""
+    found = glob.glob(os.path.join(glob.escape(out), TARGET_REPORT_DIR, "*.docx"))
+    return max(found, key=os.path.getmtime) if found else ""

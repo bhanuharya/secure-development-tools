@@ -172,6 +172,193 @@ def get_loan(loan_id: int, current_user = Depends(get_current_user), db: Session
 			t.Errorf("%s: expected peer handler reference in message: %s", ep, f.Message)
 		}
 	}
+
+	// Verify severity, metadata.impact, and handler spans across frameworks.
+	wantSpan := map[string]struct {
+		sev     string
+		origSev string
+		impact  string
+		start   int
+		end     int
+	}{
+		"GET /api/orders/{orderId}":     {finding.SevMedium, "warning", "data-exposure", 3, 6},
+		"GET /api/accounts/{accountId}": {finding.SevMedium, "warning", "data-exposure", 3, 3}, // sibling file handler
+		"DELETE /api/cards/{cardId}":    {finding.SevHigh, "error", "logic-abuse", 5, 7},
+		"GET /api/tickets/{ticketId}":   {finding.SevMedium, "warning", "data-exposure", 1, 4},
+		"GET /api/wallets/{wallet_id}":  {finding.SevMedium, "warning", "data-exposure", 1, 3},
+	}
+	for ep, w := range wantSpan {
+		f := gotByEndpoint[ep]
+		if f.Severity.Canonical != w.sev || f.Severity.Original != w.origSev {
+			t.Errorf("%s: severity = (%s, %q), want (%s, %q)", ep, f.Severity.Canonical, f.Severity.Original, w.sev, w.origSev)
+		}
+		if gotImpact, _ := f.Metadata["impact"].(string); gotImpact != w.impact {
+			t.Errorf("%s: metadata.impact = %q, want %q", ep, gotImpact, w.impact)
+		}
+		if *f.Location.StartLine != w.start || *f.Location.EndLine != w.end {
+			t.Errorf("%s: span = [%d, %d], want [%d, %d]", ep, *f.Location.StartLine, *f.Location.EndLine, w.start, w.end)
+		}
+	}
+}
+
+func TestAnalyzeWithRootBOLA_SeverityImpactAndSpan(t *testing.T) {
+	dir := t.TempDir()
+
+	// Spring controller covering credential/contact words (kebab, camel, snake, handler name)
+	// and whole-word negatives (shipping, mapping, opinion, tokenizer), plus GET/HEAD vs mutating verbs.
+	mustWriteFile(t, filepath.Join(dir, "svc", "UserController.java"), `package com.example;
+public class UserController {
+    @PutMapping("/api/users/{id}/reset-pin")
+    public void changeCode(@PathVariable String id) {
+        userRepo.updateById(id);
+    }
+
+    @PostMapping("/api/users/{id}/action")
+    public void resetPin(@PathVariable String id) {
+        userRepo.updateById(id);
+    }
+
+    @PatchMapping("/api/users/{id}/reset_pin")
+    public void patchCode(@PathVariable String id) {
+        userRepo.updateById(id);
+    }
+
+    @PostMapping("/api/users/{id}/verify")
+    public void resetOTPCode(@PathVariable String id) {
+        userRepo.updateById(id);
+    }
+
+    @DeleteMapping("/api/sessions/{sessionId}")
+    public void dropSession(@PathVariable String sessionId) {
+        sessionRepo.deleteById(sessionId);
+    }
+
+    @RequestMapping("/api/users/{id}/email")
+    public void anyEmail(@PathVariable String id) {
+        userRepo.updateById(id);
+    }
+
+    @PostMapping("/api/orders/{id}/delivery")
+    public void updateShipping(@PathVariable String id) {
+        orderRepo.updateById(id);
+    }
+
+    @PutMapping("/api/items/{id}/layout")
+    public void saveMapping(@PathVariable String id) {
+        itemRepo.updateById(id);
+    }
+
+    @PatchMapping("/api/posts/{id}/opinion")
+    public void editOpinion(@PathVariable String id) {
+        postRepo.updateById(id);
+    }
+
+    @PostMapping("/api/articles/{id}/parse")
+    public void runTokenizer(@PathVariable String id) {
+        articleRepo.updateById(id);
+    }
+
+    @GetMapping("/api/users/{id}/password")
+    public User getPasswordMeta(@PathVariable String id) {
+        return userRepo.findById(id).orElseThrow();
+    }
+
+    @RequestMapping("/api/users/{id}/phone")
+    public User headPhone(@PathVariable String id) {
+        return userRepo.findById(id).orElseThrow();
+    }
+}
+`)
+
+	// Multi-line Python handler with trailing blank line before next decorator.
+	mustWriteFile(t, filepath.Join(dir, "svc-py", "users.py"), `@router.put("/api/users/{user_id}/mobile")
+def update_mobile(user_id: int, db: Session = Depends(get_db)):
+    row = db.query(User).filter(User.id == user_id).first()
+    row.mobile = "000"
+    return row
+
+
+@router.get("/api/users/{user_id}/profile")
+def get_profile(user_id: int, db: Session = Depends(get_db)):
+    return db.query(User).filter(User.id == user_id).first()
+`)
+
+	routes := []endpoints.Route{
+		{Service: "svc", Framework: "spring-mvc", Method: "PUT", Path: "/api/users/{id}/reset-pin", Handler: "UserController.changeCode", File: "svc/UserController.java", Line: 3, Protection: endpoints.ProtAuthenticated, Confidence: "high"},
+		{Service: "svc", Framework: "spring-mvc", Method: "POST", Path: "/api/users/{id}/action", Handler: "UserController.resetPin", File: "svc/UserController.java", Line: 8, Protection: endpoints.ProtAuthenticated, Confidence: "high"},
+		{Service: "svc", Framework: "spring-mvc", Method: "PATCH", Path: "/api/users/{id}/reset_pin", Handler: "UserController.patchCode", File: "svc/UserController.java", Line: 13, Protection: endpoints.ProtAuthenticated, Confidence: "high"},
+		{Service: "svc", Framework: "spring-mvc", Method: "POST", Path: "/api/users/{id}/verify", Handler: "UserController.resetOTPCode", File: "svc/UserController.java", Line: 18, Protection: endpoints.ProtAuthenticated, Confidence: "high"},
+		{Service: "svc", Framework: "spring-mvc", Method: "DELETE", Path: "/api/sessions/{sessionId}", Handler: "UserController.dropSession", File: "svc/UserController.java", Line: 23, Protection: endpoints.ProtAuthenticated, Confidence: "high"},
+		{Service: "svc", Framework: "spring-mvc", Method: "ANY", Path: "/api/users/{id}/email", Handler: "UserController.anyEmail", File: "svc/UserController.java", Line: 28, Protection: endpoints.ProtAuthenticated, Confidence: "high"},
+		{Service: "svc", Framework: "spring-mvc", Method: "POST", Path: "/api/orders/{id}/delivery", Handler: "UserController.updateShipping", File: "svc/UserController.java", Line: 33, Protection: endpoints.ProtAuthenticated, Confidence: "high"},
+		{Service: "svc", Framework: "spring-mvc", Method: "PUT", Path: "/api/items/{id}/layout", Handler: "UserController.saveMapping", File: "svc/UserController.java", Line: 38, Protection: endpoints.ProtAuthenticated, Confidence: "high"},
+		{Service: "svc", Framework: "spring-mvc", Method: "PATCH", Path: "/api/posts/{id}/opinion", Handler: "UserController.editOpinion", File: "svc/UserController.java", Line: 43, Protection: endpoints.ProtAuthenticated, Confidence: "high"},
+		{Service: "svc", Framework: "spring-mvc", Method: "POST", Path: "/api/articles/{id}/parse", Handler: "UserController.runTokenizer", File: "svc/UserController.java", Line: 48, Protection: endpoints.ProtAuthenticated, Confidence: "high"},
+		{Service: "svc", Framework: "spring-mvc", Method: "GET", Path: "/api/users/{id}/password", Handler: "UserController.getPasswordMeta", File: "svc/UserController.java", Line: 53, Protection: endpoints.ProtAuthenticated, Confidence: "high"},
+		{Service: "svc", Framework: "spring-mvc", Method: "HEAD", Path: "/api/users/{id}/phone", Handler: "UserController.headPhone", File: "svc/UserController.java", Line: 58, Protection: endpoints.ProtAuthenticated, Confidence: "high"},
+		{Service: "svc-py", Framework: "fastapi", Method: "PUT", Path: "/api/users/{user_id}/mobile", Handler: "update_mobile", File: "svc-py/users.py", Line: 1, Protection: endpoints.ProtAuthenticated, Confidence: "high"},
+		{Service: "svc-py", Framework: "fastapi", Method: "GET", Path: "/api/users/{user_id}/profile", Handler: "get_profile", File: "svc-py/users.py", Line: 8, Protection: endpoints.ProtAuthenticated, Confidence: "high"},
+	}
+
+	inv := &endpoints.Inventory{Schema: endpoints.Schema, Root: ".", Routes: routes}
+	fs, err := endpoints.AnalyzeWithRoot(dir, inv, config.Defaults().Endpoints)
+	if err != nil {
+		t.Fatalf("AnalyzeWithRoot: %v", err)
+	}
+	byEP := map[string]*finding.Finding{}
+	for _, f := range fs {
+		if f.Rule.ID != endpoints.RuleBolaUnscopedObjectAccess {
+			continue
+		}
+		ep, _ := f.Metadata["endpoint"].(string)
+		byEP[ep] = f
+	}
+
+	cases := []struct {
+		ep      string
+		file    string
+		sev     string
+		origSev string
+		impact  string
+		start   int
+		end     int
+	}{
+		{"PUT /api/users/{id}/reset-pin", "svc/UserController.java", finding.SevHigh, "error", "account-takeover", 3, 6},
+		{"POST /api/users/{id}/action", "svc/UserController.java", finding.SevHigh, "error", "account-takeover", 8, 11},
+		{"PATCH /api/users/{id}/reset_pin", "svc/UserController.java", finding.SevHigh, "error", "account-takeover", 13, 16},
+		{"POST /api/users/{id}/verify", "svc/UserController.java", finding.SevHigh, "error", "account-takeover", 18, 21},
+		{"DELETE /api/sessions/{sessionId}", "svc/UserController.java", finding.SevHigh, "error", "account-takeover", 23, 26},
+		{"ANY /api/users/{id}/email", "svc/UserController.java", finding.SevHigh, "error", "account-takeover", 28, 31},
+		{"POST /api/orders/{id}/delivery", "svc/UserController.java", finding.SevHigh, "error", "logic-abuse", 33, 36},
+		{"PUT /api/items/{id}/layout", "svc/UserController.java", finding.SevHigh, "error", "logic-abuse", 38, 41},
+		{"PATCH /api/posts/{id}/opinion", "svc/UserController.java", finding.SevHigh, "error", "logic-abuse", 43, 46},
+		{"POST /api/articles/{id}/parse", "svc/UserController.java", finding.SevHigh, "error", "logic-abuse", 48, 51},
+		{"GET /api/users/{id}/password", "svc/UserController.java", finding.SevMedium, "warning", "data-exposure", 53, 56},
+		{"HEAD /api/users/{id}/phone", "svc/UserController.java", finding.SevMedium, "warning", "data-exposure", 58, 61},
+		{"PUT /api/users/{user_id}/mobile", "svc-py/users.py", finding.SevHigh, "error", "account-takeover", 1, 5},
+		{"GET /api/users/{user_id}/profile", "svc-py/users.py", finding.SevMedium, "warning", "data-exposure", 8, 10},
+	}
+
+	for _, tc := range cases {
+		f, ok := byEP[tc.ep]
+		if !ok {
+			t.Errorf("missing BOLA finding for %s", tc.ep)
+			continue
+		}
+		if f.Severity.Canonical != tc.sev || f.Severity.Original != tc.origSev {
+			t.Errorf("%s: severity = (%s, %q), want (%s, %q)", tc.ep, f.Severity.Canonical, f.Severity.Original, tc.sev, tc.origSev)
+		}
+		if gotImpact, _ := f.Metadata["impact"].(string); gotImpact != tc.impact {
+			t.Errorf("%s: metadata.impact = %q, want %q", tc.ep, gotImpact, tc.impact)
+		}
+		if *f.Location.StartLine != tc.start || *f.Location.EndLine != tc.end {
+			t.Errorf("%s: span = [%d, %d], want [%d, %d]", tc.ep, *f.Location.StartLine, *f.Location.EndLine, tc.start, tc.end)
+		}
+		wantFP := finding.FingerprintValue(finding.CatSAST, "endpoints", endpoints.RuleBolaUnscopedObjectAccess, tc.file, tc.ep)
+		if f.Fingerprint.Value != wantFP {
+			t.Errorf("%s: fingerprint changed: got %s, want %s", tc.ep, f.Fingerprint.Value, wantFP)
+		}
+	}
 }
 
 func TestCompareProtectionRegressions(t *testing.T) {

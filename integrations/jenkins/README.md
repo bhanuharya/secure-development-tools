@@ -154,6 +154,13 @@ next scan) and linked from the comment, because Bitbucket Cloud has no API to at
 are readable by everyone who can read the repository, so a repository that is not private never gets the upload:
 its comment links the build artifact instead. `SDT_PR_REPORT_UPLOAD=0` turns the upload off everywhere.
 
+A pull request usually adds few findings or none, so its report is short. The scan already scans the target branch
+for the baseline, so it also writes a **target branch report** from that scan (`out/target-branch/SAST Report -
+<repo> - PR <id> - target <branch> - <time>.docx`, with the target branch's files for the code excerpts). It is
+uploaded and linked next to the pull request's report, and replaced with it by the next scan. It covers
+OpenGrep, Gitleaks and Trivy; SonarQube's own rules and review decisions are in the branch's own report.
+`SDT_PR_BASE_REPORT=0` turns it off; a failure is logged and never fails the build.
+
 ### Reports repository
 
 Set `SDT_REPORTS_REPO` to a repository in the workspace (a slug, or `workspace/slug`) and every scan commits its
@@ -161,7 +168,7 @@ report there with the same token, which then needs write access to that one repo
 
 ```
 <repo>/branches/<branch>/report.md        + SAST Report.docx
-<repo>/pull-requests/<id>/report.md       + SAST Report.docx
+<repo>/pull-requests/<id>/report.md       + SAST Report.docx (+ SAST Report - target branch.docx)
 ```
 
 `report.md` renders in Bitbucket and diffs line by line; each scan overwrites its own folder, so the repository's
@@ -174,15 +181,23 @@ if developers must not see each other's findings.
 Every scan attaches `SAST Report - <repo>.docx` to the build (full description in SDT's `docs/sast-report.md`):
 
 * **Cover**: logo (optional, supplied locally), scanners, totals, coverage gaps, executive summary, changes since the previous scan, contents.
-* **Fix First**: the open findings at priority P1 and P2, each with why it has that priority and what to do.
-  Priority (P1 to P4) starts from severity and moves with what is known about the service: set
+* **Fix First**: the open P1 and P2 findings grouped into actions, each with its impact, why it has that
+  priority and what to do,
+  followed by a **Dependency upgrades** table for open P1 and P2 upgrade actions.
+  Priority (P1 to P4) starts from the impact class for code (severity otherwise) and moves with what is known
+  about the service: set
   `SDT_INVENTORY` to a tab-separated inventory that records each repository's exposure (internet, internal,
   none) and business criticality, or put it at `$SDT_STATE_DIR/inventory.tsv` (with an image: in the state
   volume). A repository it does not list counts as reachable from the internet.
-  Format and rules: SDT's `docs/sast-report.md` (Priority) and `docs/adr/0009-finding-priority.md`.
+  Dependency upgrade actions are capped at P2 unless a CVE is on the CISA Known Exploited Vulnerabilities
+  catalog and affects an imported package: set `SDT_KEV_FILE` to a local copy of the CISA KEV JSON catalog
+  (nothing is downloaded during a scan; a missing path logs a warning and leaves the catalog off).
+  Format and rules: SDT's `docs/sast-report.md` (Priority) and `docs/adr/0009-finding-priority.md` (amended by
+  `docs/adr/0010-impact-classes-and-upgrade-actions.md`).
 * **1. Code Security** first: per rule, every finding with file, line, redacted code excerpt and an **Advisory**
   (assessment, evidence, what to check, what to do). Rules with more than 10 findings are laid out file by file.
-* **2. Secret Leaks** grouped by type and file; **3. Dependencies & Configuration** with one upgrade target per package.
+* **2. Secret Leaks** grouped by type and file; **3. Dependencies & Configuration** with grouped upgrade actions
+  followed by the per-package detail table.
 * File and line links open **Bitbucket at the scanned commit** (`/src/<commit>/<path>#lines-N`), so the mobile team can
   use the report without SonarQube. No secret value is ever printed.
 
@@ -202,6 +217,7 @@ secret-looking values.
 | `SDT_CODEX_MODEL` | `gpt-6.1-sol` | model Codex uses |
 | `SDT_SANITISERS` | _(none)_ | comma-separated helper names that sanitise/validate HTML or URLs (e.g. your `toTrustedMarkup`, `validateUrl`); S6299 bindings they produce are advised false positive |
 | `SDT_CODEX_REASONING` | `medium` | `minimal`/`low`/`medium`/`high`/`max`: reasoning depth. `medium` is the default so a single call stays under the per-call timeout; `inherit` falls back to the agent's codex config |
+| `SDT_CODEX_SERVICE_TIER` | (unset) | `fast`: ask Codex for the model's faster tier (about 1.5 to 2 times the speed; it may count more against the plan's usage). Codex leaves out a tier the model does not offer, with a warning. Unset: the agent's codex config decides |
 | `SDT_CODEX_TIMEOUT` | `120` | seconds per call |
 | `SDT_CODEX_BUDGET` | `600` | seconds for the whole review; the step is also wrapped in `timeout`. Raise it when running a deeper model or more reasoning |
 | `SDT_CODEX_PARALLEL` | `4` | rules reviewed at a time. Each is one Codex process and one model call; lower it if the account is rate-limited, `1` for one call at a time |
@@ -219,7 +235,8 @@ of static text, an XML namespace URL, a PIN/password/token variable in a log). S
 Set `SDT_HISTORY_DIR` to a persistent directory to add "Changes Since Previous Scan" (new / fixed / still present),
 over everything the report lists, SonarQube's own findings included. A branch scanned for the first time is
 compared with the most recently scanned other branch of the repository, so a new release branch shows what changed
-since the previous release.
+since the previous release. Each scan also keeps a dated copy of its state under `states/` for
+`tools/sdt_fix_rate.py` (see "Measuring the effect" in `docs/sast-report.md`).
 
 It stops after two consecutive failed calls (wrong model, auth, outage) instead of spending more. Without Codex,
 the report is produced exactly as before. Check with your data policy that sending code to Codex is allowed.

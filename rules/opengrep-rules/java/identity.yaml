@@ -36,7 +36,7 @@ rules:
       account by changing its password or e-mail. Take the account from the verified token, or
       require an administrator role, and ask for the old password or a one-time code before the
       change.
-    severity: WARNING
+    severity: ERROR
     metadata:
       title: Credential change for an account named in the URL
       category: security

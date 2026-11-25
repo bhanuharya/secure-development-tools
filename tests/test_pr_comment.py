@@ -393,3 +393,61 @@ def test_upload_removes_only_this_pull_requests_older_reports(out):
     deleted = [urllib.parse.unquote(r[1].split("/downloads/", 1)[1]) for r in fake.sent("DELETE")]
     assert sorted(deleted) == ["SAST Report - shop - PR 42 - 101126-0900.docx", "SAST Report - shop - PR 42.docx"]
 
+
+
+# ------------------------------------------------------------------ the target branch report
+TARGET = "SAST Report - shop - PR 42 - target main - 251126-1030.docx"
+
+
+def with_target(out):
+    (out / "target-branch").mkdir()
+    (out / "target-branch" / TARGET).write_bytes(b"PK-target-bytes")
+    return out
+
+
+def test_private_repository_gets_both_reports_uploaded_and_linked(out):
+    with_target(out)
+    fake = FakeBitbucket()
+    fake.downloads = ["SAST Report - shop - PR 42 - target main - 101126-0900.docx", TARGET, "SAST Report - shop - PR 42.docx"]
+    assert run(fake, out).returncode == 0
+    names = [r[3].split(b'filename="', 1)[1].split(b'"', 1)[0].decode() for r in fake.uploads()]
+    assert names == ["SAST Report - shop - PR 42.docx", TARGET]
+    text = fake.comment_text("POST")
+    assert ("[Target branch report (.docx)](https://bitbucket.org/ws/shop/downloads/"
+            "SAST%20Report%20-%20shop%20-%20PR%2042%20-%20target%20main%20-%20251126-1030.docx)") in text
+    assert text.index("Full report (.docx)") < text.index("Target branch report (.docx)")
+    deleted = [urllib.parse.unquote(r[1].split("/downloads/", 1)[1]) for r in fake.sent("DELETE")]
+    assert deleted == ["SAST Report - shop - PR 42 - target main - 101126-0900.docx"]  # this scan's two stay
+
+
+def test_public_repository_links_the_target_branch_artifact(out):
+    with_target(out)
+    fake = FakeBitbucket(private=False)
+    assert run(fake, out).returncode == 0
+    assert ("https://ci.example/job/x/9/artifact/out/target-branch/"
+            "SAST%20Report%20-%20shop%20-%20PR%2042%20-%20target%20main%20-%20251126-1030.docx") in fake.comment_text("POST")
+
+
+def test_without_a_target_branch_report_the_comment_is_unchanged(out):
+    fake = FakeBitbucket()
+    assert run(fake, out).returncode == 0
+    assert "Target branch report" not in fake.comment_text("POST") and len(fake.uploads()) == 1
+
+
+def test_published_pull_request_folder_holds_the_target_branch_report(out, reports):
+    with_target(out)
+    assert publish(out, reports, PR_ID="42").returncode == 0
+    assert published(reports, "shop/pull-requests/42/SAST Report - target branch.docx") == "PK-target-bytes"
+    assert "[SAST Report - target branch.docx](SAST%20Report%20-%20target%20branch.docx)" in published(
+        reports, "shop/pull-requests/42/report.md")
+    fake = FakeBitbucket()
+    assert run(fake, out).returncode == 0
+    url = (out / "report-url.txt").read_text().strip()
+    assert (f"[Target branch report (.docx)]({url[:-len('report.md')]}SAST%20Report%20-%20target%20branch.docx)"
+            in fake.comment_text("POST"))
+
+    # The next scan made none (turned off, or it failed): the old one would describe an older target branch.
+    (out / "target-branch" / TARGET).unlink()
+    assert publish(out, reports, PR_ID="42").returncode == 0
+    folder = git("--git-dir", str(bare(reports)), "ls-tree", "--name-only", "main", "shop/pull-requests/42/")
+    assert "SAST Report - target branch.docx" not in folder and "SAST Report.docx" in folder

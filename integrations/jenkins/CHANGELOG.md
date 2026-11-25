@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-11-25
+
+- The SAST report ranks by what an attacker can do (ADR 0010). Code findings get an impact class (account
+  takeover, authentication bypass, credential exposure and injection can reach P1; data exposure and logic abuse
+  P2; hardening P3) instead of starting from the scanner's severity. Fix First lists actions (one rule in one file,
+  with its routes) instead of single findings, and two rules flagging the same handler count once. The first page
+  opens with a summary of actions and at most five Top risks lines.
+- Vulnerable packages are grouped into upgrade actions (one per Spring Boot parent or BOM, JHipster BOM included,
+  lock file or manifest) in their own Fix First table, and no dependency is P1 unless one of its advisories is on a
+  known-exploited list: set `SDT_KEV_FILE` to a local copy of the CISA KEV catalog to allow it.
+- State-changing BOLA findings and `credential-change-by-request-id` are High now, so a pull request that adds one
+  fails the SDT policy (`block-new-high-sast`); the build is only blocked where the SonarQube quality gate is
+  enforced.
+- A pull request scan also writes a report of its target branch from the baseline scan it already ran
+  (`out/target-branch/`), uploaded and linked next to the pull request's report. `SDT_PR_BASE_REPORT=0` turns it off.
+- Each scan keeps a dated copy of its report state under `$SDT_HISTORY_DIR/<repo>/<branch>/states/` (400 days) for
+  `tools/sdt_fix_rate.py`: P1 actions closed within 14 and 30 days, and the P1 dismissal rate.
+- `SDT_CODEX_SERVICE_TIER=fast` runs the AI review on the model's faster Codex tier.
+
 ## 2026-11-18
 
 - A pull request scan no longer calls old findings new. Two causes, both seen on merged release pull requests

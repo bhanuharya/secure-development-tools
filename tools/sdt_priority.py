@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""How soon to act on a finding: P1 (now) to P4 (when the code is touched anyway).
+"""How soon to act on a finding: P1 (fix before the next deploy) to P4 (fix when the code is touched).
 
 Severity says how bad a weakness is in general. Priority starts there and moves one step at a
 time for what is known about this repository and this finding:
@@ -33,8 +33,18 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+_TOOLS_DIR = str(Path(__file__).resolve().parent)
+if _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
+import sdt_impact  # noqa: E402
+
 LEVELS = ("P1", "P2", "P3", "P4")
-MEANING = {"P1": "act now", "P2": "fix in the current release", "P3": "plan the fix", "P4": "fix when the code is touched"}
+MEANING = {
+    "P1": "fix before the next deploy",
+    "P2": "fix in this release",
+    "P3": "plan the fix",
+    "P4": "fix when the code is touched",
+}
 SEVERITY_LEVEL = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3, "Info": 3}
 MAX_LOWER = 2
 
@@ -110,8 +120,9 @@ class Step:
 @dataclass(frozen=True)
 class Priority:
     level: str
-    base: str  # what the level started from, e.g. "High severity"
+    base: str  # what the level started from, e.g. "Account takeover (C1), high-precision rule"
     steps: tuple = ()
+    impact: sdt_impact.Impact | None = None
 
     @property
     def rank(self) -> int:
@@ -125,12 +136,13 @@ class Priority:
         return f"{self.level} ({self.why})"
 
 
-def decide(start: int, base: str, raises: list[str], lowers: list[str]) -> Priority:
+def decide(start: int, base: str, raises: list[str], lowers: list[str],
+           impact: sdt_impact.Impact | None = None) -> Priority:
     """The level from a starting index, the raising and the lowering facts (at most MAX_LOWER apply)."""
     lowers = lowers[:MAX_LOWER]
     index = min(len(LEVELS) - 1, max(0, start - len(raises) + len(lowers)))
     steps = tuple(Step(r, -1) for r in raises) + tuple(Step(r, +1) for r in lowers)
-    return Priority(LEVELS[index], base, steps)
+    return Priority(LEVELS[index], base, steps, impact)
 
 
 def place(path: str) -> str:
@@ -156,14 +168,29 @@ def _service(ctx: Context, lowers: list[str]) -> None:
 
 
 def code(rule: str, name: str, severity: str, path: str, verdict: str = "", confidence: str = "",
-         ctx: Context = Context()) -> Priority:
+         ctx: Context = Context(), cwe: tuple[str, ...] = (), kind: str = "", impact: str = "") -> Priority:
     """A code finding (SonarQube issue or hotspot, OpenGrep match)."""
-    start, base = _severity(severity)
+    imp = sdt_impact.classify(rule, name=name, cwe=cwe, kind=kind, impact=impact)
     raises, lowers = [], []
-    if verdict == "likely_true_positive" and str(confidence).lower() != "low":
-        raises.append("review judged it real")
     if place(path) == "not shipped":
         lowers.append("test, example or documentation file")
+    if imp is not None:
+        ceiling = sdt_impact.CLASS_CEILING[imp.klass]
+        start = ceiling if imp.precision == "high" else min(len(LEVELS) - 1, ceiling + 1)
+        base = f"{imp.label} ({imp.klass}), {imp.precision}-precision rule"
+        if verdict == "likely_true_positive" and str(confidence).lower() != "low" and start > ceiling:
+            raises.append("review judged it real")
+        if imp.label == "Credential exposure":
+            pass  # hard-coded credentials are in the code: exposure and criticality do not limit who has them
+        elif imp.needs_reach:
+            _service(ctx, lowers)
+        elif ctx.criticality == "low":
+            lowers.append("low business criticality")
+        return decide(start, base, raises, lowers, impact=imp)
+
+    start, base = _severity(severity)
+    if verdict == "likely_true_positive" and str(confidence).lower() != "low":
+        raises.append("review judged it real")
     text = f"{rule} {name}"
     if CREDENTIAL_CODE.search(text):
         pass  # the value is in the code: the service's exposure and importance do not limit who has it
@@ -201,16 +228,28 @@ def secret(kind: str, paths: list[str] | str, client_key: bool = False, ctx: Con
     return decide(start, base, raises, lowers)
 
 
-def dependency(severity: str, reachable: str, manifest: str, ctx: Context = Context()) -> Priority:
-    """A vulnerable package: its worst advisory, then reachability and the service."""
-    start, base = _severity(severity)
+def dependency(severity: str, reachable: str, manifest: str, ctx: Context = Context(),
+               known_exploited: bool = False, kev_ids: tuple[str, ...] = ()) -> Priority:
+    """A vulnerable package: known-exploited starts at P1 (when imported), else worst advisory
+    severity; then reachability, manifest and service context apply; without a known-exploited
+    advisory, a P1 result is capped at P2."""
+    is_kev = bool(known_exploited) and reachable != "No"
+    if is_kev:
+        ids = ", ".join(kev_ids[:3]) + (f" (+{len(kev_ids) - 3})" if len(kev_ids) > 3 else "")
+        start = 0
+        base = f"on the known-exploited list: {ids}" if ids else "on the known-exploited list"
+    else:
+        start, base = _severity(severity)
     lowers = []
     if reachable == "No":
         lowers.append("not imported by the code")
     if place(manifest) == "not shipped":
         lowers.append("manifest of a test or example")
     _service(ctx, lowers)
-    return decide(start, base, [], lowers)
+    result = decide(start, base, [], lowers)
+    if not is_kev and result.level == "P1":
+        return Priority("P2", result.base, result.steps + (Step("capped at P2: no known-exploited advisory", +1),))
+    return result
 
 
 def configuration(severity: str, path: str, ctx: Context = Context()) -> Priority:
@@ -295,12 +334,15 @@ def rules_text(ctx: Context) -> list[str]:
                 (f" (from the {ctx.source})" if ctx.source else "") + "."
     return [
         facts,
-        "Each finding starts from its severity (Critical P1, High P2, Medium P3, Low P4) and moves one step for "
-        "each fact below. The reasons are listed with it (↑ raised, ↓ lowered).",
-        "Code: raised when the review judged it real. Lowered when it sits in a test, example or documentation file. "
-        "Rules that need an attacker's input (injection, cross-site scripting, server-side request forgery, path "
-        "traversal, deserialisation, debug and development servers) are lowered for an internal service. Hard-coded credentials, cryptography, "
-        "certificate checks and cross-site request forgery are not: they work without reaching the service directly.",
+        "Code findings are mapped to four impact classes with fixed ceilings: C1 Direct compromise (P1), C2 Data or "
+        "logic abuse (P2), C3 Defence in depth (P3), and C4 Hygiene (P4). A high-precision rule starts at its class "
+        "ceiling, and a medium-precision rule starts one step below it; unclassified rules fall back to scanner "
+        "severity (Critical P1, High P2, Medium P3, Low P4).",
+        "Code moves one step for each known fact (↑ raised, ↓ lowered): the review judging a finding real raises it "
+        "one step, never above its class ceiling, and a review opinion never lowers it. Test, example or "
+        "documentation files lower a finding, and an internal service lowers rules that need an attacker to reach "
+        "the service; hard-coded credentials, weak credential storage, cryptography, certificate checks and "
+        "cross-site request forgery are not lowered for an internal service.",
         "Secrets: a credential recognisable by its format (private key, cloud or service token, password in a URL) "
         "starts at P1, a generic key or token at P2, a client key that ships in the app at P3. Raised when its name "
         "says it signs sessions or is a password (a JWT secret, a salt, SECRET_KEY, a password; not a bot check's "
@@ -308,8 +350,11 @@ def rules_text(ctx: Context) -> list[str]:
         "test, example or documentation files (.env.example included), and when its name says it is public by "
         "design (a site, publishable or anonymous key). The "
         "service's exposure does not count: everyone who can read the repository has the value.",
-        "Dependencies: lowered when no scanned source file imports the package, when the manifest belongs to a test "
-        "or an example, and for an internal service.",
+        "Dependencies: a package starts from its worst advisory, or at P1 when one of its advisories is on the "
+        "known-exploited (KEV) list and the code imports it. Lowered when no scanned source file imports it, when "
+        "the manifest belongs to a test or an example, and for an internal service. Without a known-exploited "
+        "advisory a package is capped at P2. Packages are grouped into upgrade actions (one per Spring Boot parent "
+        "or BOM, lock file or manifest); an action takes its most urgent package's priority.",
         "Configuration checks: lowered in test, example or documentation files.",
         "High business criticality cancels the internal-service step; low criticality lowers code (except hard-coded "
         "credentials), dependencies and configuration one step.",
