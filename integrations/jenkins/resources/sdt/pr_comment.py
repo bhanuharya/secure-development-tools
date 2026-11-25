@@ -29,7 +29,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
-from sdt_common import report_docx, cell, gate, kind, log, place_of, rank, reported, required, scanned_commit, severity
+from sdt_common import TARGET_PUBLISHED_NAME, TARGET_REPORT_DIR, report_docx, target_report_docx, cell, gate, kind, log, place_of, rank, reported, required, scanned_commit, severity
 
 MARKER = "### SDT security scan"
 MAX_ROWS = 15
@@ -378,8 +378,10 @@ def body(result, conditions, rows, gone, links, commit, base):
 
 
 def prune_downloads(client, quoted, repo, pr_id, keep):
-    """Delete this pull request's older reports from Downloads. Report names carry the scan time,
-    so without this every scan of a pull request would leave one more file behind."""
+    """Delete this pull request's older reports from Downloads (its target branch report included, whose
+    name starts the same). Report names carry the scan time, so without this every scan of a pull request
+    would leave one more file behind. `keep`: the names this scan uploaded."""
+    keep = {keep} if isinstance(keep, str) else set(keep)
     prefix = f"SAST Report - {repo} - PR {pr_id}"
     url = f"{client.api}{quoted}/downloads?pagelen=100"
     try:
@@ -387,7 +389,7 @@ def prune_downloads(client, quoted, repo, pr_id, keep):
             page = client.call("GET", url)
             for item in page.get("values", []):
                 name = str(item.get("name") or "")
-                if name != keep and name.endswith(".docx") and (name == prefix + ".docx" or name.startswith(prefix + " - ")):
+                if name not in keep and name.endswith(".docx") and (name == prefix + ".docx" or name.startswith(prefix + " - ")):
                     client.call("DELETE", f"{client.api}{quoted}/downloads/{urllib.parse.quote(name)}")
             url = page.get("next")
             if not url:
@@ -396,9 +398,14 @@ def prune_downloads(client, quoted, repo, pr_id, keep):
         log(f"older reports not removed from Downloads: {err}")
 
 
+TARGET_LABEL = "Target branch report (.docx)"
+
+
 def report_links(client, quoted, out, repo, workspace, pr_id, build_url, upload):
-    """Where the report can be read, as (label, address) pairs."""
-    report = report_docx(out, repo)
+    """Where the report can be read, as (label, address) pairs: the pull request's report, then the report
+    of its target branch when reports.sh wrote one (a pull request often adds nothing, so its own report is
+    short)."""
+    report, target = report_docx(out, repo), target_report_docx(out)
     try:
         # publish_report.py committed the report to the reports repository.
         published = open(os.path.join(out, "report-url.txt")).read().strip()
@@ -408,6 +415,8 @@ def report_links(client, quoted, out, repo, workspace, pr_id, build_url, upload)
         links = [("Report", published)]
         if published.endswith("/report.md") and os.path.isfile(report):
             links.append(("Word (.docx)", published[:-len("report.md")] + "SAST%20Report.docx"))
+        if published.endswith("/report.md") and target:
+            links.append((TARGET_LABEL, published[:-len("report.md")] + urllib.parse.quote(TARGET_PUBLISHED_NAME)))
         return links
     if not os.path.isfile(report):
         return []
@@ -417,13 +426,28 @@ def report_links(client, quoted, out, repo, workspace, pr_id, build_url, upload)
             # Downloads are readable by everyone who can read the repository.
             if client.json("GET", quoted).get("is_private") is True:
                 client.upload(f"{quoted}/downloads", name, open(report, "rb").read())
-                prune_downloads(client, quoted, repo, pr_id, keep=name)
-                return [("Full report (.docx)", f"https://bitbucket.org/{workspace}/{repo}/downloads/{urllib.parse.quote(name)}")]
+                links = [("Full report (.docx)", f"https://bitbucket.org/{workspace}/{repo}/downloads/{urllib.parse.quote(name)}")]
+                kept = {name}
+                if target:
+                    target_name = os.path.basename(target)
+                    try:
+                        client.upload(f"{quoted}/downloads", target_name, open(target, "rb").read())
+                        kept.add(target_name)
+                        links.append((TARGET_LABEL, f"https://bitbucket.org/{workspace}/{repo}/downloads/"
+                                                    f"{urllib.parse.quote(target_name)}"))
+                    except RuntimeError as err:
+                        log(f"target branch report not uploaded: {err}")
+                prune_downloads(client, quoted, repo, pr_id, keep=kept)
+                return links
             log("repository is not private: the report is not put in its Downloads")
         except RuntimeError as err:
             log(f"report not uploaded: {err}")
     if build_url:
-        return [("Full report (.docx)", f"{build_url}artifact/out/{urllib.parse.quote(os.path.basename(report))}")]
+        links = [("Full report (.docx)", f"{build_url}artifact/out/{urllib.parse.quote(os.path.basename(report))}")]
+        if target:
+            links.append((TARGET_LABEL, f"{build_url}artifact/out/{TARGET_REPORT_DIR}/"
+                                        f"{urllib.parse.quote(os.path.basename(target))}"))
+        return links
     return []
 
 

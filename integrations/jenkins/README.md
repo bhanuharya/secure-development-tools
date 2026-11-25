@@ -154,6 +154,13 @@ next scan) and linked from the comment, because Bitbucket Cloud has no API to at
 are readable by everyone who can read the repository, so a repository that is not private never gets the upload:
 its comment links the build artifact instead. `SDT_PR_REPORT_UPLOAD=0` turns the upload off everywhere.
 
+A pull request usually adds few findings or none, so its report is short. The scan already scans the target branch
+for the baseline, so it also writes a **target branch report** from that scan (`out/target-branch/SAST Report -
+<repo> - PR <id> - target <branch> - <time>.docx`, with the target branch's files for the code excerpts). It is
+uploaded and linked next to the pull request's report, and replaced with it by the next scan. It covers
+OpenGrep, Gitleaks and Trivy; SonarQube's own rules and review decisions are in the branch's own report.
+`SDT_PR_BASE_REPORT=0` turns it off; a failure is logged and never fails the build.
+
 ### Reports repository
 
 Set `SDT_REPORTS_REPO` to a repository in the workspace (a slug, or `workspace/slug`) and every scan commits its
@@ -161,7 +168,7 @@ report there with the same token, which then needs write access to that one repo
 
 ```
 <repo>/branches/<branch>/report.md        + SAST Report.docx
-<repo>/pull-requests/<id>/report.md       + SAST Report.docx
+<repo>/pull-requests/<id>/report.md       + SAST Report.docx (+ SAST Report - target branch.docx)
 ```
 
 `report.md` renders in Bitbucket and diffs line by line; each scan overwrites its own folder, so the repository's
@@ -174,16 +181,19 @@ if developers must not see each other's findings.
 Every scan attaches `SAST Report - <repo>.docx` to the build (full description in SDT's `docs/sast-report.md`):
 
 * **Cover**: logo (optional, supplied locally), scanners, totals, coverage gaps, executive summary, changes since the previous scan, contents.
-* **Fix First**: the open findings at priority P1 and P2, each with why it has that priority and what to do,
+* **Fix First**: the open P1 and P2 findings grouped into actions, each with its impact, why it has that
+  priority and what to do,
   followed by a **Dependency upgrades** table for open P1 and P2 upgrade actions.
-  Priority (P1 to P4) starts from severity and moves with what is known about the service: set
+  Priority (P1 to P4) starts from the impact class for code (severity otherwise) and moves with what is known
+  about the service: set
   `SDT_INVENTORY` to a tab-separated inventory that records each repository's exposure (internet, internal,
   none) and business criticality, or put it at `$SDT_STATE_DIR/inventory.tsv` (with an image: in the state
   volume). A repository it does not list counts as reachable from the internet.
   Dependency upgrade actions are capped at P2 unless a CVE is on the CISA Known Exploited Vulnerabilities
   catalog and affects an imported package: set `SDT_KEV_FILE` to a local copy of the CISA KEV JSON catalog
   (nothing is downloaded during a scan; a missing path logs a warning and leaves the catalog off).
-  Format and rules: SDT's `docs/sast-report.md` (Priority) and `docs/adr/0009-finding-priority.md`.
+  Format and rules: SDT's `docs/sast-report.md` (Priority) and `docs/adr/0009-finding-priority.md` (amended by
+  `docs/adr/0010-impact-classes-and-upgrade-actions.md`).
 * **1. Code Security** first: per rule, every finding with file, line, redacted code excerpt and an **Advisory**
   (assessment, evidence, what to check, what to do). Rules with more than 10 findings are laid out file by file.
 * **2. Secret Leaks** grouped by type and file; **3. Dependencies & Configuration** with grouped upgrade actions

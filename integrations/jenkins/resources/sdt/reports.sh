@@ -8,7 +8,9 @@
 #           SDT_STATE_DIR (kept between scans: scan history and AI verdict memory live under it),
 #           SDT_SCAN_NICE (priority of everything this script starts, as in scan.sh),
 #           SDT_INVENTORY (repository inventory for finding priority; default $SDT_STATE_DIR/inventory.tsv when present),
-#           SDT_KEV_FILE (optional local CISA KEV catalog JSON; allows P1 on imported vulnerable packages)
+#           SDT_KEV_FILE (optional local CISA KEV catalog JSON; allows P1 on imported vulnerable packages),
+#           PR_BASE + SDT_PR_BASE_REPORT (1|0: a pull request scan also reports its target branch, from the
+#           baseline scan, in out/target-branch/)
 set -euo pipefail
 set +x
 : "${SRC:?}" "${OUT:?}" "${REPO_SLUG:?}"
@@ -87,6 +89,31 @@ else
     --commit "$COMMIT" "${KEV_ARG[@]}" --out "$REPORT_DOCX" || { log "DOCX report failed"; status=1; }
 fi
 timing report
+
+# A pull request usually adds few findings or none, so its report is short. scan.sh scanned the target branch
+# for the baseline anyway: report that branch too, from the same scan, with the target branch's files as the
+# source (OpenGrep, Gitleaks and Trivy; SonarQube's own rules and review decisions are in that branch's own
+# report). In out/target-branch/, so it is never taken for the pull request's report. SDT_PR_BASE_REPORT=0
+# turns it off; it never fails the build.
+rm -rf "$OUT/target-branch"
+if [ -n "${PR_ID:-}" ] && [ -n "${PR_BASE:-}" ] && [ "${SDT_PR_BASE_REPORT:-1}" = 1 ] && [ -s "$OUT/base/findings.json" ]; then
+  BASE_TREE="$OUT/target-branch-src"
+  rm -rf "$BASE_TREE"; mkdir -p "$BASE_TREE" "$OUT/target-branch"
+  BASE_SRC_ARGS=()
+  if git -C "$SRC" archive "origin/$PR_BASE" 2>/dev/null | tar -x -C "$BASE_TREE" 2>/dev/null; then
+    BASE_SRC_ARGS=(--src-root "$BASE_TREE")
+  else
+    log "target branch files not extracted; its report has no code excerpts"
+  fi
+  BASE_COMMIT=$(git -C "$SRC" rev-parse "origin/$PR_BASE^{commit}" 2>/dev/null || true)
+  BASE_DOCX="$OUT/target-branch/SAST Report - $REPO_SLUG - PR $PR_ID - target $(printf '%s' "$PR_BASE" | tr -c 'A-Za-z0-9._-' '_') - $(date +%d%m%y-%H%M).docx"
+  python3 "$SDT_HOME/tools/sdt_to_docx.py" --findings "$OUT/base/findings.json" "${BASE_SRC_ARGS[@]}" \
+    --repository "$WORKSPACE_NAME/$REPO_SLUG" --project-name "$REPO_SLUG" --branch "$PR_BASE" \
+    ${BASE_COMMIT:+--commit "$BASE_COMMIT"} "${KEV_ARG[@]}" --out "$BASE_DOCX" \
+    || log "target branch report failed (the pull request report is complete)"
+  rm -rf "$BASE_TREE"
+  timing target-branch-report
+fi
 
 # Opt-in, pull requests only: an AI read of the changed lines for what rules miss (missing permission
 # checks, unvalidated input, weakened settings). Advice for the reviewer; never blocks, never enters SonarQube.

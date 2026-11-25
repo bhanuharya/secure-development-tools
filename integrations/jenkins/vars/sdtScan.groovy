@@ -166,7 +166,7 @@ def call(Map args = [:]) {
         }
       }
     } finally {
-      archiveArtifacts artifacts: 'out/*.docx, out/*.xlsx, out/fleet/*.pdf, out/fleet/*.xlsx, ' +
+      archiveArtifacts artifacts: 'out/*.docx, out/target-branch/*.docx, out/*.xlsx, out/fleet/*.pdf, out/fleet/*.xlsx, ' +
                                   'out/sdt/findings.json, out/sdt/findings-new.json, out/sdt/findings.sarif, ' +
                                   'out/sdt/endpoints.json, out/sdt/run-manifest.json, ' +
                                   'out/sbom.cdx.json, out/triage.json, out/quality-gate.txt, out/sonar-scanner.log, out/timings.tsv, ' +
