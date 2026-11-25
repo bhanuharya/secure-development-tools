@@ -2359,8 +2359,10 @@ def test_run_codex_passes_reasoning_effort_only_when_set(tmp_path, monkeypatch):
     monkeypatch.setattr(sdt_triage_codex.subprocess, "run", fake_run)
 
     monkeypatch.delenv("SDT_CODEX_REASONING", raising=False)
+    monkeypatch.delenv("SDT_CODEX_SERVICE_TIER", raising=False)
     sdt_triage_codex.run_codex("codex", "gpt-6.1-sol", "prompt", 30)
     assert captured["cmd"][captured["cmd"].index("--model") + 1] == "gpt-6.1-sol"
+    assert not any(c.startswith("service_tier=") for c in captured["cmd"])  # unset: the codex config decides
     assert "model_reasoning_effort=medium" in captured["cmd"]  # default is medium, not the slower high/max
 
     monkeypatch.setenv("SDT_CODEX_REASONING", "high")
@@ -2368,6 +2370,15 @@ def test_run_codex_passes_reasoning_effort_only_when_set(tmp_path, monkeypatch):
     assert "model_reasoning_effort=high" in captured["cmd"]
 
     monkeypatch.setenv("SDT_CODEX_REASONING", "inherit")  # fall back to the agent's codex config
+    sdt_triage_codex.run_codex("codex", "gpt-6.1-sol", "prompt", 30)
+    assert "-c" not in captured["cmd"]
+
+    monkeypatch.setenv("SDT_CODEX_SERVICE_TIER", "fast")
+    sdt_triage_codex.run_codex("codex", "gpt-6.1-sol", "prompt", 30)
+    assert captured["cmd"][captured["cmd"].index("service_tier=fast") - 1] == "-c"
+    assert captured["cmd"].index("service_tier=fast") < captured["cmd"].index("-")  # before the prompt marker
+
+    monkeypatch.setenv("SDT_CODEX_SERVICE_TIER", "fast\nmodel=other")  # not a tier name: ignored
     sdt_triage_codex.run_codex("codex", "gpt-6.1-sol", "prompt", 30)
     assert "-c" not in captured["cmd"]
 

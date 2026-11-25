@@ -217,6 +217,7 @@ secret-looking values.
 | `SDT_CODEX_MODEL` | `gpt-6.1-sol` | model Codex uses |
 | `SDT_SANITISERS` | _(none)_ | comma-separated helper names that sanitise/validate HTML or URLs (e.g. your `toTrustedMarkup`, `validateUrl`); S6299 bindings they produce are advised false positive |
 | `SDT_CODEX_REASONING` | `medium` | `minimal`/`low`/`medium`/`high`/`max`: reasoning depth. `medium` is the default so a single call stays under the per-call timeout; `inherit` falls back to the agent's codex config |
+| `SDT_CODEX_SERVICE_TIER` | (unset) | `fast`: ask Codex for the model's faster tier (about 1.5 to 2 times the speed; it may count more against the plan's usage). Codex leaves out a tier the model does not offer, with a warning. Unset: the agent's codex config decides |
 | `SDT_CODEX_TIMEOUT` | `120` | seconds per call |
 | `SDT_CODEX_BUDGET` | `600` | seconds for the whole review; the step is also wrapped in `timeout`. Raise it when running a deeper model or more reasoning |
 | `SDT_CODEX_PARALLEL` | `4` | rules reviewed at a time. Each is one Codex process and one model call; lower it if the account is rate-limited, `1` for one call at a time |

@@ -421,6 +421,9 @@ def validate(answer: object, ids: set[str], paths: dict[str, str] | None = None,
     return out
 
 
+TIER = re.compile(r"[A-Za-z0-9_-]{1,32}")  # a Codex service tier name ("fast", "flex"); anything else is ignored
+
+
 def run_codex(codex: str, model: str, prompt: str, timeout: float, response_schema: dict | None = None) -> dict:
     """One non-interactive, read-only Codex call in an empty directory; its JSON answer."""
     with tempfile.TemporaryDirectory(prefix="sdt-triage-") as work:
@@ -435,6 +438,11 @@ def run_codex(codex: str, model: str, prompt: str, timeout: float, response_sche
         effort = os.environ.get("SDT_CODEX_REASONING", "medium")
         if effort and effort != "inherit":
             command += ["-c", f"model_reasoning_effort={effort}"]
+        # SDT_CODEX_SERVICE_TIER=fast asks for the model's faster tier. Codex leaves out a tier the model does
+        # not offer, with a warning, so the call still runs. Unset: the agent's codex config decides.
+        tier = os.environ.get("SDT_CODEX_SERVICE_TIER", "").strip()
+        if tier and TIER.fullmatch(tier):
+            command += ["-c", f"service_tier={tier}"]
         command += ["--output-schema", str(schema), "--output-last-message", str(answer), "-"]
         result = subprocess.run(command, input=prompt, capture_output=True, text=True, timeout=timeout, cwd=work)
         if result.returncode != 0:
