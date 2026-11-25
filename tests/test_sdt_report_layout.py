@@ -572,3 +572,100 @@ def test_merge_backfills_endpoint_from_findings_and_sonar_extracts_endpoint():
     assert occ.endpoint == "PUT /api/users/{id}/password"
     assert occ.impact == "account-takeover"
     assert occ.end_line == 28
+
+
+def _five_label_groups() -> list:
+    """Open code findings with five different impact labels at P1 or P2, one file each."""
+    def group(rule, name, path, **occ):
+        return sdt_to_docx.Group(rule, name, "Vulnerability", "High",
+                                 occurrences=[sdt_to_docx.Occurrence(path, 10, name, "Open", "", **occ)])
+    return [
+        group("scp.java.authz.credential-change-by-request-id", "Cred change", "src/A.java"),
+        group("scp.java.authz.security-chain-without-default", "No default", "src/B.java"),
+        group("java:S3649", "SQLi", "src/C.java"),
+        group("scp.endpoints.bola-unscoped-object-access", "Read BOLA", "src/D.java", impact="data-exposure"),
+        group("scp.java.crypto.recoverable-password", "Recoverable", "src/E.java"),
+    ]
+
+
+def _dep(package: str, manifest: str, severity: str, n: int = 1) -> list:
+    return [sdt_to_docx.DependencyRow(f"{package}{i}", "1.0.0", manifest, {f"CVE-2020-{1000 + i}": "1.0.1"},
+                                      {f"CVE-2020-{1000 + i}": severity}, "Yes") for i in range(n)]
+
+
+def test_top_risks_keeps_dependency_line_and_drops_least_urgent_code_label():
+    deps = _dep("lib", "requirements.txt", "High")
+    report = sdt_to_docx.Report("app", "ws/app", "main", "", "abc", "SDT", _five_label_groups(), [], deps, [],
+                                sdt_to_docx.date(2026, 11, 24))
+    sdt_to_docx.prioritize(report)
+    risks = sdt_to_docx.top_risks(report)
+    assert len(risks) == 5
+    assert risks[-1].startswith("Outdated requirements.txt: one upgrade fixes 1 High package")
+    labels = [r.split(":")[0] for r in risks[:-1]]
+    assert labels == ["Account takeover", "Authentication bypass", "Injection", "Data exposure"]
+
+
+def test_top_risks_puts_a_known_exploited_upgrade_before_p2_lines():
+    deps = _dep("lib", "requirements.txt", "High")
+    report = sdt_to_docx.Report("app", "ws/app", "main", "", "abc", "SDT", _five_label_groups(), [], deps, [],
+                                sdt_to_docx.date(2026, 11, 24), kev={"CVE-2020-1000"})
+    sdt_to_docx.prioritize(report)
+    risks = sdt_to_docx.top_risks(report)
+    assert [r.split(":")[0] for r in risks] == [
+        "Account takeover", "Authentication bypass", "Injection", "Outdated requirements.txt", "Data exposure"]
+
+
+def test_top_risks_names_the_upgrade_that_fixes_the_most_severe_packages():
+    lock = _dep("npm", "package-lock.json", "Critical", 5) + _dep("npmh", "package-lock.json", "High", 40)
+    gradle = _dep("jvm", "build.gradle", "Critical", 11) + _dep("jvmh", "build.gradle", "High", 19)
+    report = sdt_to_docx.Report("app", "ws/app", "main", "", "abc", "SDT", [], [], lock + gradle, [],
+                                sdt_to_docx.date(2026, 11, 24))
+    sdt_to_docx.prioritize(report)
+    assert sdt_to_docx.top_risks(report) == ["Outdated build.gradle: one upgrade fixes 11 Critical and 19 High packages."]
+
+
+def test_fix_first_action_uses_rule_help_from_findings_json():
+    def finding(rule_id, help_text):
+        return {"rule": {"id": rule_id, "name": "Unscoped object access", "help": help_text},
+                "scanner": {"adapter": "endpoints"}, "category": "sast", "severity": {"canonical": "high"},
+                "message": "PUT /api/users/{id}/pin accepts object parameter {id}",
+                "location": {"path": "src/UserController.java", "startLine": 20},
+                "metadata": {"impact": "account-takeover", "endpoint": "PUT /api/users/{id}/pin"}}
+    help_text = ("Derive the caller identity from the verified token and filter the query. "
+                 "Return 404 for records the caller does not own.")
+    found = sdt_to_docx.from_findings({"findings": [finding("scp.endpoints.bola-unscoped-object-access", help_text)]})
+    assert found["code"][0].fixes == ["Derive the caller identity from the verified token and filter the query.",
+                                      "Return 404 for records the caller does not own."]
+    report = sdt_to_docx.Report("app", "ws/app", "main", "", "abc", "SDT", found["code"], [], [], [],
+                                sdt_to_docx.date(2026, 11, 24))
+    sdt_to_docx.prioritize(report)
+    assert sdt_to_docx.fix_first_actions(report)[0].action_scope.startswith("Derive the caller identity")
+
+    bare = sdt_to_docx.from_findings({"findings": [finding("scp.endpoints.bola-unscoped-object-access", "")]})
+    report = sdt_to_docx.Report("app", "ws/app", "main", "", "abc", "SDT", bare["code"], [], [], [],
+                                sdt_to_docx.date(2026, 11, 24))
+    sdt_to_docx.prioritize(report)
+    assert sdt_to_docx.fix_first_actions(report)[0].action_scope.startswith("Fix, or mark False positive with a reason")
+
+
+def test_help_fixes_keeps_whole_sentences_within_the_limit():
+    long = "A" * 250 + ". " + "B" * 100 + "."
+    assert sdt_to_docx._help_fixes(long) == ["A" * 250 + "."]
+    assert sdt_to_docx._help_fixes("") == []
+
+
+def test_merge_takes_sdt_rule_help_when_sonarqube_has_no_description():
+    sonar_group = sdt_to_docx.Group("external_sdt-endpoints:scp.endpoints.bola-unscoped-object-access", "BOLA",
+                                    "Vulnerability", "Medium",
+                                    occurrences=[sdt_to_docx.Occurrence("src/U.java", 20, "m", "Open", "")])
+    described = sdt_to_docx.Group("java:S3649", "SQLi", "Vulnerability", "High", fixes=["Use bound parameters."],
+                                  occurrences=[sdt_to_docx.Occurrence("src/R.java", 5, "m", "Open", "")])
+    sdt_group = sdt_to_docx.Group("endpoints:scp.endpoints.bola-unscoped-object-access", "BOLA", "Finding", "Medium",
+                                  fixes=["Scope the query to the caller."])
+    other = sdt_to_docx.Group("opengrep:java:S3649", "SQLi", "Finding", "High", fixes=["Something else."])
+    sonar = {"code": [sonar_group, described], "secret": [], "dependency": [], "config": []}
+    sdt = {"code": [sdt_group, other], "secret": [], "dependency": [], "config": []}
+    merged = sdt_to_docx.merge(sonar, sdt)
+    by_rule = {g.rule: g.fixes for g in merged["code"]}
+    assert by_rule[sonar_group.rule] == ["Scope the query to the caller."]
+    assert by_rule["java:S3649"] == ["Use bound parameters."]

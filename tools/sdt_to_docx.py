@@ -505,6 +505,20 @@ def from_sonar(sonar: Sonar, project_key: str, branch: str, pull_request: str,
 
 
 # --------------------------------------------------------------------- sdt source
+HELP_LIMIT = 300  # characters of a rule's help text used as its fix when nothing better is known
+
+
+def _help_fixes(help_text: str) -> list[str]:
+    """A rule's help text as fix steps: whole sentences up to HELP_LIMIT characters (at least one)."""
+    steps, used = [], 0
+    for sentence in (s.strip() for s in re.split(r"(?<=[.!?])\s+", help_text.strip()) if s.strip()):
+        if steps and used + len(sentence) > HELP_LIMIT:
+            break
+        steps.append(sentence[:HELP_LIMIT])
+        used += len(sentence)
+    return steps
+
+
 def from_findings(doc: dict, src_root: Path | None = None) -> dict:
     """The four categories from an SDT findings.json (richer for secrets and dependencies)."""
     groups: "OrderedDict[str, Group]" = OrderedDict()
@@ -552,7 +566,8 @@ def from_findings(doc: dict, src_root: Path | None = None) -> dict:
                 cwes = tuple(str(c) for c in (rule.get("cwe") or []) if c)
                 groups[key] = Group(key, str(rule.get("name") or rule_id), "Finding", severity,
                                     [message] if message else [],
-                                    [s.strip() for s in re.split(r"(?<=[.!?])\s+", guidance) if s.strip()],
+                                    [s.strip() for s in re.split(r"(?<=[.!?])\s+", guidance) if s.strip()]
+                                    or _help_fixes(str(rule.get("help") or "")),
                                     cwe=cwes)
             group = groups[key]
             group.severity = _worse(group.severity, severity)
@@ -610,6 +625,11 @@ def merge(sonar: dict, sdt: dict | None) -> dict:
             for o in g.occurrences:
                 if o.impact or o.end_line > o.line or o.endpoint:
                     sdt_code_meta[(norm, o.path, o.line)] = (o.impact, o.end_line, o.endpoint)
+        # SonarQube has no description for SDT's own rules, so their fix comes from findings.json.
+        sdt_fixes = {sdt_impact.normalize_rule_key(g.rule): g.fixes for g in sdt.get("code") or () if g.fixes}
+        for g in merged["code"]:
+            if not g.fixes:
+                g.fixes = list(sdt_fixes.get(sdt_impact.normalize_rule_key(g.rule), ()))
         if sdt_code_meta:
             for g in merged["code"]:
                 norm = sdt_impact.normalize_rule_key(g.rule)
@@ -1738,8 +1758,8 @@ def _dependency_top_risk(action: sdt_upgrades.UpgradeAction) -> str:
 def top_risks(report: Report) -> list[str]:
     """At most 5 plain-language first-page risk lines from fixed templates (no AI text).
 
-    One line per impact label among open P1 and P2 actions, plus one line for the most urgent
-    open P1/P2 dependency upgrade action, ordered most urgent first.
+    One line per impact label among open P1 and P2 actions, most urgent first, plus one line for
+    the open P1/P2 dependency upgrade action that fixes the most severe packages (always kept).
     """
     candidates: list[tuple[tuple, str]] = []
     by_label: "OrderedDict[str, list[FixFirstAction]]" = OrderedDict()
@@ -1769,22 +1789,21 @@ def top_risks(report: Report) -> list[str]:
         rank = (best_level, best_class, LABEL_ORDER.get(label, len(LABEL_ORDER)), -count, label)
         candidates.append((rank, line))
 
+    candidates.sort(key=lambda item: item[0])
     open_p12_upgrades = [
         a for a in report.upgrades if a.open and a.priority and a.priority.level in FIX_FIRST_LEVELS
     ]
-    if open_p12_upgrades:
-        top_dep = open_p12_upgrades[0]
-        dep_rank = (
-            sdt_priority.LEVELS.index(top_dep.priority.level),
-            2,
-            0,
-            -len(top_dep.packages),
-            _upgrade_subject(top_dep),
-        )
-        candidates.append((dep_rank, _dependency_top_risk(top_dep)))
-
-    candidates.sort(key=lambda item: item[0])
-    return [line for _, line in candidates[:MAX_TOP_RISKS]]
+    if not open_p12_upgrades:
+        return [line for _, line in candidates[:MAX_TOP_RISKS]]
+    # Dependencies reach P1 only through the known-exploited list, so this line is often the only
+    # place the first page names them: it is always kept, placed by its priority after the code and
+    # secret lines of the same level, and names the upgrade that fixes the most severe packages.
+    top_dep = min(open_p12_upgrades, key=lambda a: (
+        a.priority.rank, -a.counts.get("Critical", 0), -a.counts.get("High", 0), -len(a.packages), a.title))
+    dep_rank = (top_dep.priority.rank, len(CLASS_ORDER) + 1, 0, 0, "")
+    kept = candidates[:MAX_TOP_RISKS - 1] + [(dep_rank, _dependency_top_risk(top_dep))]
+    kept.sort(key=lambda item: item[0])
+    return [line for _, line in kept]
 
 
 def upgrade_action_rows(actions: list[sdt_upgrades.UpgradeAction]) -> list[list]:
