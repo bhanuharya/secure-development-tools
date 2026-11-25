@@ -1496,6 +1496,23 @@ class FixFirstAction:
     path: str
     size: int
     routes: tuple[str, ...] = ()
+    key: str = ""  # the same problem in the next scan has the same key (sdt_fix_rate.py)
+    members: tuple[tuple[str, str, int, str], ...] = ()  # code: (rule, path, line, message) per finding
+
+
+def action_key(kind: str, subject: str, label: str, path: str) -> str:
+    """A Fix First action's identity across scans: what it is about and where, never its priority or
+    line numbers, so an action whose lines moved or whose priority changed is still the same action.
+    For code the subject is the rule family of a merged set (sdt_impact.MERGE_FAMILIES) or the rule
+    without its source prefix, so a SonarQube and a findings.json scan of the same code agree."""
+    return _digest(kind, subject, label, path)
+
+
+def _code_subject(rules) -> str:
+    families = {sdt_impact.merge_family(r) for r in rules} - {""}
+    if len(families) == 1:
+        return "family:" + families.pop()
+    return "+".join(sorted({sdt_impact.normalize_rule_key(r) for r in rules}))
 
 
 def _ensure_period(text: str) -> str:
@@ -1638,6 +1655,8 @@ def fix_first_actions(report: Report) -> list[FixFirstAction]:
                 path=path,
                 size=len(cluster),
                 routes=routes,
+                key=action_key("code", _code_subject(seen_rules), label, path),
+                members=tuple((g.rule, o.path, o.line, o.message) for g, o in cluster),
             ))
 
     for g in group_secrets(report.secrets, report.context):
@@ -1652,6 +1671,7 @@ def fix_first_actions(report: Report) -> list[FixFirstAction]:
                 why=g.priority.why,
                 path=g.path,
                 size=g.count,
+                key=action_key("secret", g.kind, "Secret leak", g.path),
             ))
 
     cfg_buckets: "OrderedDict[tuple[str, str, str], list[ConfigRow]]" = OrderedDict()
@@ -1687,6 +1707,7 @@ def fix_first_actions(report: Report) -> list[FixFirstAction]:
             why=why,
             path=path,
             size=len(rows),
+            key=action_key("config", check, "Configuration", path),
         ))
 
     actions.sort(key=lambda a: (
@@ -2481,6 +2502,37 @@ def report_state(report: Report, src_root: Path | None) -> dict:
             **({"endpoints": endpoint_state(report.endpoints)} if report.endpoints else {})}
 
 
+DISMISSED = ("Safe", "False positive", "Accepted")  # a decision that the finding needs no fix
+
+
+def action_state(report: Report, src_root: Path | None) -> dict:
+    """What sdt_fix_rate.py needs from this scan, added to the report state (call after prioritize()).
+
+    actions: every open P1 and P2 Fix First action (code, secret, configuration) with its key, level,
+    class, label and size; a code action also lists its findings' identities (as in "findings").
+    decided: the code findings SonarQube holds a decision for, with that decision and the priority the
+    finding would have had if it were open (the review opinion left out). Digests only."""
+    text = _line_reader(src_root)
+
+    def identity(rule: str, path: str, line: int, message: str) -> str:
+        return _digest(rule, _digest(path, text(path, line) or line or message))
+
+    actions = []
+    for a in fix_first_actions(report):
+        entry = {"key": a.key, "kind": a.kind, "level": a.level, "class": a.klass, "label": a.impact, "size": a.size}
+        if a.kind == "code":
+            entry["findings"] = sorted({identity(*m) for m in a.members})
+        actions.append(entry)
+    decided = []
+    for g in (report.resolved or {}).get("code", []):
+        for o in g.occurrences:
+            level = sdt_priority.code(g.rule, g.name, g.severity, o.path, ctx=report.context, cwe=g.cwe,
+                                      kind=g.kind, impact=o.impact).level
+            decided.append({"finding": identity(g.rule, o.path, o.line, o.message), "status": o.status,
+                            "level": level})
+    return {"actions": actions, "decided": decided}
+
+
 def excepted_places(doc: dict, src_root: Path | None) -> set:
     """The places of findings an approved exception covers in this scan (left out of the report)."""
     covered = [dict(f, suppression=None) for f in doc.get("findings", []) if f.get("suppression")]
@@ -2703,6 +2755,8 @@ def main() -> int:
             print("sdt_to_docx: the previous report read other sources or is unreadable; no comparison",
                   file=sys.stderr)
     write_docx(report, args.src_root, args.out, args.template, args.logo)
+    prioritize(report, args.src_root)  # write_docx prioritised its redacted copy, not this report
+    state.update(action_state(report, args.src_root))
     if args.state_out:
         args.state_out.write_text(json.dumps(state, indent=1) + "\n")
     code = sum(len(g.occurrences) for g in report.code)

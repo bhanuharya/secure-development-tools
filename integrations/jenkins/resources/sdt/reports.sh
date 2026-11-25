@@ -106,6 +106,12 @@ fi
 if [ -n "${HISTORY:-}" ]; then
   mkdir -p "$HISTORY" && cp "$OUT/sdt/findings.json" "$HISTORY/findings.json"
   [ -s "$OUT/report-state.json" ] && cp "$OUT/report-state.json" "$HISTORY/report-state.json"
+  # One dated copy per scan for tools/sdt_fix_rate.py (digests only, a few KB each), kept 400 days.
+  if [ -s "$OUT/report-state.json" ]; then
+    { mkdir -p "$HISTORY/states" && cp "$OUT/report-state.json" "$HISTORY/states/$(date -u +%Y%m%dT%H%M%SZ).json"; } \
+      || log "dated report state not kept"
+    find "$HISTORY/states" -name '*.json' -mtime +400 -delete 2>/dev/null || true
+  fi
 fi
 
 # The fleet register: the same inputs the nightly fleet report uses, for one repository.

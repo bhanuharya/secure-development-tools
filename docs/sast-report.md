@@ -194,6 +194,25 @@ Once reviewers decide findings in SonarQube, the cover shows "Advisory accuracy 
 * `--coverage`: a text file, one gap per line, written by the pipeline (for example when `flutter pub get`
   fails and Dart lint is skipped). Scanners that did not complete are read from `run-manifest.json`.
 
+## Measuring the effect
+
+The state file also lists every open P1 and P2 Fix First action (its key, level, impact class and label, and
+for code the digests of its findings) and the code findings SonarQube holds a decision for. The pipeline keeps
+one dated copy per scan under `$SDT_HISTORY_DIR/<repository>/<branch>/states/` (400 days). Over that history:
+
+```bash
+python3 tools/sdt_fix_rate.py --history "$SDT_HISTORY_DIR" --since 2026-12-01 --out fix-rate.md
+```
+
+It writes `fix-rate.md` and `fix-rate.json`, per repository and branch and overall: how many P1 code actions
+were first reported in the window and the share closed within 14 and within 30 days (closed: a later scan no
+longer lists it; a share counts only actions old enough to have reached that age), the share of P1 code
+findings whose last SonarQube decision is Safe, False positive or Accepted (the dismissal rate), and the median
+number of Fix First code and secret rows per scan. An action keeps its key when its lines move or its priority
+changes. The targets to watch are a rising fix rate and a dismissal rate under 15%; a high dismissal rate
+points at a rule or class that ranks too high. States written before this change carry no actions and are
+skipped.
+
 ## Related tools
 
 | Tool | Purpose |

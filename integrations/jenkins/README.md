@@ -224,7 +224,8 @@ of static text, an XML namespace URL, a PIN/password/token variable in a log). S
 Set `SDT_HISTORY_DIR` to a persistent directory to add "Changes Since Previous Scan" (new / fixed / still present),
 over everything the report lists, SonarQube's own findings included. A branch scanned for the first time is
 compared with the most recently scanned other branch of the repository, so a new release branch shows what changed
-since the previous release.
+since the previous release. Each scan also keeps a dated copy of its state under `states/` for
+`tools/sdt_fix_rate.py` (see "Measuring the effect" in `docs/sast-report.md`).
 
 It stops after two consecutive failed calls (wrong model, auth, outage) instead of spending more. Without Codex,
 the report is produced exactly as before. Check with your data policy that sending code to Codex is allowed.
