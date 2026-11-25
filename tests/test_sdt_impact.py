@@ -199,6 +199,21 @@ def test_refined_signal_to_noise_classifications():
     )
 
 
+def test_review_corrected_impact_classes():
+    assert impact.classify("scp.java.authz.client-supplied-authorities") == impact.Impact(
+        "C1", "Authentication bypass", "medium", True, "rule"
+    )
+    assert impact.classify("scp.yaml.spring.service-url-embedded-credentials") == impact.Impact(
+        "C2", "Data exposure", "high", False, "rule"
+    )
+    assert impact.classify("scp.common.deploy.start-script-dev-server") == impact.Impact(
+        "C2", "Data exposure", "medium", True, "rule"
+    )
+    assert impact.classify("scp.java.logic.float-for-currency") == impact.Impact(
+        "C3", "Defence in depth", "medium", False, "rule"
+    )
+
+
 # ----------------------------------------------------------------------- CWE fallback and unknown rules
 def test_cwe_fallback_and_highest_impact_selection():
     sqli = impact.classify(

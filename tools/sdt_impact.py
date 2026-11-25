@@ -88,7 +88,9 @@ RULES: dict[str, RuleEntry] = {
     "scp.common.deploy.dev-server-start": (
         "C2", "Data exposure", "high", True,
     ),  # dev servers in deployment manifests expose source files and debug routes without auth
-    "scp.common.deploy.start-script-dev-server": ("C3", "Defence in depth", "medium", True),
+    "scp.common.deploy.start-script-dev-server": (
+        "C2", "Data exposure", "medium", True,
+    ),  # same outcome as dev-server-start; medium because it depends on the image running npm start
     "scp.common.secrets.aws-access-key-id": ("C1", "Credential exposure", "high", False),
     "scp.common.secrets.credentials-in-url": ("C1", "Credential exposure", "medium", False),
     "scp.common.secrets.known-default-secret": ("C1", "Credential exposure", "high", False),
@@ -160,7 +162,9 @@ RULES: dict[str, RuleEntry] = {
     ),  # opens internal registry, database or broker ports directly to 0.0.0.0/0
 
     # Java
-    "scp.java.authz.client-supplied-authorities": ("C2", "Logic abuse", "medium", True),
+    "scp.java.authz.client-supplied-authorities": (
+        "C1", "Authentication bypass", "medium", True,
+    ),  # copies roles or activation flag from request, allowing self-granted privilege escalation
     "scp.java.authz.commented-out-rule": ("C1", "Authentication bypass", "medium", True),
     "scp.java.authz.credential-change-by-request-id": ("C1", "Account takeover", "high", True),
     "scp.java.authz.noop-security-check": ("C1", "Authentication bypass", "medium", True),
@@ -185,7 +189,9 @@ RULES: dict[str, RuleEntry] = {
     "scp.java.logging.secret-in-log-call": ("C2", "Data exposure", "medium", False),
     "scp.java.logging.tostring-prints-secret": ("C2", "Data exposure", "medium", False),
     "scp.java.logic.check-then-act-balance-race": ("C2", "Logic abuse", "medium", True),
-    "scp.java.logic.float-for-currency": ("C2", "Logic abuse", "medium", False),
+    "scp.java.logic.float-for-currency": (
+        "C3", "Defence in depth", "medium", False,
+    ),  # integrity risk that is hard to exploit directly
     "scp.java.logic.mass-assignment-beanutils": ("C2", "Logic abuse", "medium", True),
     "scp.java.logic.trust-spoofable-identity-header": ("C1", "Authentication bypass", "medium", True),
     "scp.java.logic.unbounded-page-size": ("C3", "Defence in depth", "medium", True),
@@ -280,8 +286,8 @@ RULES: dict[str, RuleEntry] = {
         "C1", "Credential exposure", "high", False,
     ),  # literal secret in a production config profile
     "scp.yaml.spring.service-url-embedded-credentials": (
-        "C3", "Defence in depth", "high", False,
-    ),  # interpolates an env variable into a URL (risk of leaking in logs, not a hard-coded secret)
+        "C2", "Data exposure", "high", False,
+    ),  # resolved password is shown by actuator env/configprops endpoints and in logs
     "scp.yaml.spring.service-url-literal-credentials": ("C1", "Credential exposure", "high", False),
     "scp.yaml.zuul.all-services-routed": ("C3", "Defence in depth", "medium", True),
 }
