@@ -4,17 +4,24 @@
 Instead of listing dozens of individual CVEs or transitive libraries one by one in
 Fix First, packages that move together are grouped into one upgrade action:
 
-  * Maven (`pom.xml` under `src_root` with a Spring Boot parent or BOM import):
-    packages in `SPRING_BOOT_MANAGED_GROUPS` become one Spring Boot upgrade action;
-    unmanaged Maven packages stay one action each.
-  * Lockfiles (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, etc., when
-    present under `src_root`): one lockfile update action per manifest.
-  * Everything else (or when the manifest file is missing or unparsable): one
+  * Maven (`pom.xml` under `src_root` with a Spring Boot or JHipster parent/BOM):
+    packages in `SPRING_BOOT_MANAGED_GROUPS` become one upgrade action; unmanaged
+    Maven packages stay one action each. Missing or unparsable `pom.xml` falls
+    back to one action per package.
+  * Lockfiles (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, etc.): one
+    lockfile update action per manifest (no file under `src_root` required).
+  * Other non-archive manifests (`go.mod`, `requirements.txt`, `build.gradle`,
+    `pubspec.yaml`, etc.): one action per manifest, titled "Update N packages in
+    <manifest>" (no file under `src_root` required).
+  * Java archives (`.jar`, `.war`, `.ear`) and findings without a manifest: one
     action per package.
 
-Priority starts from the action's most urgent package priority (sdt_priority.dependency)
-and is capped at P2 unless a CVE on the CISA Known Exploited Vulnerabilities (KEV)
-catalog affects an imported package (`reachable != "No"`).
+Effort is "Migration" when any package target's major version is above its
+installed major version, else "Drop-in".
+
+Priority uses `sdt_priority.dependency()` for every package, and an action takes
+its most urgent package's priority (so a package table row never ranks above its
+action).
 
 Standard library only.
 """
@@ -38,8 +45,9 @@ SEVERITY_ORDER = ("Critical", "High", "Medium", "Low", "Info")
 OPEN_STATES = ("To review", "Open", "Not reviewed", "Confirmed")
 
 # Deliberately short list of Maven groupId prefixes managed by the Spring Boot
-# parent / BOM. Keeping this list short avoids sweeping in third-party libraries
-# that a service pins independently; anything outside it stays its own action.
+# parent / BOM (and BOMs that import spring-boot-dependencies, such as JHipster).
+# Keeping this list short avoids sweeping in third-party libraries that a service
+# pins independently; anything outside it stays its own action.
 SPRING_BOOT_MANAGED_GROUPS: tuple[str, ...] = (
     "org.springframework",
     "org.apache.tomcat",
@@ -49,6 +57,9 @@ SPRING_BOOT_MANAGED_GROUPS: tuple[str, ...] = (
     "org.apache.logging.log4j",
     "org.hibernate",
     "org.yaml",
+    "org.thymeleaf",
+    "io.micrometer",
+    "com.hazelcast",
     "org.eclipse.jetty",
     "io.undertow",
     "org.slf4j",
@@ -57,7 +68,15 @@ SPRING_BOOT_MANAGED_GROUPS: tuple[str, ...] = (
     "org.liquibase",
 )
 
-# Lockfile names that refresh together in one action when present under src_root.
+# Parent POMs and imported BOMs that manage the Spring Boot dependency set.
+SPRING_BOOT_BOMS: dict[tuple[str, str], str] = {
+    ("org.springframework.boot", "spring-boot-starter-parent"): "Spring Boot",
+    ("org.springframework.boot", "spring-boot-dependencies"): "Spring Boot",
+    ("tech.jhipster", "jhipster-dependencies"): "JHipster",
+    ("io.github.jhipster", "jhipster-dependencies"): "JHipster",
+}
+
+# Lockfile names that refresh together in one action per manifest.
 LOCKFILE_LABELS: dict[str, str] = {
     "package-lock.json": "Update npm lockfile",
     "npm-shrinkwrap.json": "Update npm lockfile",
@@ -71,6 +90,8 @@ LOCKFILE_LABELS: dict[str, str] = {
     "gemfile.lock": "Update Bundler lockfile",
     "composer.lock": "Update Composer lockfile",
 }
+
+JAVA_ARCHIVE_SUFFIXES = (".jar", ".war", ".ear")
 
 _PROP_REF = re.compile(r"\$\{([^}]+)\}")
 
@@ -101,7 +122,11 @@ def _version(text: str) -> tuple[int, ...]:
 
 
 def upgrade_to(row) -> str:
-    """The lowest version that fixes every advisory of this package, or '' when unknown."""
+    """The lowest version that fixes every advisory of this package, or '' when unknown.
+
+    Each advisory lists one fixed version per maintained branch; the useful one is the
+    lowest at or above the installed version. The package needs the highest of those.
+    """
     installed, targets = _version(getattr(row, "installed", "")), []
     for fixed in (getattr(row, "fixed", None) or {}).values():
         candidates = sorted((_version(v), v.strip()) for v in str(fixed).split(",") if _version(v))
@@ -117,6 +142,11 @@ def _is_major_jump(installed: str, target: str) -> bool:
     if not cur or not nxt:
         return False
     return nxt[0] > cur[0]
+
+
+def _action_effort(packages: list) -> str:
+    """'Migration' when any package target's major version exceeds its installed major, else 'Drop-in'."""
+    return "Migration" if any(_is_major_jump(r.installed, upgrade_to(r)) for r in packages) else "Drop-in"
 
 
 def load_kev(path: Path | str | None,
@@ -172,15 +202,17 @@ def _child_text(el: ET.Element, name: str) -> str:
 def _resolve_props(value: str, props: dict[str, str]) -> str:
     if not value or "${" not in value:
         return value
-    return _PROP_REF.sub(lambda m: props.get(m.group(1), m.group(0)), value)
+    resolved = _PROP_REF.sub(lambda m: props.get(m.group(1), m.group(0)), value)
+    return "" if "${" in resolved else resolved
 
 
-def _read_spring_boot_pom(pom_path: Path, src_root: Path, depth: int = 0) -> tuple[str, str] | None:
-    """Inspect a Maven pom.xml for a Spring Boot parent or BOM import.
+def _read_spring_boot_pom(pom_path: Path, src_root: Path, depth: int = 0) -> tuple[str, str, str] | None:
+    """Inspect a Maven pom.xml for a Spring Boot / JHipster parent or BOM import.
 
-    Returns (kind, version) where kind is 'Spring Boot' or 'Spring Cloud', or None
-    when the POM does not declare one or cannot be parsed. Follows local parent
-    relativePath up to depth 3 within src_root.
+    Returns (kind, version, spring_boot_version) where kind is 'Spring Boot',
+    'JHipster', or 'Spring Cloud', or None when the POM does not declare one or
+    cannot be parsed. Follows local parent relativePath up to depth 3 within
+    src_root.
     """
     if depth > 3:
         return None
@@ -198,6 +230,7 @@ def _read_spring_boot_pom(pom_path: Path, src_root: Path, depth: int = 0) -> tup
                 val = (prop.text or "").strip()
                 if val:
                     props[_tag(prop)] = val
+    sb_prop = _resolve_props(props.get("spring-boot.version", ""), props)
 
     parent_rel = ""
     parent_el = next((c for c in root_el if _tag(c) == "parent"), None)
@@ -207,16 +240,16 @@ def _read_spring_boot_pom(pom_path: Path, src_root: Path, depth: int = 0) -> tup
         pv = _resolve_props(_child_text(parent_el, "version"), props)
         if pv:
             props.setdefault("project.parent.version", pv)
-        if pg == "org.springframework.boot" and pa == "spring-boot-starter-parent":
-            return ("Spring Boot", pv)
+        kind = SPRING_BOOT_BOMS.get((pg, pa))
+        if kind:
+            return (kind, pv, sb_prop if kind != "Spring Boot" else "")
         parent_rel = _child_text(parent_el, "relativePath")
         if parent_rel == "":
-            # Only follow implicit ../pom.xml when relativePath tag was omitted (not empty <relativePath/>).
             has_rel_tag = any(_tag(c) == "relativePath" for c in parent_el)
             if not has_rel_tag:
                 parent_rel = "../pom.xml"
 
-    spring_cloud: tuple[str, str] | None = None
+    spring_cloud: tuple[str, str, str] | None = None
     for child in root_el:
         if _tag(child) != "dependencyManagement":
             continue
@@ -233,10 +266,11 @@ def _read_spring_boot_pom(pom_path: Path, src_root: Path, depth: int = 0) -> tup
                 dg = _resolve_props(_child_text(dep, "groupId"), props)
                 da = _resolve_props(_child_text(dep, "artifactId"), props)
                 dv = _resolve_props(_child_text(dep, "version"), props)
-                if dg == "org.springframework.boot" and da == "spring-boot-dependencies":
-                    return ("Spring Boot", dv)
+                kind = SPRING_BOOT_BOMS.get((dg, da))
+                if kind:
+                    return (kind, dv, sb_prop if kind != "Spring Boot" else "")
                 if dg == "org.springframework.cloud" and da == "spring-cloud-dependencies":
-                    spring_cloud = ("Spring Cloud", dv)
+                    spring_cloud = ("Spring Cloud", dv, "")
 
     if parent_rel:
         try:
@@ -248,11 +282,24 @@ def _read_spring_boot_pom(pom_path: Path, src_root: Path, depth: int = 0) -> tup
                     and parent_candidate.is_file() and parent_candidate != pom_path:
                 inherited = _read_spring_boot_pom(parent_candidate, src_root, depth + 1)
                 if inherited is not None:
-                    return inherited
+                    kind, ver, inherited_sb = inherited
+                    return (kind, ver, inherited_sb or (sb_prop if kind != "Spring Boot" else ""))
         except OSError:
             pass
 
     return spring_cloud
+
+
+def _spring_title(kind: str, ver: str, sb_ver: str) -> str:
+    if kind == "JHipster":
+        if ver and sb_ver:
+            return f"Upgrade JHipster (currently {ver}; Spring Boot {sb_ver})"
+        if ver:
+            return f"Upgrade JHipster (currently {ver})"
+        if sb_ver:
+            return f"Upgrade JHipster (Spring Boot {sb_ver})"
+        return "Upgrade JHipster"
+    return f"Upgrade {kind} (currently {ver})" if ver else f"Upgrade {kind}"
 
 
 def _is_spring_managed(package: str, kind: str) -> bool:
@@ -261,6 +308,11 @@ def _is_spring_managed(package: str, kind: str) -> bool:
     group = package.split(":", 1)[0].strip().lower()
     if kind == "Spring Cloud":
         return group == "org.springframework.cloud" or group.startswith("org.springframework.cloud.")
+    if kind == "JHipster" and (
+        group in ("tech.jhipster", "io.github.jhipster")
+        or group.startswith(("tech.jhipster.", "io.github.jhipster."))
+    ):
+        return True
     return any(group == prefix or group.startswith(prefix + ".") for prefix in SPRING_BOOT_MANAGED_GROUPS)
 
 
@@ -271,64 +323,55 @@ def _single_package_title(row, target: str) -> str:
     return f"Review {pkg} {row.installed} (no fixed version)".strip()
 
 
+def package_kev_hits(row, kev_set: set[str]) -> tuple[str, ...]:
+    """Sorted KEV CVE ids on `row` when it is imported (reachable != 'No'), else ()."""
+    if not kev_set or getattr(row, "reachable", "Unknown") == "No":
+        return ()
+    return tuple(sorted(
+        cid.upper() for cid in (getattr(row, "advisories", None) or {}) if cid.upper() in kev_set
+    ))
+
+
 def _action_priority(packages: list, kev_set: set[str],
                      ctx: sdt_priority.Context) -> tuple[sdt_priority.Priority, tuple[str, ...]]:
-    """Compute an UpgradeAction's priority and KEV hits.
-
-    Starts from the most urgent package priority, capped at P2; P1 is allowed
-    only when a KEV CVE hits an imported package (reachable != 'No').
-    """
+    """Compute package priorities with sdt_priority.dependency() and take the most urgent."""
     for r in packages:
-        if r.priority is None:
-            r.priority = sdt_priority.dependency(r.severity, r.reachable, r.manifest, ctx)
+        hits = package_kev_hits(r, kev_set)
+        r.priority = sdt_priority.dependency(
+            r.severity, r.reachable, r.manifest, ctx,
+            known_exploited=bool(hits), kev_ids=hits,
+        )
 
-    all_kev = sorted({
+    all_kev = tuple(sorted({
         cid.upper()
         for r in packages
         for cid in (r.advisories or {})
         if cid.upper() in kev_set
-    })
-    imported_kev = sorted({
-        cid.upper()
+    }))
+    imported_kev = tuple(sorted({
+        cid
         for r in packages
-        if getattr(r, "reachable", "Unknown") != "No"
-        for cid in (r.advisories or {})
-        if cid.upper() in kev_set
-    })
+        for cid in package_kev_hits(r, kev_set)
+    }))
 
     best_row = min(
         packages,
-        key=lambda r: (r.priority.rank, SEVERITY_ORDER.index(r.severity), r.package, r.installed),
+        key=lambda r: (
+            r.priority.rank,
+            not bool(package_kev_hits(r, kev_set)),
+            SEVERITY_ORDER.index(r.severity),
+            r.package,
+            r.installed,
+        ),
     )
     best = best_row.priority
-
-    if imported_kev:
-        kev_note = f"on the known-exploited list: {', '.join(imported_kev[:3])}"
-        if len(imported_kev) > 3:
-            kev_note += f" (+{len(imported_kev) - 3})"
-        shipped = any(sdt_priority.place(r.manifest) != "not shipped" for r in packages
-                      if getattr(r, "reachable", "Unknown") != "No"
-                      and any(cid.upper() in kev_set for cid in (r.advisories or {})))
-        target_level = "P1" if shipped else sdt_priority.LEVELS[max(0, best.rank - 1)]
-        prio = sdt_priority.Priority(
-            target_level,
-            best.base,
-            best.steps + (sdt_priority.Step(kev_note, -1),),
-        )
-        return prio, tuple(all_kev)
-
-    if best.rank == 0:
-        prio = sdt_priority.Priority(
-            "P2",
-            best.base,
-            best.steps + (sdt_priority.Step("capped at P2: no known-exploited advisory", +1),),
-        )
-        return prio, tuple(all_kev)
-
-    return best, tuple(all_kev)
+    if len(imported_kev) > 1 and best.base.startswith("on the known-exploited list"):
+        ids = ", ".join(imported_kev[:3]) + (f" (+{len(imported_kev) - 3})" if len(imported_kev) > 3 else "")
+        best = sdt_priority.Priority(best.level, f"on the known-exploited list: {ids}", best.steps, best.impact)
+    return best, all_kev
 
 
-def _build_action(title: str, manifest: str, packages: list, effort: str,
+def _build_action(title: str, manifest: str, packages: list,
                   kev_set: set[str], ctx: sdt_priority.Context) -> UpgradeAction:
     targets: dict[str, str] = {}
     for r in packages:
@@ -347,7 +390,7 @@ def _build_action(title: str, manifest: str, packages: list, effort: str,
         packages=ordered_pkgs,
         targets=targets,
         counts=counts,
-        effort=effort,
+        effort=_action_effort(packages),
         kev=kev_hits,
         priority=priority,
     )
@@ -355,8 +398,7 @@ def _build_action(title: str, manifest: str, packages: list, effort: str,
 
 def _single_action(row, kev_set: set[str], ctx: sdt_priority.Context) -> UpgradeAction:
     target = upgrade_to(row)
-    effort = "Migration" if _is_major_jump(row.installed, target) else "Drop-in"
-    return _build_action(_single_package_title(row, target), row.manifest or "", [row], effort, kev_set, ctx)
+    return _build_action(_single_package_title(row, target), row.manifest or "", [row], kev_set, ctx)
 
 
 def group_upgrades(rows: list, src_root: Path | None = None, kev: Iterable[str] = (),
@@ -373,37 +415,39 @@ def group_upgrades(rows: list, src_root: Path | None = None, kev: Iterable[str] 
 
     actions: list[UpgradeAction] = []
     for manifest, manifest_rows in by_manifest.items():
-        manifest_file = _confined_file(src_root, manifest)
-        if manifest_file is None:
+        lower_name = Path(manifest).name.lower() if manifest else ""
+
+        # No manifest or Java archive (.jar, .war, .ear): stay one action per package.
+        if not manifest or lower_name.endswith(JAVA_ARCHIVE_SUFFIXES):
             actions.extend(_single_action(r, kev_set, context) for r in manifest_rows)
             continue
 
-        lower_name = manifest_file.name.lower()
+        # Maven pom.xml: only rule that inspects a file under src_root.
         if lower_name == "pom.xml":
-            spring = _read_spring_boot_pom(manifest_file, Path(src_root))
+            manifest_file = _confined_file(src_root, manifest)
+            spring = _read_spring_boot_pom(manifest_file, Path(src_root)) if manifest_file is not None else None
             if spring is None:
                 actions.extend(_single_action(r, kev_set, context) for r in manifest_rows)
                 continue
-            kind, ver = spring
+            kind, ver, sb_ver = spring
             managed = [r for r in manifest_rows if _is_spring_managed(r.package, kind)]
             unmanaged = [r for r in manifest_rows if not _is_spring_managed(r.package, kind)]
             if managed:
-                title = f"Upgrade {kind} (currently {ver})" if ver else f"Upgrade {kind}"
-                major_parent = (kind == "Spring Boot" and bool(_version(ver)) and _version(ver)[0] < 3)
-                major_pkg = any(_is_major_jump(r.installed, upgrade_to(r)) for r in managed)
-                effort = "Migration" if (major_parent or major_pkg) else "Drop-in"
-                actions.append(_build_action(title, manifest, managed, effort, kev_set, context))
+                actions.append(_build_action(_spring_title(kind, ver, sb_ver), manifest, managed, kev_set, context))
             actions.extend(_single_action(r, kev_set, context) for r in unmanaged)
             continue
 
+        # Lockfiles: one lockfile update action per manifest (no file under src_root needed).
         lock_label = LOCKFILE_LABELS.get(lower_name)
         if lock_label:
-            title = f"{lock_label} ({manifest})"
-            effort = "Migration" if any(_is_major_jump(r.installed, upgrade_to(r)) for r in manifest_rows) else "Drop-in"
-            actions.append(_build_action(title, manifest, manifest_rows, effort, kev_set, context))
+            actions.append(_build_action(f"{lock_label} ({manifest})", manifest, manifest_rows, kev_set, context))
             continue
 
-        actions.extend(_single_action(r, kev_set, context) for r in manifest_rows)
+        # Other ecosystems (go.mod, requirements.txt, build.gradle, pubspec.yaml, etc.):
+        # one action per manifest, titled "Update N packages in <manifest>".
+        n = len(manifest_rows)
+        title = f"Update {n} {'package' if n == 1 else 'packages'} in {manifest}"
+        actions.append(_build_action(title, manifest, manifest_rows, kev_set, context))
 
     actions.sort(key=lambda a: (
         a.priority.rank if a.priority else len(sdt_priority.LEVELS),

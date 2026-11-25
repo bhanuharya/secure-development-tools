@@ -130,21 +130,176 @@ def test_reference_scenario_groups_and_kev_rules(tmp_path):
     assert "capped at P2: no known-exploited advisory" in spring_unreach.priority.why
 
 
-def test_missing_manifests_fall_back_to_one_action_per_package_with_p2_cap(tmp_path):
+def test_missing_pom_falls_back_to_per_package_while_lockfiles_and_other_manifests_still_group(tmp_path):
     empty_src = tmp_path / "empty"
     empty_src.mkdir()
+    # Missing pom.xml falls back to 1 action per Maven package (9), while lockfile still groups (1) -> 10 actions.
     rows = _reference_rows()
     ctx = prio.Context("unknown")
     actions = upgrades.group_upgrades(rows, empty_src, ctx=ctx)
-    assert len(actions) == len(rows) == 13
-    for action in actions:
+    maven_actions = [a for a in actions if a.manifest == "pom.xml"]
+    npm_actions = [a for a in actions if a.manifest == "frontend/package-lock.json"]
+    assert len(maven_actions) == 9
+    assert len(npm_actions) == 1 and len(npm_actions[0].packages) == 4
+    for action in maven_actions:
         (row,) = action.packages
-        raw = prio.dependency(row.severity, row.reachable, row.manifest, ctx)
-        if raw.level == "P1":
-            assert action.priority.level == "P2"
-            assert "capped at P2: no known-exploited advisory" in action.priority.why
-        else:
-            assert action.priority == raw
+        assert action.priority == prio.dependency(row.severity, row.reachable, row.manifest, ctx)
+
+
+def test_jhipster_bom_groups_spring_managed_including_thymeleaf_micrometer_hazelcast(tmp_path):
+    src = tmp_path / "jhipster-svc"
+    src.mkdir()
+    (src / "pom.xml").write_text("""<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.example</groupId>
+  <artifactId>billing-service</artifactId>
+  <version>1.0.0</version>
+  <properties>
+    <jhipster-dependencies.version>7.0.1</jhipster-dependencies.version>
+    <spring-boot.version>2.4.4</spring-boot.version>
+  </properties>
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>tech.jhipster</groupId>
+        <artifactId>jhipster-dependencies</artifactId>
+        <version>${jhipster-dependencies.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+</project>
+""", encoding="utf-8")
+
+    rows = [
+        docx.DependencyRow("org.springframework:spring-webmvc", "5.3.5", "pom.xml",
+                           {"CVE-2026-5001": "6.1.14"}, {"CVE-2026-5001": "Critical"}, "Yes"),
+        docx.DependencyRow("org.thymeleaf:thymeleaf", "3.0.12.RELEASE", "pom.xml",
+                           {"CVE-2026-5002": "3.0.15.RELEASE"}, {"CVE-2026-5002": "High"}, "Yes"),
+        docx.DependencyRow("io.micrometer:micrometer-core", "1.6.5", "pom.xml",
+                           {"CVE-2026-5003": "1.12.5"}, {"CVE-2026-5003": "Medium"}, "Yes"),
+        docx.DependencyRow("com.hazelcast:hazelcast", "4.1.2", "pom.xml",
+                           {"CVE-2026-5004": "5.3.6"}, {"CVE-2026-5004": "High"}, "Yes"),
+        docx.DependencyRow("tech.jhipster:jhipster-framework", "7.0.1", "pom.xml",
+                           {"CVE-2026-5005": "8.0.0"}, {"CVE-2026-5005": "Medium"}, "Yes"),
+        # Unmanaged third-party Maven package stays its own action
+        docx.DependencyRow("org.apache.commons:commons-text", "1.9", "pom.xml",
+                           {"CVE-2026-5006": "1.10.0"}, {"CVE-2026-5006": "Critical"}, "Yes"),
+    ]
+    actions = upgrades.group_upgrades(rows, src)
+    assert len(actions) == 2
+    by_title = {a.title: a for a in actions}
+    jh = by_title["Upgrade JHipster (currently 7.0.1; Spring Boot 2.4.4)"]
+    assert len(jh.packages) == 5
+    assert jh.effort == "Migration"
+    assert "Upgrade org.apache.commons:commons-text (1.9 -> 1.10.0)" in by_title
+
+    # Legacy io.github.jhipster BOM without spring-boot.version property omits the Spring Boot clause.
+    (src / "pom.xml").write_text("""<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>io.github.jhipster</groupId>
+        <artifactId>jhipster-dependencies</artifactId>
+        <version>6.10.5</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+</project>
+""", encoding="utf-8")
+    same_major = [
+        docx.DependencyRow("org.thymeleaf:thymeleaf", "3.0.12.RELEASE", "pom.xml",
+                           {"CVE-2026-5002": "3.0.15.RELEASE"}, {"CVE-2026-5002": "High"}, "Yes"),
+    ]
+    legacy = upgrades.group_upgrades(same_major, src)
+    assert len(legacy) == 1
+    assert legacy[0].title == "Upgrade JHipster (currently 6.10.5)"
+    assert legacy[0].effort == "Drop-in"
+
+
+def test_effort_depends_only_on_major_version_jump_even_on_spring_boot_2(tmp_path):
+    src = tmp_path / "sb2-patch"
+    src.mkdir()
+    (src / "pom.xml").write_text(SPRING_BOOT_27_POM, encoding="utf-8")
+    patch_rows = [
+        docx.DependencyRow("org.springframework:spring-webmvc", "5.3.31", "pom.xml",
+                           {"CVE-2026-6001": "5.3.39"}, {"CVE-2026-6001": "High"}, "Yes"),
+        docx.DependencyRow("org.apache.tomcat.embed:tomcat-embed-core", "9.0.85", "pom.xml",
+                           {"CVE-2026-6002": "9.0.90"}, {"CVE-2026-6002": "High"}, "Yes"),
+    ]
+    actions = upgrades.group_upgrades(patch_rows, src)
+    assert len(actions) == 1 and actions[0].effort == "Drop-in"
+
+
+def test_kev_respects_internal_service_and_package_never_ranks_above_action(tmp_path):
+    src = tmp_path / "repo"
+    src.mkdir()
+    _write_reference_manifests(src)
+    kev = {"CVE-2026-1001"}
+
+    # Internal service with normal criticality: KEV action is P2 (not P1).
+    internal_actions = upgrades.group_upgrades(_reference_rows(), src, kev=kev, ctx=prio.Context("internal"))
+    spring_internal = {a.title: a for a in internal_actions}["Upgrade Spring Boot (currently 2.7.18)"]
+    assert spring_internal.priority.level == "P2"
+    assert "on the known-exploited list: CVE-2026-1001" in spring_internal.priority.why
+    assert "internal service ↓" in spring_internal.priority.why
+
+    # Internal service with high criticality: KEV action is P1.
+    high_actions = upgrades.group_upgrades(_reference_rows(), src, kev=kev, ctx=prio.Context("internal", "high"))
+    spring_high = {a.title: a for a in high_actions}["Upgrade Spring Boot (currently 2.7.18)"]
+    assert spring_high.priority.level == "P1"
+
+    # Package rows in a report never rank above their action (no P1 package under a P2 action).
+    report = docx.Report("example", "ws/example", "branch main", "", "abc", "SDT",
+                         [], [], _reference_rows(), [], date(2026, 11, 24), src_root=src)
+    docx.prioritize(report, src)
+    for action in report.upgrades:
+        for pkg in action.packages:
+            assert pkg.priority.rank >= action.priority.rank
+    assert all(r.priority.rank >= 1 for r in report.dependencies)  # no KEV -> no P1 package rows
+
+
+def test_other_ecosystems_group_by_manifest_without_files_and_java_archives_stay_per_package():
+    rows = [
+        docx.DependencyRow("golang.org/x/net", "0.17.0", "go.mod",
+                           {"CVE-2026-7001": "0.23.0"}, {"CVE-2026-7001": "High"}, "Yes"),
+        docx.DependencyRow("golang.org/x/crypto", "0.14.0", "go.mod",
+                           {"CVE-2026-7002": "0.21.0"}, {"CVE-2026-7002": "High"}, "Yes"),
+        docx.DependencyRow("urllib3", "1.26.15", "requirements.txt",
+                           {"CVE-2026-7003": "2.2.2"}, {"CVE-2026-7003": "High"}, "Yes"),
+        docx.DependencyRow("requests", "2.28.0", "requirements.txt",
+                           {"CVE-2026-7004": "2.32.2"}, {"CVE-2026-7004": "Medium"}, "Yes"),
+        docx.DependencyRow("com.example:sdk", "1.0.0", "build.gradle",
+                           {"CVE-2026-7005": "1.0.1"}, {"CVE-2026-7005": "High"}, "Yes"),
+        docx.DependencyRow("com.example:core", "1.0.0", "build.gradle",
+                           {"CVE-2026-7006": "1.0.2"}, {"CVE-2026-7006": "Medium"}, "Yes"),
+        docx.DependencyRow("http", "0.13.5", "pubspec.yaml",
+                           {"CVE-2026-7007": "0.13.6"}, {"CVE-2026-7007": "Medium"}, "Yes"),
+        docx.DependencyRow("dio", "5.3.0", "pubspec.yaml",
+                           {"CVE-2026-7008": "5.4.0"}, {"CVE-2026-7008": "High"}, "Yes"),
+        # Java archives stay one action per package
+        docx.DependencyRow("com.example:a", "1.0", "dist/app.jar",
+                           {"CVE-2026-7009": "1.1"}, {"CVE-2026-7009": "High"}, "Yes"),
+        docx.DependencyRow("com.example:b", "1.0", "dist/app.jar",
+                           {"CVE-2026-7010": "1.1"}, {"CVE-2026-7010": "High"}, "Yes"),
+        docx.DependencyRow("com.example:c", "1.0", "deploy/svc.war",
+                           {"CVE-2026-7011": "1.1"}, {"CVE-2026-7011": "Medium"}, "Yes"),
+        docx.DependencyRow("com.example:d", "1.0", "deploy/suite.ear",
+                           {"CVE-2026-7012": "1.1"}, {"CVE-2026-7012": "Medium"}, "Yes"),
+    ]
+    actions = upgrades.group_upgrades(rows, src_root=None)
+    titles = {a.title: a for a in actions}
+    assert "Update 2 packages in go.mod" in titles and titles["Update 2 packages in go.mod"].effort == "Drop-in"
+    assert "Update 2 packages in requirements.txt" in titles and titles["Update 2 packages in requirements.txt"].effort == "Migration"
+    assert "Update 2 packages in build.gradle" in titles
+    assert "Update 2 packages in pubspec.yaml" in titles
+    archive_actions = [a for a in actions if a.manifest.endswith((".jar", ".war", ".ear"))]
+    assert len(archive_actions) == 4 and all(len(a.packages) == 1 for a in archive_actions)
+    assert docx.upgrade_to is upgrades.upgrade_to
 
 
 def test_maven_bom_import_property_resolution_and_unparsable_pom_fallback(tmp_path):

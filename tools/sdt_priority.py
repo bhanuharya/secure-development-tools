@@ -223,16 +223,28 @@ def secret(kind: str, paths: list[str] | str, client_key: bool = False, ctx: Con
     return decide(start, base, raises, lowers)
 
 
-def dependency(severity: str, reachable: str, manifest: str, ctx: Context = Context()) -> Priority:
-    """A vulnerable package: its worst advisory, then reachability and the service."""
-    start, base = _severity(severity)
+def dependency(severity: str, reachable: str, manifest: str, ctx: Context = Context(),
+               known_exploited: bool = False, kev_ids: tuple[str, ...] = ()) -> Priority:
+    """A vulnerable package: known-exploited starts at P1 (when imported), else worst advisory
+    severity; then reachability, manifest and service context apply; without a known-exploited
+    advisory, a P1 result is capped at P2."""
+    is_kev = bool(known_exploited) and reachable != "No"
+    if is_kev:
+        ids = ", ".join(kev_ids[:3]) + (f" (+{len(kev_ids) - 3})" if len(kev_ids) > 3 else "")
+        start = 0
+        base = f"on the known-exploited list: {ids}" if ids else "on the known-exploited list"
+    else:
+        start, base = _severity(severity)
     lowers = []
     if reachable == "No":
         lowers.append("not imported by the code")
     if place(manifest) == "not shipped":
         lowers.append("manifest of a test or example")
     _service(ctx, lowers)
-    return decide(start, base, [], lowers)
+    result = decide(start, base, [], lowers)
+    if not is_kev and result.level == "P1":
+        return Priority("P2", result.base, result.steps + (Step("capped at P2: no known-exploited advisory", +1),))
+    return result
 
 
 def configuration(severity: str, path: str, ctx: Context = Context()) -> Priority:

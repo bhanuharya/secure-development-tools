@@ -347,23 +347,7 @@ def external_id(rule_key: str) -> str:
     return match.group("id") if match else rule_key.split(":", 1)[-1]
 
 
-def _version(text: str) -> tuple:
-    return tuple(int(n) for n in re.findall(r"\d+", text)[:4])
-
-
-def upgrade_to(row: "DependencyRow") -> str:
-    """The lowest version that fixes every advisory of this package, or "" when unknown.
-
-    Each advisory lists one fixed version per maintained branch; the useful one is the
-    lowest at or above the installed version. The package needs the highest of those.
-    """
-    installed, targets = _version(row.installed), []
-    for fixed in row.fixed.values():
-        candidates = sorted((_version(v), v.strip()) for v in fixed.split(",") if _version(v))
-        above = [c for c in candidates if c[0] >= installed] or candidates
-        if above:
-            targets.append(above[0])
-    return max(targets)[1] if targets else ""
+upgrade_to = sdt_upgrades.upgrade_to
 
 
 def _worse(a: str, b: str) -> str:
@@ -1068,11 +1052,14 @@ def prioritize(report: Report, src_root: Path | None = None) -> None:
     merge_duplicate_handlers(report)
     report.code.sort(key=lambda g: (g.priority.rank if g.priority else len(sdt_priority.LEVELS),
                                     SEVERITY_ORDER.index(g.severity), -len(g.occurrences), g.rule))
+    kev_set = {str(c).strip().upper() for c in (report.kev or ()) if str(c).strip()}
     for r in report.dependencies:
-        r.priority = sdt_priority.dependency(r.severity, r.reachable, r.manifest, ctx)
+        hits = sdt_upgrades.package_kev_hits(r, kev_set)
+        r.priority = sdt_priority.dependency(r.severity, r.reachable, r.manifest, ctx,
+                                             known_exploited=bool(hits), kev_ids=hits)
     report.dependencies.sort(key=lambda r: (r.priority.rank, SEVERITY_ORDER.index(r.severity), r.package, r.installed))
     root = src_root if src_root is not None else report.src_root
-    report.upgrades = sdt_upgrades.group_upgrades(report.dependencies, root, report.kev, ctx)
+    report.upgrades = sdt_upgrades.group_upgrades(report.dependencies, root, kev_set, ctx)
     for c in report.config:
         c.priority = sdt_priority.configuration(c.severity, c.path, ctx)
     report.config.sort(key=lambda c: (c.priority.rank, SEVERITY_ORDER.index(c.severity)))

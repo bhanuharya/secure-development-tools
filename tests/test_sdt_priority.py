@@ -83,12 +83,32 @@ def test_secrets_by_kind_and_place():
 
 # --------------------------------------------------------------------- dependencies
 def test_dependencies_by_reachability_manifest_and_service():
-    assert prio.dependency("Critical", "Yes", "package-lock.json").level == "P1"
+    capped = prio.dependency("Critical", "Yes", "package-lock.json")
+    assert capped.level == "P2" and "capped at P2: no known-exploited advisory" in capped.why
+    assert prio.dependency("Critical", "Yes", "package-lock.json", known_exploited=True).level == "P1"
     assert prio.dependency("Critical", "Yes/unknown", "package-lock.json", INTERNAL).level == "P2"
     unused = prio.dependency("Critical", "No", "package-lock.json", INTERNAL)
     assert unused.level == "P3" and unused.why == "Critical severity; not imported by the code ↓; internal service ↓"
     assert prio.dependency("High", "Unknown", "examples/demo/package-lock.json").level == "P3"
     assert prio.dependency("High", "Unknown", "package-lock.json", Context("internal", "high")).level == "P2"
+
+
+def test_dependency_kev_respects_internal_service_and_high_criticality():
+    kev_unknown = prio.dependency("High", "Yes", "pom.xml", Context("unknown"),
+                                  known_exploited=True, kev_ids=("CVE-2026-1001",))
+    assert kev_unknown.level == "P1" and "on the known-exploited list: CVE-2026-1001" in kev_unknown.why
+
+    kev_internal = prio.dependency("Critical", "Yes", "pom.xml", INTERNAL,
+                                   known_exploited=True, kev_ids=("CVE-2026-1001",))
+    assert kev_internal.level == "P2" and "internal service ↓" in kev_internal.why
+
+    kev_internal_high = prio.dependency("Critical", "Yes", "pom.xml", Context("internal", "high"),
+                                        known_exploited=True, kev_ids=("CVE-2026-1001",))
+    assert kev_internal_high.level == "P1" and "on the known-exploited list: CVE-2026-1001" in kev_internal_high.why
+
+    kev_unimported = prio.dependency("Critical", "No", "pom.xml", Context("unknown"),
+                                     known_exploited=True, kev_ids=("CVE-2026-1001",))
+    assert kev_unimported.level == "P2" and "not imported by the code ↓" in kev_unimported.why
 
 
 def test_configuration_checks_are_not_lowered_for_an_internal_service():
