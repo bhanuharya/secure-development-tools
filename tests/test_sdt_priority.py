@@ -349,3 +349,17 @@ def test_bola_per_finding_impact_ranks_account_takeover_p1_and_others_p2():
     read = prio.code(rule, "Unscoped object access", "Medium", "src/OrderController.java", impact="data-exposure")
     assert read.level == "P2" and read.base == "Data exposure (C2), high-precision rule"
 
+
+def test_level_meanings_match_plan_d8():
+    assert prio.MEANING == {
+        "P1": "fix before the next deploy",
+        "P2": "fix in this release",
+        "P3": "plan the fix",
+        "P4": "fix when the code is touched",
+    }
+    tail = prio.rules_text(Context())[-1]
+    assert tail == (
+        "P1: fix before the next deploy. P2: fix in this release. "
+        "P3: plan the fix. P4: fix when the code is touched."
+    )
+

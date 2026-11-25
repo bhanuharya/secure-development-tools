@@ -2949,13 +2949,14 @@ def test_duplicate_handler_merge_deduplicates_priority_counts_and_fix_first(tmp_
     # Fix First: one row for the merged handler naming both rules, plus SQLi and separate handler at line 60.
     rows = sdt_to_docx.fix_first(report)
     assert len(rows) == 3
-    merged_rows = [r for r in rows if r[2] == "src/UserController.java:46"]
+    merged_rows = [r for r in rows if r[3] == "src/UserController.java:46"]
     assert len(merged_rows) == 1
-    assert "Authenticated object route accesses store without caller ownership check" in merged_rows[0][1]
-    assert "Credential change for an account named in the URL" in merged_rows[0][1]
-    assert all(r[2] != "src/UserController.java:48" for r in rows)
-    assert any(r[2] == "src/UserController.java:60" for r in rows)
-    assert any(r[2] == "src/UserController.java:49" for r in rows)
+    assert merged_rows[0][1] == "Account takeover"
+    assert "Authenticated object route accesses store without caller ownership check" in merged_rows[0][2]
+    assert "Credential change for an account named in the URL" in merged_rows[0][2]
+    assert all(r[3] != "src/UserController.java:48" for r in rows)
+    assert any(r[3] == "src/UserController.java:60" and r[1] == "Data exposure" for r in rows)
+    assert any(r[3] == "src/UserController.java:49" and r[1] == "Injection" for r in rows)
 
     # Rendered DOCX: cover counts P1 2, P2 1, and BOTH rule sections list their occurrence with the cross-reference.
     out = tmp_path / "merged.docx"
@@ -3051,8 +3052,9 @@ def test_same_line_open_route_rules_merge_with_same_line_wording(tmp_path):
     assert len(sdt_to_docx.priorities(report)["code"]) == 1
     rows = sdt_to_docx.fix_first(report)
     assert len(rows) == 1
-    assert "Broad permitAll wildcard prefix" in rows[0][1]
-    assert "Credential check endpoint is permitAll" in rows[0][1]
+    assert rows[0][1] == "Authentication bypass"
+    assert "Broad permitAll wildcard prefix" in rows[0][2]
+    assert "Credential check endpoint is permitAll" in rows[0][2]
 
     out = tmp_path / "same-line-permitall.docx"
     sdt_to_docx.write_docx(report, None, out)

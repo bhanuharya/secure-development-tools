@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""How soon to act on a finding: P1 (now) to P4 (when the code is touched anyway).
+"""How soon to act on a finding: P1 (fix before the next deploy) to P4 (fix when the code is touched).
 
 Severity says how bad a weakness is in general. Priority starts there and moves one step at a
 time for what is known about this repository and this finding:
@@ -39,7 +39,12 @@ if _TOOLS_DIR not in sys.path:
 import sdt_impact  # noqa: E402
 
 LEVELS = ("P1", "P2", "P3", "P4")
-MEANING = {"P1": "act now", "P2": "fix in the current release", "P3": "plan the fix", "P4": "fix when the code is touched"}
+MEANING = {
+    "P1": "fix before the next deploy",
+    "P2": "fix in this release",
+    "P3": "plan the fix",
+    "P4": "fix when the code is touched",
+}
 SEVERITY_LEVEL = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3, "Info": 3}
 MAX_LOWER = 2
 

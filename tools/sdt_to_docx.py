@@ -148,6 +148,19 @@ def _path(component_key: str) -> str:
     return component_key.split(":", 1)[1] if ":" in component_key else ""
 
 
+ENDPOINT_IN_MSG = re.compile(r"^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|ANY)\s+(/[^\s,;)]+)")
+
+
+def _extract_endpoint(rule_key: str, message: str) -> str:
+    """Extract 'METHOD /path' from an endpoints-rule message when metadata.endpoint is absent."""
+    if not sdt_impact.normalize_rule_key(rule_key).startswith("scp.endpoints."):
+        return ""
+    match = ENDPOINT_IN_MSG.match((message or "").strip())
+    if not match:
+        return ""
+    return f"{match.group(1)} {match.group(2).rstrip('.,;:')}"
+
+
 # --------------------------------------------------------------------------- model
 @dataclass
 class Occurrence:
@@ -161,6 +174,7 @@ class Occurrence:
     priority: sdt_priority.Priority | None = None  # set by prioritize()
     end_line: int = 0  # closing line of the handler/span (defaults to line)
     impact: str = ""  # per-finding impact hint (e.g. BOLA metadata.impact)
+    endpoint: str = ""  # route "METHOD /path" from metadata.endpoint or endpoints message
     same_handler: list[str] = field(default_factory=list)
     merged_into: tuple[str, str, int] | None = None
     merged_rules: list[tuple[str, str]] = field(default_factory=list)
@@ -459,7 +473,8 @@ def from_sonar(sonar: Sonar, project_key: str, branch: str, pull_request: str,
         if what == "code":
             code(rule_key, kind, severity, Occurrence(path, line, message, status, item.get("assignee", ""),
                                                       link=link(item, kind == "Security Hotspot") if "key" in item else "",
-                                                      end_line=end_line, impact=impact_hint))
+                                                      end_line=end_line, impact=impact_hint,
+                                                      endpoint=_extract_endpoint(rule_key, message)))
         elif what == "secret":
             history = HISTORY_SECRET.search(message)
             if history:
@@ -513,6 +528,7 @@ def from_findings(doc: dict, src_root: Path | None = None) -> dict:
         tag_impact, message = sdt_impact.parse_impact_tag(raw_message)
         if not impact_hint and tag_impact:
             impact_hint = tag_impact
+        endpoint = str(metadata.get("endpoint") or "").strip() or _extract_endpoint(rule_id, message)
         if what == "secret":
             commit = str(metadata.get("commit") or "")
             evidence = str((f.get("evidence") or {}).get("text") or "")
@@ -541,7 +557,7 @@ def from_findings(doc: dict, src_root: Path | None = None) -> dict:
             group = groups[key]
             group.severity = _worse(group.severity, severity)
             group.occurrences.append(Occurrence(path, line, message, "Not reviewed", "",
-                                                end_line=end_line, impact=impact_hint))
+                                                end_line=end_line, impact=impact_hint, endpoint=endpoint))
     return {"code": list(groups.values()), "secret": secrets, "dependency": list(packages.values()), "config": config}
 
 
@@ -587,13 +603,13 @@ def merge(sonar: dict, sdt: dict | None) -> dict:
     else:
         merged = {"code": sonar["code"], "secret": list(sdt["secret"]), "dependency": sdt["dependency"],
                   "config": sdt["config"] or sonar["config"]}
-        # Backfill per-finding impact and handler span from findings.json when absent in SonarQube.
-        sdt_code_meta: dict[tuple[str, str, int], tuple[str, int]] = {}
+        # Backfill per-finding impact, handler span and endpoint from findings.json when absent in SonarQube.
+        sdt_code_meta: dict[tuple[str, str, int], tuple[str, int, str]] = {}
         for g in sdt.get("code") or ():
             norm = sdt_impact.normalize_rule_key(g.rule)
             for o in g.occurrences:
-                if o.impact or o.end_line > o.line:
-                    sdt_code_meta[(norm, o.path, o.line)] = (o.impact, o.end_line)
+                if o.impact or o.end_line > o.line or o.endpoint:
+                    sdt_code_meta[(norm, o.path, o.line)] = (o.impact, o.end_line, o.endpoint)
         if sdt_code_meta:
             for g in merged["code"]:
                 norm = sdt_impact.normalize_rule_key(g.rule)
@@ -604,6 +620,8 @@ def merge(sonar: dict, sdt: dict | None) -> dict:
                             o.impact = meta[0]
                         if o.end_line <= o.line and meta[1] > o.line:
                             o.end_line = meta[1]
+                        if not o.endpoint and meta[2]:
+                            o.endpoint = meta[2]
         status = {(r.path, r.line): r.status for r in sonar["secret"]}
         for row in merged["secret"]:
             row.status = status.get((row.path, row.line), row.status)
@@ -1022,6 +1040,10 @@ def merge_duplicate_handlers(report: Report) -> None:
             seen_rules = {primary_g.rule}
             for other_g, other_o in members[1:]:
                 other_o.merged_into = (primary_g.name, primary_o.path, primary_o.line)
+                if not primary_o.endpoint:
+                    ep = other_o.endpoint or _extract_endpoint(other_g.rule, other_o.message)
+                    if ep:
+                        primary_o.endpoint = ep
                 if other_g.rule != primary_g.rule:
                     note_for_other = _same_note(other_o, primary_o, primary_g.name, primary_o.path, primary_o.line)
                     if note_for_other not in other_o.same_handler:
@@ -1126,7 +1148,10 @@ def executive_summary(report: Report) -> list[str]:
     client = sum(1 for g in groups if g.client_key)
     advisories = sum(len(r.advisories) for r in report.dependencies)
     fixable = sum(1 for r in report.dependencies if r.fixed)
-    lines = [f"Scope: {report.project}, {report.scope}, scanned with {report.source}."]
+    lines = [
+        summary_of_actions(report),
+        f"Scope: {report.project}, {report.scope}, scanned with {report.source}.",
+    ]
     every = [p for items in priorities(report).values() for p in items]
     if every:
         lines.append(f"Priority: {level_counts(every)} (each code finding, secret place, upgrade action and "
@@ -1397,45 +1422,369 @@ def advisory_block(note: dict) -> list[str]:
 
 
 FIX_FIRST_LEVELS = ("P1", "P2")
+CLASS_ORDER: dict[str, int] = {"C1": 0, "C2": 1, "C3": 2, "C4": 3}
+LABEL_ORDER: dict[str, int] = {
+    label: i
+    for i, label in enumerate((
+        "Account takeover",
+        "Authentication bypass",
+        "Credential exposure",
+        "Injection",
+        "Secret leak",
+        "Data exposure",
+        "Logic abuse",
+        "Request forgery",
+        "Cross-site scripting",
+        "Weak credential storage",
+        "Defence in depth",
+        "Hygiene",
+        "Configuration",
+        "Code security",
+    ))
+}
+MAX_ACTION_ROUTES = 8
+MAX_TOP_RISKS = 5
+
+TOP_RISK_TEMPLATES: dict[str, str] = {
+    "Account takeover": "a signed-in user can change another user's password, PIN or contact details",
+    "Authentication bypass": "routes or security rules allow access without the required authentication or role check",
+    "Credential exposure": "hard-coded credentials or secrets are stored in source or configuration files",
+    "Injection": "untrusted input can reach a query, command, template or unsafe deserialiser",
+    "Data exposure": "sensitive data or another user's records can be read or exposed without proper checks",
+    "Logic abuse": "state-changing operations can be abused by bypassing ownership, integrity or concurrency checks",
+    "Request forgery": "an attacker can trigger unintended requests from the server or a signed-in user's browser",
+    "Cross-site scripting": "untrusted input can run script in another user's browser",
+    "Weak credential storage": "passwords or secrets are stored in a recoverable or weakly protected form",
+    "Defence in depth": "missing hardening controls weaken protection against abuse or misconfiguration",
+    "Hygiene": "hard-coded environment details or minor security hygiene issues need cleanup",
+    "Secret leak": "leaked credentials were found in the repository or its git history",
+    "Configuration": "infrastructure or container configuration weakens isolation or runtime security",
+    "Code security": "open high-priority code security issues require review and remediation",
+}
 
 
-def _code_action(note: dict | None) -> str:
+@dataclass
+class FixFirstAction:
+    """One grouped Fix First row for open P1/P2 code, secret or configuration findings."""
+    kind: str  # "code" | "secret" | "config"
+    level: str  # "P1" | "P2"
+    klass: str  # "C1".."C4" or ""
+    impact: str
+    action_scope: str
+    where: str
+    why: str
+    path: str
+    size: int
+    routes: tuple[str, ...] = ()
+
+
+def _ensure_period(text: str) -> str:
+    clean = (text or "").strip()
+    if not clean:
+        return ""
+    return clean if clean[-1] in ".!?" else clean + "."
+
+
+def _code_action(note: dict | None, rule_fix: str = "") -> str:
     verdict = (note or {}).get("verdict")
     if verdict == "likely_true_positive":
-        return (note or {}).get("suggested_fix") or "Fix the code"
+        return (note or {}).get("suggested_fix") or rule_fix or "Fix the code"
     if verdict == "likely_false_positive":
         return "Likely a false positive: do the listed check, then mark it Safe with the reason"
+    return rule_fix or "Fix, or mark False positive with a reason"
+
+
+def _action_text(primary_g: Group, occs: list[Occurrence]) -> str:
+    """Action text for a grouped code action: review suggested_fix when present,
+    likely-FP notice when every occurrence is likely_false_positive, else the rule's
+    recommendation."""
+    rule_fix = primary_g.fixes[0] if primary_g.fixes else ""
+    tp_fixes = [
+        str((o.ai or {}).get("suggested_fix") or "").strip()
+        for o in occs
+        if (o.ai or {}).get("verdict") == "likely_true_positive"
+    ]
+    tp_fixes = [f for f in tp_fixes if f]
+    if tp_fixes:
+        return tp_fixes[0]
+    if occs and all((o.ai or {}).get("verdict") == "likely_false_positive" for o in occs):
+        return "Likely a false positive: do the listed check, then mark it Safe with the reason"
+    if rule_fix:
+        return rule_fix
+    if any((o.ai or {}).get("verdict") == "likely_true_positive" for o in occs):
+        return "Fix the code"
     return "Fix, or mark False positive with a reason"
 
 
-def fix_first(report: Report) -> list[list]:
-    """Open code, secret and configuration findings at P1 and P2, most urgent first.
-    Dependency upgrade actions appear in their own Fix First table (fix_first_upgrades).
-    Each row: priority, what, where, why, action."""
-    items = []
+def fix_first_actions(report: Report) -> list[FixFirstAction]:
+    """Group open P1 and P2 code, secret and configuration findings into actions (PLAN D6, D8).
 
-    def add(p: sdt_priority.Priority | None, kind: int, severity: str, what: str, where: str, action: str) -> None:
-        if p and p.level in FIX_FIRST_LEVELS:
-            items.append(((p.rank, kind, SEVERITY_ORDER.index(severity)), [p.level, what, where, p.why, action]))
+    Code findings of one rule (or one merged rule set) in one file at one priority become one
+    action; order is priority, then impact class (C1 first), then impact label, then action size.
+    """
+    actions: list[FixFirstAction] = []
 
+    # Group open, non-merged P1/P2 code occurrences within (level, klass, label, path) by
+    # intersecting rule sets so merged duplicates and single-rule hits of the same problem
+    # collapse into one action.
+    buckets: "OrderedDict[tuple[str, str, str, str], list[tuple[Group, Occurrence]]]" = OrderedDict()
     for g in report.code:
         for o in g.occurrences:
-            if o.status in OPEN_STATES and not o.merged_into:
-                what = f"{g.name} ({g.rule})"
-                if o.merged_rules:
-                    others = ", ".join(f"{name} ({rule})" for name, rule in o.merged_rules)
-                    what = f"{what}; also {others}"
-                add(o.priority, 0, g.severity, what, f"{o.path}:{o.line}" if o.path else "(project)",
-                    _code_action(o.ai))
+            if o.status in OPEN_STATES and not o.merged_into and o.priority and o.priority.level in FIX_FIRST_LEVELS:
+                imp = o.priority.impact
+                klass = imp.klass if imp else ""
+                label = imp.label if imp else "Code security"
+                buckets.setdefault((o.priority.level, klass, label, o.path), []).append((g, o))
+
+    for (level, klass, label, path), entries in buckets.items():
+        n = len(entries)
+        rule_sets = [{g.rule} | {r for _, r in o.merged_rules} for g, o in entries]
+        parent = list(range(n))
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                if rule_sets[i] & rule_sets[j]:
+                    ri, rj = find(i), find(j)
+                    if ri != rj:
+                        parent[rj] = ri
+
+        clusters: "OrderedDict[int, list[tuple[Group, Occurrence]]]" = OrderedDict()
+        for i, pair in enumerate(entries):
+            clusters.setdefault(find(i), []).append(pair)
+
+        for cluster in clusters.values():
+            cluster.sort(key=lambda pair: (pair[1].line, pair[0].rule, pair[1].endpoint or pair[1].message))
+            group_counts = Counter(g.rule for g, _ in cluster)
+            by_rule = {g.rule: g for g, _ in cluster}
+            primary_rule = min(
+                group_counts,
+                key=lambda r: (-group_counts[r], SEVERITY_ORDER.index(by_rule[r].severity), r),
+            )
+            primary_g = by_rule[primary_rule]
+
+            peers: list[tuple[str, str]] = []
+            seen_rules = {primary_g.rule}
+            for g, o in cluster:
+                if g.rule not in seen_rules:
+                    seen_rules.add(g.rule)
+                    peers.append((g.name, g.rule))
+                for pname, prule in o.merged_rules:
+                    if prule not in seen_rules:
+                        seen_rules.add(prule)
+                        peers.append((pname, prule))
+
+            title = primary_g.name + (f"; also {', '.join(name for name, _ in peers)}" if peers else "")
+            endpoints = [o.endpoint or _extract_endpoint(g.rule, o.message) for g, o in cluster]
+            routes = tuple(dict.fromkeys(ep for ep in endpoints if ep))
+            lines = sorted({o.line for _, o in cluster if o.line > 0})
+            action = _ensure_period(_action_text(primary_g, [o for _, o in cluster]))
+
+            if routes:
+                shown = ", ".join(routes[:MAX_ACTION_ROUTES])
+                if len(routes) > MAX_ACTION_ROUTES:
+                    shown += f", and {len(routes) - MAX_ACTION_ROUTES} more"
+                action_scope = f"{action} {plural(len(routes), 'route')}: {shown} ({title})."
+            elif len(cluster) > 1:
+                scope = f"{plural(len(cluster), 'finding')}" + (f" (lines {_short(set(lines), 6)})" if lines else "")
+                action_scope = f"{action} {scope}: {title}."
+            else:
+                action_scope = f"{action} {title}."
+
+            if not path:
+                where = "(project)"
+            elif len(lines) == 1:
+                where = f"{path}:{lines[0]}"
+            elif lines:
+                where = f"{path}:{_short(set(lines), 3)}"
+            else:
+                where = path
+
+            why_counts = Counter(o.priority.why for _, o in cluster if o.priority)
+            why = min(why_counts, key=lambda w: (-why_counts[w], w)) if why_counts else ""
+            actions.append(FixFirstAction(
+                kind="code",
+                level=level,
+                klass=klass,
+                impact=label,
+                action_scope=action_scope,
+                where=where,
+                why=why,
+                path=path,
+                size=len(cluster),
+                routes=routes,
+            ))
+
     for g in group_secrets(report.secrets, report.context):
-        if g.open:
-            add(g.priority, 1, g.severity, f"Secret: {g.kind} ({g.where.lower()})",
-                f"{g.path}:{_short(g.lines, 3)}" if g.path else "-", g.action)
+        if g.open and g.priority and g.priority.level in FIX_FIRST_LEVELS:
+            actions.append(FixFirstAction(
+                kind="secret",
+                level=g.priority.level,
+                klass="C1",
+                impact="Secret leak",
+                action_scope=f"{_ensure_period(g.action)} Secret: {g.kind} ({g.where.lower()}).",
+                where=f"{g.path}:{_short(g.lines, 3)}" if g.path else "-",
+                why=g.priority.why,
+                path=g.path,
+                size=g.count,
+            ))
+
+    cfg_buckets: "OrderedDict[tuple[str, str, str], list[ConfigRow]]" = OrderedDict()
     for c in report.config:
-        if c.status in OPEN_STATES:
-            add(c.priority, 2, c.severity, f"{c.check}: {c.message[:120]}", f"{c.path}:{c.line}" if c.line else c.path or "-",
-                "Fix the configuration, or record why it is acceptable")
-    return [row for _, row in sorted(items, key=lambda item: item[0])]
+        if c.status in OPEN_STATES and c.priority and c.priority.level in FIX_FIRST_LEVELS:
+            cfg_buckets.setdefault((c.priority.level, c.check, c.path), []).append(c)
+    for (level, check, path), rows in cfg_buckets.items():
+        rows.sort(key=lambda r: (r.line, r.message))
+        lines = sorted({r.line for r in rows if r.line > 0})
+        action = "Fix the configuration, or record why it is acceptable."
+        if len(rows) > 1:
+            scope = f"{plural(len(rows), 'finding')}" + (f" (lines {_short(set(lines), 6)})" if lines else "")
+            action_scope = f"{action} {scope}: {check}: {_ensure_period(rows[0].message[:120])}"
+        else:
+            action_scope = f"{action} {check}: {_ensure_period(rows[0].message[:120])}"
+        if not path:
+            where = "-"
+        elif len(lines) == 1:
+            where = f"{path}:{lines[0]}"
+        elif lines:
+            where = f"{path}:{_short(set(lines), 3)}"
+        else:
+            where = path
+        why_counts = Counter(r.priority.why for r in rows if r.priority)
+        why = min(why_counts, key=lambda w: (-why_counts[w], w)) if why_counts else ""
+        actions.append(FixFirstAction(
+            kind="config",
+            level=level,
+            klass="",
+            impact="Configuration",
+            action_scope=action_scope,
+            where=where,
+            why=why,
+            path=path,
+            size=len(rows),
+        ))
+
+    actions.sort(key=lambda a: (
+        sdt_priority.LEVELS.index(a.level),
+        CLASS_ORDER.get(a.klass, len(CLASS_ORDER)),
+        LABEL_ORDER.get(a.impact, len(LABEL_ORDER)),
+        a.impact,
+        -a.size,
+        a.where,
+        a.action_scope,
+    ))
+    return actions
+
+
+def fix_first(report: Report) -> list[list]:
+    """Open code, secret and configuration actions at P1 and P2, most urgent first.
+    Dependency upgrade actions appear in their own Fix First table (fix_first_upgrades).
+    Each row: priority, impact, action and scope, where, why."""
+    return [[a.level, a.impact, a.action_scope, a.where, a.why] for a in fix_first_actions(report)]
+
+
+def summary_of_actions(report: Report) -> str:
+    """First-page summary of open P1/P2 code and secret actions plus dependency upgrades by effort."""
+    actions = fix_first_actions(report)
+    p1 = sum(1 for a in actions if a.level == "P1")
+    p2 = sum(1 for a in actions if a.level == "P2")
+    has_cfg = any(a.kind == "config" for a in actions)
+    code_label = "code, secrets and configuration" if has_cfg else "code and secrets"
+    open_upgrades = [a for a in report.upgrades if a.open]
+    if open_upgrades:
+        eff_counts = Counter(a.effort for a in open_upgrades)
+        eff_parts = [f"{eff_counts[e]} {e}" for e in ("Migration", "Drop-in") if eff_counts[e]]
+        for e, n in sorted(eff_counts.items()):
+            if e not in ("Migration", "Drop-in") and n:
+                eff_parts.append(f"{n} {e}")
+        dep_part = f"dependencies, {plural(len(open_upgrades), 'upgrade action')} ({', '.join(eff_parts)})"
+    else:
+        dep_part = "dependencies, no upgrade actions"
+    return f"Summary of actions: {code_label}, {p1} P1 and {p2} P2 actions; {dep_part}."
+
+
+def _upgrade_subject(action: sdt_upgrades.UpgradeAction) -> str:
+    """Framework name (Spring Boot, JHipster, Spring Cloud) or manifest for Top risks."""
+    for framework in ("JHipster", "Spring Boot", "Spring Cloud"):
+        if action.title.startswith(f"Upgrade {framework}"):
+            return framework
+    if action.manifest:
+        return Path(action.manifest).name
+    if action.packages and action.packages[0].package:
+        return action.packages[0].package
+    return "dependencies"
+
+
+def _dependency_top_risk(action: sdt_upgrades.UpgradeAction) -> str:
+    subject = _upgrade_subject(action)
+    crit = action.counts.get("Critical", 0)
+    high = action.counts.get("High", 0)
+    if crit and high:
+        fix_part = f"{crit} Critical and {high} High packages"
+    elif crit:
+        fix_part = f"{crit} Critical {'package' if crit == 1 else 'packages'}"
+    elif high:
+        fix_part = f"{high} High {'package' if high == 1 else 'packages'}"
+    else:
+        fix_part = plural(len(action.packages), "vulnerable package")
+    return f"Outdated {subject}: one upgrade fixes {fix_part}."
+
+
+def top_risks(report: Report) -> list[str]:
+    """At most 5 plain-language first-page risk lines from fixed templates (no AI text).
+
+    One line per impact label among open P1 and P2 actions, plus one line for the most urgent
+    open P1/P2 dependency upgrade action, ordered most urgent first.
+    """
+    candidates: list[tuple[tuple, str]] = []
+    by_label: "OrderedDict[str, list[FixFirstAction]]" = OrderedDict()
+    for action in fix_first_actions(report):
+        by_label.setdefault(action.impact, []).append(action)
+
+    for label, group in by_label.items():
+        best_level = min(sdt_priority.LEVELS.index(a.level) for a in group)
+        best_class = min(CLASS_ORDER.get(a.klass, len(CLASS_ORDER)) for a in group)
+        main = min(group, key=lambda a: (sdt_priority.LEVELS.index(a.level), -a.size, a.path))
+        main_file = Path(main.path).name if main.path else ""
+        if label == "Secret leak":
+            unit, count = "secret", len(group)
+        elif all(a.routes for a in group):
+            unit, count = "route", sum(len(a.routes) for a in group)
+        else:
+            unit, count = "place", sum(a.size for a in group)
+        files = {a.path for a in group if a.path}
+        if len(files) == 1 and main_file:
+            detail = f"{plural(count, unit)} in {main_file}"
+        elif len(files) > 1 and main_file:
+            detail = f"{plural(count, unit)}, including {main_file} and {plural(len(files) - 1, 'other file')}"
+        else:
+            detail = plural(count, unit)
+        template = TOP_RISK_TEMPLATES.get(label, TOP_RISK_TEMPLATES["Code security"])
+        line = f"{label}: {template} ({detail})."
+        rank = (best_level, best_class, LABEL_ORDER.get(label, len(LABEL_ORDER)), -count, label)
+        candidates.append((rank, line))
+
+    open_p12_upgrades = [
+        a for a in report.upgrades if a.open and a.priority and a.priority.level in FIX_FIRST_LEVELS
+    ]
+    if open_p12_upgrades:
+        top_dep = open_p12_upgrades[0]
+        dep_rank = (
+            sdt_priority.LEVELS.index(top_dep.priority.level),
+            2,
+            0,
+            -len(top_dep.packages),
+            _upgrade_subject(top_dep),
+        )
+        candidates.append((dep_rank, _dependency_top_risk(top_dep)))
+
+    candidates.sort(key=lambda item: item[0])
+    return [line for _, line in candidates[:MAX_TOP_RISKS]]
 
 
 def upgrade_action_rows(actions: list[sdt_upgrades.UpgradeAction]) -> list[list]:
@@ -1629,6 +1978,10 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
                                       for k, v in meta]))
     parts.append(section_heading("Executive Summary", 1, "sec_summary"))
     parts += [para(run(text)) for text in executive_summary(report)]
+    risks = top_risks(report)
+    if risks:
+        parts.append(para(run("Top risks", bold=True), before=120, after=40))
+        parts += [bullet(risk) for risk in risks]
     parts.append(section_heading("Findings Summary", 1, "sec_findings_summary"))
     summary_titles = {"dependency": "Dependencies (packages) & Configuration (Trivy)"}
     rows = [[n, summary_titles.get(key, title), counts[key][0], counts[key][1],
@@ -1673,25 +2026,36 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
     todo = fix_first(report)
     dep_todo = fix_first_upgrades(report)
     if todo or dep_todo:
-        parts.append(para(run("Open findings at P1 (" + sdt_priority.MEANING["P1"] + ") and P2 ("
-                              + sdt_priority.MEANING["P2"] + "), most urgent first. Priority starts from the impact "
-                              "class or severity and moves with what is known about this service and the finding; "
-                              "Why lists each step (↑ raised, ↓ lowered). See How Priority Is Set.")))
+        parts.append(para(run(
+            "Open actions at P1 (" + sdt_priority.MEANING["P1"] + ") and P2 (" + sdt_priority.MEANING["P2"]
+            + "), most urgent first. Code findings are grouped into one action per rule and file and ranked by "
+            "impact class (C1 Direct compromise to C4 Hygiene) and rule precision, then adjusted for what is known "
+            "about this service and the finding; Why lists each step (↑ raised, ↓ lowered). See How Priority Is Set."
+        )))
         if todo:
-            parts.append(data_table([("No.", 600), ("Priority", 950), ("What", 2450), ("Where", 2100), ("Why", 2080),
-                                     ("Action", 1900)], [[i, *row] for i, row in enumerate(todo[:40], 1)],
-                                    advisory_cols=(5,), priority_col=1))
+            parts.append(data_table(
+                [("No.", 550), ("Priority", 850), ("Impact", 1550), ("Action and scope", 3300),
+                 ("Where", 1750), ("Why", 2080)],
+                [[i, *row] for i, row in enumerate(todo[:40], 1)],
+                priority_col=1,
+            ))
             if len(todo) > 40:
-                parts.append(para(run(f"{len(todo) - 40} more items at P1 or P2 follow in the sections below, where each "
-                                      "section lists its most urgent findings first.")))
+                extra = len(todo) - 40
+                parts.append(para(run(
+                    f"{plural(extra, 'more action')} at P1 or P2 {'follows' if extra == 1 else 'follow'} "
+                    "in the sections below, where each section lists its most urgent findings first."
+                )))
         if dep_todo:
             parts.append(section_heading("Dependency upgrades", 2))
             parts.append(data_table([("No.", 600), ("Priority", 950), ("Upgrade", 2750), ("Packages", 2150),
                                      ("Effort", 1100), ("Why", 2530)],
                                     [[i, *row] for i, row in enumerate(dep_todo[:40], 1)], priority_col=1))
             if len(dep_todo) > 40:
-                parts.append(para(run(f"{len(dep_todo) - 40} more dependency upgrade actions at P1 or P2 follow in "
-                                      "section 3.")))
+                extra = len(dep_todo) - 40
+                parts.append(para(run(
+                    f"{plural(extra, 'more dependency upgrade action')} at P1 or P2 "
+                    f"{'follows' if extra == 1 else 'follow'} in section 3."
+                )))
     else:
         parts.append(para(run("Nothing open is at P1 or P2. Work through the sections below, most urgent first; "
                               "How Priority Is Set explains each level.")))
