@@ -163,9 +163,9 @@ def _service(ctx: Context, lowers: list[str]) -> None:
 
 
 def code(rule: str, name: str, severity: str, path: str, verdict: str = "", confidence: str = "",
-         ctx: Context = Context(), cwe: tuple[str, ...] = (), kind: str = "") -> Priority:
+         ctx: Context = Context(), cwe: tuple[str, ...] = (), kind: str = "", impact: str = "") -> Priority:
     """A code finding (SonarQube issue or hotspot, OpenGrep match)."""
-    imp = sdt_impact.classify(rule, name=name, cwe=cwe, kind=kind)
+    imp = sdt_impact.classify(rule, name=name, cwe=cwe, kind=kind, impact=impact)
     raises, lowers = [], []
     if place(path) == "not shipped":
         lowers.append("test, example or documentation file")

@@ -698,15 +698,45 @@ def _make_impact(entry: RuleEntry, source: str, kind: str = "") -> Impact:
     )
 
 
+BOLA_RULE_ID = "scp.endpoints.bola-unscoped-object-access"
+
+BOLA_IMPACTS: dict[str, RuleEntry] = {
+    "account-takeover": ("C1", "Account takeover", "high", True),
+    "logic-abuse": ("C2", "Logic abuse", "high", True),
+    "data-exposure": ("C2", "Data exposure", "high", True),
+}
+
+_IMPACT_TAG = re.compile(r"\s*\[impact:\s*([a-z0-9_-]+)\]", re.I)
+
+
+def parse_impact_tag(message: str) -> tuple[str, str]:
+    """Extract a '[impact: <value>]' tag carried in an imported issue message.
+
+    Returns (normalised_impact, message_without_tag).
+    """
+    text = message or ""
+    match = _IMPACT_TAG.search(text)
+    if not match:
+        return "", text
+    value = match.group(1).strip().lower()
+    cleaned = _IMPACT_TAG.sub("", text).strip()
+    return value, cleaned
+
+
 def classify(
     rule: str,
     name: str = "",
     cwe: tuple[str, ...] = (),
     kind: str = "",
+    impact: str = "",
 ) -> Impact | None:
     """Return the Impact for a code finding, or None when no table covers it."""
     del name  # reserved for callers that pass rule metadata; classification is table-driven
     key = normalize_rule_key(rule)
+    if key == BOLA_RULE_ID:
+        hint = (impact or "").strip().lower()
+        if hint in BOLA_IMPACTS:
+            return _make_impact(BOLA_IMPACTS[hint], "rule", kind)
     if key in RULES:
         return _make_impact(RULES[key], "rule", kind)
     if key in VENDOR_RULES:

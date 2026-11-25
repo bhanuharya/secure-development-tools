@@ -46,6 +46,7 @@ from xml.sax.saxutils import escape
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sdt_advisory  # noqa: E402  (deterministic advisory; no model needed)
+import sdt_impact  # noqa: E402  (impact classes and BOLA impact tag parsing)
 import sdt_priority  # noqa: E402  (P1-P4 from severity and what is known about the service)
 
 TEMPLATE = Path(__file__).resolve().parent / "templates" / "sast-report.docx"
@@ -157,6 +158,15 @@ class Occurrence:
     ai: dict | None = None  # advisory review from sdt_triage_codex.py, never a decision
     link: str = ""  # the finding's page in SonarQube, when it came from there
     priority: sdt_priority.Priority | None = None  # set by prioritize()
+    end_line: int = 0  # closing line of the handler/span (defaults to line)
+    impact: str = ""  # per-finding impact hint (e.g. BOLA metadata.impact)
+    same_handler: list[tuple[str, str, int]] = field(default_factory=list)
+    merged_into: tuple[str, str, int] | None = None
+    merged_rules: list[tuple[str, str]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.end_line < self.line:
+            self.end_line = self.line
 
 
 def _most_urgent(priorities) -> sdt_priority.Priority | None:
@@ -451,11 +461,17 @@ def from_sonar(sonar: Sonar, project_key: str, branch: str, pull_request: str,
                 for i in issues]
     for rule_key, kind, severity, status, item in entries:
         path, line = _path(item.get("component", "")), item.get("line") or 0
-        message = clean_message(item.get("message", ""))
+        text_range = item.get("textRange") or {}
+        if not line and text_range.get("startLine"):
+            line = int(text_range["startLine"])
+        end_line = int(text_range.get("endLine") or line or 0)
+        raw_message = clean_message(item.get("message", ""))
+        impact_hint, message = sdt_impact.parse_impact_tag(raw_message)
         what = category(rule_key)
         if what == "code":
             code(rule_key, kind, severity, Occurrence(path, line, message, status, item.get("assignee", ""),
-                                                      link=link(item, kind == "Security Hotspot") if "key" in item else ""))
+                                                      link=link(item, kind == "Security Hotspot") if "key" in item else "",
+                                                      end_line=end_line, impact=impact_hint))
         elif what == "secret":
             history = HISTORY_SECRET.search(message)
             if history:
@@ -502,9 +518,15 @@ def from_findings(doc: dict, src_root: Path | None = None) -> dict:
         location = f.get("location") or {}
         artifact = f.get("artifact") or {}
         path, line = str(location.get("path") or ""), int(location.get("startLine") or 0)
-        message = str(f.get("message") or "").split("\n")[0][:300]
+        end_line = int(location.get("endLine") or line or 0)
+        metadata = f.get("metadata") or {}
+        impact_hint = str(metadata.get("impact") or "").strip().lower()
+        raw_message = str(f.get("message") or "").split("\n")[0][:300]
+        tag_impact, message = sdt_impact.parse_impact_tag(raw_message)
+        if not impact_hint and tag_impact:
+            impact_hint = tag_impact
         if what == "secret":
-            commit = str((f.get("metadata") or {}).get("commit") or "")
+            commit = str(metadata.get("commit") or "")
             evidence = str((f.get("evidence") or {}).get("text") or "")
             secrets.append(SecretRow(rule_id, path, line, commit[:12], _where(src_root, path, line, evidence), severity,
                                      match=evidence))
@@ -530,7 +552,8 @@ def from_findings(doc: dict, src_root: Path | None = None) -> dict:
                                     cwe=cwes)
             group = groups[key]
             group.severity = _worse(group.severity, severity)
-            group.occurrences.append(Occurrence(path, line, message, "Not reviewed", ""))
+            group.occurrences.append(Occurrence(path, line, message, "Not reviewed", "",
+                                                end_line=end_line, impact=impact_hint))
     return {"code": list(groups.values()), "secret": secrets, "dependency": list(packages.values()), "config": config}
 
 
@@ -576,6 +599,23 @@ def merge(sonar: dict, sdt: dict | None) -> dict:
     else:
         merged = {"code": sonar["code"], "secret": list(sdt["secret"]), "dependency": sdt["dependency"],
                   "config": sdt["config"] or sonar["config"]}
+        # Backfill per-finding impact and handler span from findings.json when absent in SonarQube.
+        sdt_code_meta: dict[tuple[str, str, int], tuple[str, int]] = {}
+        for g in sdt.get("code") or ():
+            norm = sdt_impact.normalize_rule_key(g.rule)
+            for o in g.occurrences:
+                if o.impact or o.end_line > o.line:
+                    sdt_code_meta[(norm, o.path, o.line)] = (o.impact, o.end_line)
+        if sdt_code_meta:
+            for g in merged["code"]:
+                norm = sdt_impact.normalize_rule_key(g.rule)
+                for o in g.occurrences:
+                    meta = sdt_code_meta.get((norm, o.path, o.line))
+                    if meta:
+                        if not o.impact and meta[0]:
+                            o.impact = meta[0]
+                        if o.end_line <= o.line and meta[1] > o.line:
+                            o.end_line = meta[1]
         status = {(r.path, r.line): r.status for r in sonar["secret"]}
         for row in merged["secret"]:
             row.status = status.get((row.path, row.line), row.status)
@@ -919,6 +959,100 @@ DECIDED = {"Safe": "likely_false_positive", "False positive": "likely_false_posi
            "Acknowledged": "likely_true_positive", "Confirmed": "likely_true_positive", "Accepted": "likely_true_positive"}
 
 
+DUPLICATE_MERGE_LABELS = frozenset({
+    "Account takeover",
+    "Authentication bypass",
+    "Data exposure",
+})
+
+
+def _spans_overlap_handler(a: Occurrence, b: Occurrence) -> bool:
+    """True when either occurrence's start line lies inside the other's [line, end_line] span."""
+    if a.line <= 0 or b.line <= 0:
+        return False
+    end_a = max(a.line, a.end_line)
+    end_b = max(b.line, b.end_line)
+    return (a.line <= b.line <= end_a) or (b.line <= a.line <= end_b)
+
+
+def merge_duplicate_handlers(report: Report) -> None:
+    """Merge duplicate code findings that flag the same handler (PLAN D6).
+
+    Two open occurrences in the same file from different rules merge when both
+    carry an impact label in DUPLICATE_MERGE_LABELS and one's line lies inside
+    the other's [line, end_line] span. The most urgent occurrence stays primary
+    for priority counts and Fix First; every rule section keeps its occurrence
+    with a cross-reference to the peer rule.
+    """
+    by_file: dict[str, list[tuple[Group, Occurrence]]] = {}
+    for g in report.code:
+        for o in g.occurrences:
+            o.same_handler = []
+            o.merged_into = None
+            o.merged_rules = []
+            if (o.path and o.line > 0 and o.status in OPEN_STATES
+                    and o.priority and o.priority.impact
+                    and o.priority.impact.label in DUPLICATE_MERGE_LABELS):
+                by_file.setdefault(o.path, []).append((g, o))
+
+    for items in by_file.values():
+        n = len(items)
+        if n < 2:
+            continue
+        parent = list(range(n))
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for i in range(n):
+            g1, o1 = items[i]
+            for j in range(i + 1, n):
+                g2, o2 = items[j]
+                if g1.rule == g2.rule:
+                    continue
+                if _spans_overlap_handler(o1, o2):
+                    ri, rj = find(i), find(j)
+                    if ri != rj:
+                        parent[rj] = ri
+
+        clusters: dict[int, list[tuple[Group, Occurrence]]] = {}
+        for i, pair in enumerate(items):
+            clusters.setdefault(find(i), []).append(pair)
+
+        for members in clusters.values():
+            if len({g.rule for g, _ in members}) < 2:
+                continue
+            members.sort(key=lambda pair: (
+                pair[1].priority.rank if pair[1].priority else len(sdt_priority.LEVELS),
+                SEVERITY_ORDER.index(pair[0].severity),
+                pair[1].line,
+                pair[0].rule,
+            ))
+            primary_g, primary_o = members[0]
+            first_peer = next(((g, o) for g, o in members[1:] if g.rule != primary_g.rule), None)
+            seen_rules = {primary_g.rule}
+            for other_g, other_o in members[1:]:
+                other_o.merged_into = (primary_g.name, primary_o.path, primary_o.line)
+                if other_g.rule != primary_g.rule:
+                    ref_primary = (primary_g.name, primary_o.path, primary_o.line)
+                    if ref_primary not in other_o.same_handler:
+                        other_o.same_handler.append(ref_primary)
+                    ref_other = (other_g.name, other_o.path, other_o.line)
+                    if ref_other not in primary_o.same_handler:
+                        primary_o.same_handler.append(ref_other)
+                    if other_g.rule not in seen_rules:
+                        seen_rules.add(other_g.rule)
+                        primary_o.merged_rules.append((other_g.name, other_g.rule))
+                elif first_peer is not None:
+                    peer_g, peer_o = first_peer
+                    ref_peer = (peer_g.name, peer_o.path, peer_o.line)
+                    if ref_peer not in other_o.same_handler:
+                        other_o.same_handler.append(ref_peer)
+
+
 def prioritize(report: Report) -> None:
     """Give every finding its priority (sdt_priority) and order each section most urgent first.
     Secret groups get theirs in group_secrets(). Safe to call more than once."""
@@ -927,7 +1061,9 @@ def prioritize(report: Report) -> None:
         for o in g.occurrences:
             note = o.ai or {}
             o.priority = sdt_priority.code(g.rule, g.name, g.severity, o.path, str(note.get("verdict") or ""),
-                                           str(note.get("confidence") or ""), ctx, cwe=g.cwe, kind=g.kind)
+                                           str(note.get("confidence") or ""), ctx, cwe=g.cwe, kind=g.kind,
+                                           impact=o.impact)
+    merge_duplicate_handlers(report)
     report.code.sort(key=lambda g: (g.priority.rank if g.priority else len(sdt_priority.LEVELS),
                                     SEVERITY_ORDER.index(g.severity), -len(g.occurrences), g.rule))
     for r in report.dependencies:
@@ -941,7 +1077,7 @@ def prioritize(report: Report) -> None:
 def priorities(report: Report) -> dict[str, list[sdt_priority.Priority]]:
     """category -> the priority of each item as the report lists it: code finding, secret place,
     package, configuration check (the last two together, as in the Findings Summary)."""
-    return {"code": [o.priority for g in report.code for o in g.occurrences if o.priority],
+    return {"code": [o.priority for g in report.code for o in g.occurrences if o.priority and not o.merged_into],
             "secret": [g.priority for g in group_secrets(report.secrets, report.context)],
             "dependency": [r.priority for r in report.dependencies + report.config if r.priority]}
 
@@ -1289,8 +1425,12 @@ def fix_first(report: Report) -> list[list]:
 
     for g in report.code:
         for o in g.occurrences:
-            if o.status in OPEN_STATES:
-                add(o.priority, 0, g.severity, f"{g.name} ({g.rule})", f"{o.path}:{o.line}" if o.path else "(project)",
+            if o.status in OPEN_STATES and not o.merged_into:
+                what = f"{g.name} ({g.rule})"
+                if o.merged_rules:
+                    others = ", ".join(f"{name} ({rule})" for name, rule in o.merged_rules)
+                    what = f"{what}; also {others}"
+                add(o.priority, 0, g.severity, what, f"{o.path}:{o.line}" if o.path else "(project)",
                     _code_action(o.ai))
     for g in group_secrets(report.secrets, report.context):
         if g.open:
@@ -1576,6 +1716,11 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
                         flagged = f"Likely false positive. The rule says: {flagged}"
                     parts.append(para(run(f"#{i} ", bold=True) + run(flagged), before=160, after=0))
                     parts += [code_block(block) for block in blocks]
+                if occurrence.same_handler:
+                    same_notes = "; ".join(f"Same handler as {name} at {path}:{line}"
+                                           for name, path, line in occurrence.same_handler)
+                    prefix = run(f"#{i} ", bold=True) if not blocks else ""
+                    parts.append(para(prefix + run(same_notes, size=18, color="4B5563"), before=40, after=40))
                 if occurrence.ai:
                     parts += advisory_block(occurrence.ai)
             parts += recommendation_block(g, ordered, numbered=True)
@@ -1622,6 +1767,10 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
                                      if name not in ("Impact", "Fix steps", "Example", "Verify the fix"))
                 else:
                     text = o.message or g.name
+                if o.same_handler:
+                    same_notes = "; ".join(f"Same handler as {name} at {path}:{line}"
+                                           for name, path, line in o.same_handler)
+                    text = f"{text}. {same_notes}" if text else same_notes
                 url = target([o]) if o.path else ""
                 line_cell = (str(o.line or "-"), link_run(str(o.line or "-"), links.rid(url), 18)) if url \
                     else (o.line or "-")

@@ -317,3 +317,15 @@ def test_rules_text_explains_impact_classes_ceilings_and_review_rule():
     assert "never above its class ceiling" in joined
     assert "never lowers" in joined
 
+
+def test_bola_per_finding_impact_ranks_account_takeover_p1_and_others_p2():
+    rule = "scp.endpoints.bola-unscoped-object-access"
+    ato = prio.code(rule, "Unscoped object access", "High", "src/UserController.java", impact="account-takeover")
+    assert ato.level == "P1" and ato.base == "Account takeover (C1), high-precision rule"
+
+    logic = prio.code(rule, "Unscoped object access", "High", "src/OrderController.java", impact="logic-abuse")
+    assert logic.level == "P2" and logic.base == "Logic abuse (C2), high-precision rule"
+
+    read = prio.code(rule, "Unscoped object access", "Medium", "src/OrderController.java", impact="data-exposure")
+    assert read.level == "P2" and read.base == "Data exposure (C2), high-precision rule"
+

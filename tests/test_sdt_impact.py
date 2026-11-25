@@ -231,3 +231,29 @@ def test_unknown_rule_without_known_cwe_returns_none():
     assert impact.classify("java:S99999") is None
     assert impact.classify("custom:unknown", cwe=("CWE-99999",)) is None
     assert impact.classify("") is None
+
+
+def test_bola_metadata_impact_overrides_across_key_forms():
+    bola_ext = f"external_sdt-endpoints:{sdt_to_sonar._rule_key('endpoints', 'scp.endpoints.bola-unscoped-object-access')}"
+    keys = (
+        "scp.endpoints.bola-unscoped-object-access",
+        "endpoints:scp.endpoints.bola-unscoped-object-access",
+        bola_ext,
+    )
+    expected = {
+        "account-takeover": impact.Impact("C1", "Account takeover", "high", True, "rule"),
+        "logic-abuse": impact.Impact("C2", "Logic abuse", "high", True, "rule"),
+        "data-exposure": impact.Impact("C2", "Data exposure", "high", True, "rule"),
+        "": impact.Impact("C2", "Data exposure", "high", True, "rule"),
+    }
+    for key in keys:
+        for hint, want in expected.items():
+            assert impact.classify(key, impact=hint) == want, (key, hint)
+
+
+def test_parse_impact_tag_extracts_and_strips_tag():
+    assert impact.parse_impact_tag("PUT /api/users/{id}/pin [impact: account-takeover]") == (
+        "account-takeover",
+        "PUT /api/users/{id}/pin",
+    )
+    assert impact.parse_impact_tag("Plain finding message") == ("", "Plain finding message")

@@ -243,7 +243,7 @@ func (ri RouteInvariant) violations(absRoot string, rt Route, evRegexes []*regex
 
 	if ri.RequirePrincipalCheck && absRoot != "" && rt.Protection != ProtDenied && rt.Protection != ProtRole {
 		if len(objectPathParams(rt.Path)) > 0 {
-			if body, ok := extractHandlerBody(absRoot, rt); ok && strings.TrimSpace(body) != "" {
+			if body, _, ok := extractHandlerBody(absRoot, rt); ok && strings.TrimSpace(body) != "" {
 				if !hasPrincipalOrOwnershipCheck(body) {
 					reasons = append(reasons, "handler does not reference authenticated caller, owner, or tenant identity")
 				}

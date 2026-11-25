@@ -357,8 +357,20 @@ def convert(findings_doc: dict, repo_root: Path | None = None) -> tuple[dict, in
             if source not in line_counts:
                 line_counts[source] = _line_count(source)
             tr = _clamp_range(tr, line_counts[source])
-        primary: dict = {"message": _vuln_message(view) if view else str(f.get("message", ""))[:1000],
-                         "filePath": path}
+        if view:
+            msg = _vuln_message(view)
+        else:
+            msg = str(f.get("message", ""))
+            impact = str((f.get("metadata") or {}).get("impact") or "").strip().lower()
+            if impact in ("account-takeover", "logic-abuse", "data-exposure"):
+                tag = f" [impact: {impact}]"
+                if tag not in msg:
+                    msg = f"{msg[:1000 - len(tag)]}{tag}"
+                else:
+                    msg = msg[:1000]
+            else:
+                msg = msg[:1000]
+        primary: dict = {"message": msg, "filePath": path}
         if tr:
             primary["textRange"] = tr
         issues.append({"ruleId": key, "effortMinutes": DEPENDENCY_EFFORT if view else EFFORT.get(sev, 5),

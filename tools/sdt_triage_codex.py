@@ -559,8 +559,23 @@ def review_group(group, run: _Run, src_root, codex, model, call, per_call_timeou
     return part, changed, hidden
 
 
+DEFAULT_MAX_PER_ENDPOINT_RULE = 30
+
+
+def is_endpoint_rule(rule: str) -> bool:
+    """True when `rule` belongs to the endpoints analyser."""
+    key = (rule or "").strip()
+    return (
+        key.startswith("external_sdt-endpoints:")
+        or key.startswith("endpoints:")
+        or key.startswith("scp.endpoints.")
+        or ":scp.endpoints." in key
+    )
+
+
 def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, model: str, *,
            per_call_timeout: float, budget: float, max_rules: int, max_per_rule: int, max_failures: int,
+           max_per_endpoint_rule: int = DEFAULT_MAX_PER_ENDPOINT_RULE,
            call=run_codex, clock=time.monotonic, memory: dict | None = None, confirm: bool = False,
            findings: dict | None = None, parallel: int = 1) -> dict:
     """Review up to max_rules code rules, stopping on budget or repeated failure.
@@ -585,7 +600,8 @@ def triage(groups: list[sdt_to_docx.Group], src_root: Path | None, codex: str, m
     evidence = finding_evidence(findings or {})
 
     def one(group):
-        return review_group(group, run, src_root, codex, model, call, per_call_timeout, max_per_rule,
+        limit = max_per_endpoint_rule if is_endpoint_rule(group.rule) else max_per_rule
+        return review_group(group, run, src_root, codex, model, call, per_call_timeout, limit,
                             memory, evidence, confirm)
 
     selected = groups[:max_rules]
@@ -660,6 +676,8 @@ def main() -> int:
                     help="seconds for the whole review")
     ap.add_argument("--max-rules", type=int, default=15)
     ap.add_argument("--max-per-rule", type=int, default=6)
+    ap.add_argument("--max-per-endpoint-rule", type=int, default=DEFAULT_MAX_PER_ENDPOINT_RULE,
+                    help="max occurrences reviewed per endpoints rule (default %(default)s)")
     ap.add_argument("--max-failures", type=int, default=2, help="stop after this many consecutive failed calls")
     ap.add_argument("--parallel", type=int, default=int(os.environ.get("SDT_CODEX_PARALLEL", DEFAULT_PARALLEL)),
                     help="rules reviewed at a time (default: $SDT_CODEX_PARALLEL, else %(default)s)")
@@ -693,6 +711,7 @@ def main() -> int:
     memory = {} if args.refresh else load_memory(memory_path)
     report = triage(groups, args.src_root, codex, args.model, per_call_timeout=args.per_call_timeout,
                     budget=args.budget, max_rules=args.max_rules, max_per_rule=args.max_per_rule,
+                    max_per_endpoint_rule=args.max_per_endpoint_rule,
                     max_failures=args.max_failures, memory=memory, confirm=args.confirm, findings=findings,
                     parallel=args.parallel)
     args.out.parent.mkdir(parents=True, exist_ok=True)
