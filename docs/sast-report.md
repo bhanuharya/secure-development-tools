@@ -26,11 +26,11 @@ leaves Needs a Decision, Fix First and the Review Notes.
 
 | Page | Content |
 |---|---|
-| Cover | Logo (when supplied), scope link, metadata (scanners, totals, coverage gaps), Executive Summary, Findings Summary, Changes Since Previous Scan, contents (a Word TOC field with clickable entries) |
-| Fix First | The open findings at priority P1 and P2, most urgent first, each with what moved its priority (Why) and what to do |
+| Cover | Logo (when supplied), scope link, metadata (scanners, totals, coverage gaps), Executive Summary (it opens with a summary of actions and at most five Top risks lines), Findings Summary, Changes Since Previous Scan, contents (a Word TOC field with clickable entries) |
+| Fix First | The open P1 and P2 code, secret and configuration findings grouped into actions (one rule, or one merged set, in one file at one priority; routes listed), most urgent first, with the impact, what to do and what set the priority (Why); then a Dependency upgrades table of the P1 and P2 upgrade actions |
 | 1. Code Security | Per rule: severity, type, status, assignee, risk, then the findings with their assessment (see layout below), then the recommendation for the findings not assessed as false positives |
 | 2. Secret Leaks | Grouped by secret type and file (gitleaks and SonarQube reports of the same file collapse); still-in-code first, Firebase/Google client keys last ("restrict, don't rotate") |
-| 3. Dependencies & Configuration | One row per vulnerable package with all its advisories and one **Upgrade To** version (the lowest release that fixes all of them), reachability; Trivy configuration checks |
+| 3. Dependencies & Configuration | Upgrade actions first (see Dependency upgrade actions below), then one row per vulnerable package with all its advisories and one **Upgrade To** version (the lowest release that fixes all of them), reachability; Trivy configuration checks |
 | Resolved in SonarQube | Findings already decided there (Safe, False positive, Accepted, Fixed): one compact row each (category, finding, where, status). Kept for the audit trail, but out of the sections above, out of the Total/Needs-a-Decision counts, and not reported as fixed in Changes Since Previous Scan. The section and its contents entry appear only when there are any. |
 | How Priority Is Set | The repository's service exposure and criticality as used, and the rules (see Priority below) |
 | Review Notes | Factual notes, then **Coverage**: what the scan could not cover (e.g. Dart lint skipped) and scanners that did not complete |
@@ -69,12 +69,55 @@ checks it appears nowhere in the file.
 
 ## Priority
 
-Every finding gets a priority from **P1** (act now) to **P4** (fix when the code is touched), shown next to its
-severity in every table; each section lists its most urgent findings first. Priority starts from the severity and
-moves one step for each fact known about the finding and the service: a review that judged it real, a test or
-example file, a package no source file imports, a secret named as a signing key or password, a service that is
-only reachable from an internal network. The rules and their guardrails are in
-[ADR 0009](adr/0009-finding-priority.md); the report states them in How Priority Is Set.
+Every finding gets a priority: **P1** fix before the next deploy, **P2** fix in this release, **P3** plan the fix,
+**P4** fix when the code is touched. It is shown next to the severity in every table, and each section lists its
+most urgent findings first.
+
+* **Code** findings start from their **impact class** (`tools/sdt_impact.py`): C1 direct compromise (account
+  takeover, authentication bypass, credential exposure, injection) has the ceiling P1, C2 data or logic abuse
+  P2, C3 defence in depth P3, C4 hygiene P4. A high-precision rule starts at the ceiling, a medium-precision rule
+  one step below; a review that judged the finding real raises it one step, never past the ceiling. A finding
+  no table covers starts from its severity.
+* **Secrets** start from their kind, **configuration** checks from their severity.
+* **Dependencies** start from their worst advisory and are **capped at P2** unless an advisory is on a local
+  known-exploited list (see below) in a package the code imports; then they start at P1.
+
+Then the priority moves one step for each fact known about the finding and the service: a test or example file,
+a package no source file imports, a secret named as a signing key or password, a service only reachable from an
+internal network, the service's business criticality. The rules and their guardrails are in
+[ADR 0009](adr/0009-finding-priority.md) and [ADR 0010](adr/0010-impact-classes-and-upgrade-actions.md); the
+report states them in How Priority Is Set.
+
+### First page and Fix First
+
+The Executive Summary opens with a summary of actions (code and secret actions at P1 and P2, dependency upgrade
+actions by effort) and at most five **Top risks** lines: one per impact label among the open P1 and P2 actions,
+most urgent first, from fixed sentences filled with counts and the main file (no AI text), and always one line
+for the upgrade that fixes the most severe packages when an upgrade action is at P1 or P2.
+
+Fix First lists **actions**, not findings: the open findings of one rule in one file at one priority are one row
+("5 routes: PUT /api/users/{id}/password, ..."). Findings of two rules that report the same problem in one handler
+or on one line (an unscoped object route and a credential change by request id; two rules on one `permitAll`
+matcher) count once and share a row; each rule section still lists its finding with "Same handler as ..." or
+"Same line as ...". Columns: Priority, Impact, Action and scope, Where, Why; the severity stays in the rule
+sections. Order: priority, impact class, label, size. At most 40 rows; the rest are in the sections.
+
+### Dependency upgrade actions
+
+Vulnerable packages are grouped into the upgrades that fix them:
+
+* Maven packages managed by a Spring Boot parent or BOM (`spring-boot-starter-parent`, `spring-boot-dependencies`,
+  or a JHipster `jhipster-dependencies` BOM; read from the `pom.xml` under `--src-root`) are one action, "Upgrade
+  JHipster (currently 7.0.1; Spring Boot 2.4.4)". The managed group list is deliberately short; anything outside
+  it, and any other Maven package, is its own action.
+* A lock file (npm, Yarn, pnpm, Poetry, ...) or another manifest (`go.mod`, `requirements.txt`, `build.gradle`,
+  `pubspec.yaml`, ...) is one action. Java archives (`.jar`, `.war`, `.ear`) stay one action per package.
+* Effort: **Migration** when a package's target major version is above its installed one, else **Drop-in**.
+* An action takes its most urgent package's priority.
+
+`--kev PATH` (or `SDT_KEV_FILE`) reads a local copy of the CISA Known Exploited Vulnerabilities catalog
+(`{"vulnerabilities": [{"cveID": "CVE-..."}]}`); nothing is downloaded and a missing file is a warning. Without
+it no dependency is P1. In the pipeline, set `SDT_KEV_FILE` on the agent and refresh the file on a schedule.
 
 What the report knows about the service comes from a repository inventory, a tab-separated file kept outside this
 repository because it names internal services:

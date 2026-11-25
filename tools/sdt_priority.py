@@ -350,10 +350,11 @@ def rules_text(ctx: Context) -> list[str]:
         "test, example or documentation files (.env.example included), and when its name says it is public by "
         "design (a site, publishable or anonymous key). The "
         "service's exposure does not count: everyone who can read the repository has the value.",
-        "Dependencies: packages are grouped into upgrade actions (such as a Spring Boot parent/BOM or a lockfile). "
-        "Each action takes its most urgent package's priority (lowered when no scanned source file imports the "
-        "package, when the manifest belongs to a test or an example, and for an internal service) and is capped at "
-        "P2 unless a known-exploited (KEV) advisory affects an imported package.",
+        "Dependencies: a package starts from its worst advisory, or at P1 when one of its advisories is on the "
+        "known-exploited (KEV) list and the code imports it. Lowered when no scanned source file imports it, when "
+        "the manifest belongs to a test or an example, and for an internal service. Without a known-exploited "
+        "advisory a package is capped at P2. Packages are grouped into upgrade actions (one per Spring Boot parent "
+        "or BOM, lock file or manifest); an action takes its most urgent package's priority.",
         "Configuration checks: lowered in test, example or documentation files.",
         "High business criticality cancels the internal-service step; low criticality lowers code (except hard-coded "
         "credentials), dependencies and configuration one step.",
