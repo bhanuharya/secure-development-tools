@@ -2374,10 +2374,20 @@ def _redact_report(report: Report, src_root: Path | None) -> tuple[Report, set]:
     return sdt_advisory.redact_tree(report, withheld), withheld
 
 
+XML_TEXT = re.compile(r">([^<]+)<")
+LINK_TARGET = re.compile(r'(\bTarget=")([^"]*)(")')
+
+
 def _safe_xml(data: str, withheld: set) -> str:
-    # Run after XML escaping as well, including headers, footers and link attributes.
-    return sdt_advisory.scrub(data, {escaped for value in withheld
-                                   for escaped in (escape(value), escape(value, {chr(34): "&quot;"}))})
+    """Remove withheld values from what a reader of the file sees: the text between tags (body, headers,
+    footers) and link targets. Tag and attribute names stay as they are: scrubbing a withheld "app" out of
+    the raw XML turned <w:clrSchemeMapping> into an invalid tag, and Word refused to open the report.
+    Runs after XML escaping, so it compares escaped values."""
+    values = {escaped for value in withheld for escaped in (escape(value), escape(value, {chr(34): "&quot;"}))}
+    if not values:
+        return data
+    data = XML_TEXT.sub(lambda m: ">" + sdt_advisory.scrub(m.group(1), values) + "<", data)
+    return LINK_TARGET.sub(lambda m: m.group(1) + sdt_advisory.scrub(m.group(2), values) + m.group(3), data)
 
 
 def write_docx(report: Report, src_root: Path | None, out: Path, template: Path = TEMPLATE,

@@ -687,3 +687,26 @@ def test_report_survives_a_withheld_value_equal_to_a_section_name(tmp_path):
     out = tmp_path / "r.docx"
     sdt_to_docx.write_docx(report, src, out)
     assert out.stat().st_size > 0
+
+
+def test_report_xml_stays_valid_when_a_withheld_value_is_part_of_a_tag_name(tmp_path):
+    """`password = "app"` in scanned code withholds "app"; scrubbing it out of the raw XML turned
+    <w:clrSchemeMapping> into an invalid tag and Word refused the report."""
+    import xml.parsers.expat
+    src = tmp_path / "src"
+    (src / "app").mkdir(parents=True)
+    (src / "app" / "Client.java").write_text('String password = "app";\nString token = "s3cret-Value-9";\n')
+    group = sdt_to_docx.Group("java:S2068", "Hard-coded credential", "Vulnerability", "High",
+                              occurrences=[sdt_to_docx.Occurrence("app/Client.java", 1, "m", "Open", ""),
+                                           sdt_to_docx.Occurrence("app/Client.java", 2, "m", "Open", "")])
+    report = sdt_to_docx.Report("app-service", "ws/app-service", "main", "", "abc", "SDT", [group], [], [], [],
+                                sdt_to_docx.date(2026, 11, 25))
+    out = tmp_path / "r.docx"
+    sdt_to_docx.write_docx(report, src, out)
+    with zipfile.ZipFile(out) as z:
+        for name in z.namelist():
+            if name.endswith((".xml", ".rels")):
+                xml.parsers.expat.ParserCreate().Parse(z.read(name), True)  # raises on a broken part
+        text = z.read("word/document.xml").decode()
+        assert "s3cret-Value-9" not in text and "SAST Report" in z.read("word/header1.xml").decode()
+        assert "app-service" in text  # the project name is not cut by the withheld "app"

@@ -229,10 +229,23 @@ def _kept(value: str) -> bool:
     return bool(PLACEHOLDER.match(value.strip()))
 
 
+SCRUB_WHOLE_TOKEN_BELOW = 8  # a shorter withheld value is removed only where it stands alone
+WORD_LIKE = re.compile(r"[A-Za-z_-]+")
+
+
 def scrub(text: str, withheld: set | None) -> str:
-    """Remove values an earlier excerpt withheld, wherever a model or an old memory echoed them."""
+    """Remove values an earlier excerpt withheld, wherever a model or an old memory echoed them.
+
+    A secret-shaped value (8 characters or more, with a digit or symbol) is removed wherever it occurs. A
+    short value, or one made of letters only, is removed only where it stands alone (not inside a longer word,
+    hyphens and underscores included): test values such as "app", "high" or "credential" would otherwise cut words like
+    "application", "high-precision" and "credentials" in every report and answer. Where the value itself
+    appeared in code, redact() already hid it in place."""
     for value in sorted((v for v in withheld or () if len(v) >= 3), key=len, reverse=True):
-        text = text.replace(value, _hidden(value))
+        if len(value) < SCRUB_WHOLE_TOKEN_BELOW or WORD_LIKE.fullmatch(value):
+            text = re.sub(rf"(?<![\w-]){re.escape(value)}(?![\w-])", lambda _m, v=value: _hidden(v), text)
+        else:
+            text = text.replace(value, _hidden(value))
     return text
 
 

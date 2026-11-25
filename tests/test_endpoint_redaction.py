@@ -141,3 +141,12 @@ def test_structured_pass_keeps_keys_when_a_withheld_value_equals_one():
     safe = advisory.redact_tree({"dependency": ["a dependency value"], "code": []}, withheld)
     assert list(safe) == ["dependency", "code"]
     assert "dependency" not in safe["dependency"][0]
+
+
+def test_scrub_removes_short_and_word_like_values_only_where_they_stand_alone():
+    withheld = {"app", "high", "credential"}
+    prose = "application with high-precision rules and client credentials"
+    assert advisory.scrub(prose, withheld) == prose
+    assert advisory.scrub('Login("app", "x") sets high', withheld) == 'Login("[REDACTED]", "x") sets [REDACTED]'
+    secret = "xY9!q2Lm77"  # secret-shaped: removed wherever it occurs, also inside a longer string
+    assert advisory.scrub(f"k={secret} and url?k={secret}z", {secret}) == "k=[REDACTED] and url?k=[REDACTED]z"
