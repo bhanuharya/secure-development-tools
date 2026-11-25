@@ -7,7 +7,8 @@
 # Optional: BRANCH / PR_ID, WORKSPACE_NAME, SCOPE_URL, SDT_HOME, FLEET_DATABASE,
 #           SDT_STATE_DIR (kept between scans: scan history and AI verdict memory live under it),
 #           SDT_SCAN_NICE (priority of everything this script starts, as in scan.sh),
-#           SDT_INVENTORY (repository inventory for finding priority; default $SDT_STATE_DIR/inventory.tsv when present)
+#           SDT_INVENTORY (repository inventory for finding priority; default $SDT_STATE_DIR/inventory.tsv when present),
+#           SDT_KEV_FILE (optional local CISA KEV catalog JSON; allows P1 on imported vulnerable packages)
 set -euo pipefail
 set +x
 : "${SRC:?}" "${OUT:?}" "${REPO_SLUG:?}"
@@ -29,6 +30,8 @@ timing() { printf '%s\t%s\n' "$1" "$((SECONDS - STEP_START))" >> "$TIMINGS"; STE
 
 # The SAST report reads SonarQube, so it shows each hotspot's review state and assignee.
 TRIAGE=()
+KEV_ARG=()
+[ -n "${SDT_KEV_FILE:-}" ] && KEV_ARG=(--kev "$SDT_KEV_FILE")
 # 'SAST Report - <repo>[ - PR <id>] - <ddmmyy-hhmm>.docx': branch and pull request reports and their scan
 # times are told apart in downloads. One report per build: an older one in OUT would be picked up instead.
 rm -f "$OUT"/SAST\ Report\ -\ *.docx
@@ -76,12 +79,12 @@ if [ -f "$OUT/sonar-project-key" ] && [ -n "${SONAR_TOKEN:-}" ]; then
   python3 "$SDT_HOME/tools/sdt_to_docx.py" --sonar-url "$SONAR_HOST_URL" --project-key "$(cat "$OUT/sonar-project-key")" \
     "${SCOPE[@]}" --findings "$REPORT_FINDINGS" --src-root "$SRC" \
     --repository "$WORKSPACE_NAME/$REPO_SLUG" --scope-url "${SCOPE_URL:-}" \
-    --commit "$COMMIT" "${TRIAGE[@]}" --out "$REPORT_DOCX" || { log "DOCX report failed"; status=1; }
+    --commit "$COMMIT" "${TRIAGE[@]}" "${KEV_ARG[@]}" --out "$REPORT_DOCX" || { log "DOCX report failed"; status=1; }
 else
   # SonarQube was not reached (stage failed): report straight from the SDT findings.
   python3 "$SDT_HOME/tools/sdt_to_docx.py" --findings "$OUT/sdt/findings.json" --src-root "$SRC" \
     --repository "$WORKSPACE_NAME/$REPO_SLUG" --project-name "$REPO_SLUG" --scope-url "${SCOPE_URL:-}" \
-    --commit "$COMMIT" --out "$REPORT_DOCX" || { log "DOCX report failed"; status=1; }
+    --commit "$COMMIT" "${KEV_ARG[@]}" --out "$REPORT_DOCX" || { log "DOCX report failed"; status=1; }
 fi
 timing report
 

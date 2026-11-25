@@ -174,15 +174,20 @@ if developers must not see each other's findings.
 Every scan attaches `SAST Report - <repo>.docx` to the build (full description in SDT's `docs/sast-report.md`):
 
 * **Cover**: logo (optional, supplied locally), scanners, totals, coverage gaps, executive summary, changes since the previous scan, contents.
-* **Fix First**: the open findings at priority P1 and P2, each with why it has that priority and what to do.
+* **Fix First**: the open findings at priority P1 and P2, each with why it has that priority and what to do,
+  followed by a **Dependency upgrades** table for open P1 and P2 upgrade actions.
   Priority (P1 to P4) starts from severity and moves with what is known about the service: set
   `SDT_INVENTORY` to a tab-separated inventory that records each repository's exposure (internet, internal,
   none) and business criticality, or put it at `$SDT_STATE_DIR/inventory.tsv` (with an image: in the state
   volume). A repository it does not list counts as reachable from the internet.
+  Dependency upgrade actions are capped at P2 unless a CVE is on the CISA Known Exploited Vulnerabilities
+  catalog and affects an imported package: set `SDT_KEV_FILE` to a local copy of the CISA KEV JSON catalog
+  (nothing is downloaded during a scan; a missing path logs a warning and leaves the catalog off).
   Format and rules: SDT's `docs/sast-report.md` (Priority) and `docs/adr/0009-finding-priority.md`.
 * **1. Code Security** first: per rule, every finding with file, line, redacted code excerpt and an **Advisory**
   (assessment, evidence, what to check, what to do). Rules with more than 10 findings are laid out file by file.
-* **2. Secret Leaks** grouped by type and file; **3. Dependencies & Configuration** with one upgrade target per package.
+* **2. Secret Leaks** grouped by type and file; **3. Dependencies & Configuration** with grouped upgrade actions
+  followed by the per-package detail table.
 * File and line links open **Bitbucket at the scanned commit** (`/src/<commit>/<path>#lines-N`), so the mobile team can
   use the report without SonarQube. No secret value is ever printed.
 

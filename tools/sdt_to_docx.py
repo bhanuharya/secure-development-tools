@@ -48,6 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sdt_advisory  # noqa: E402  (deterministic advisory; no model needed)
 import sdt_impact  # noqa: E402  (impact classes and BOLA impact tag parsing)
 import sdt_priority  # noqa: E402  (P1-P4 from severity and what is known about the service)
+import sdt_upgrades  # noqa: E402  (dependency upgrade action grouping and KEV catalog)
 
 TEMPLATE = Path(__file__).resolve().parent / "templates" / "sast-report.docx"
 LOGO = Path(__file__).resolve().parent / "templates" / "logo.png"  # cover and page header; optional, not shipped
@@ -310,6 +311,9 @@ class Report:
     context: sdt_priority.Context = field(default_factory=sdt_priority.Context)  # service exposure and criticality
     endpoints: EndpointsInventory | None = None  # route inventory from the endpoints adapter (endpoints.json)
     endpoint_changes: dict | None = None  # route changes against the previous report (compare_endpoints)
+    kev: set[str] = field(default_factory=set)  # CVE ids from a local CISA KEV catalog (--kev / $SDT_KEV_FILE)
+    src_root: Path | None = None  # repository root for manifest inspection (pom.xml, lockfiles)
+    upgrades: list[sdt_upgrades.UpgradeAction] = field(default_factory=list)  # set by prioritize()
 
 
 # ------------------------------------------------------------------ categorising
@@ -1051,7 +1055,7 @@ def merge_duplicate_handlers(report: Report) -> None:
                         other_o.same_handler.append(note_for_other)
 
 
-def prioritize(report: Report) -> None:
+def prioritize(report: Report, src_root: Path | None = None) -> None:
     """Give every finding its priority (sdt_priority) and order each section most urgent first.
     Secret groups get theirs in group_secrets(). Safe to call more than once."""
     ctx = report.context
@@ -1067,6 +1071,8 @@ def prioritize(report: Report) -> None:
     for r in report.dependencies:
         r.priority = sdt_priority.dependency(r.severity, r.reachable, r.manifest, ctx)
     report.dependencies.sort(key=lambda r: (r.priority.rank, SEVERITY_ORDER.index(r.severity), r.package, r.installed))
+    root = src_root if src_root is not None else report.src_root
+    report.upgrades = sdt_upgrades.group_upgrades(report.dependencies, root, report.kev, ctx)
     for c in report.config:
         c.priority = sdt_priority.configuration(c.severity, c.path, ctx)
     report.config.sort(key=lambda c: (c.priority.rank, SEVERITY_ORDER.index(c.severity)))
@@ -1074,10 +1080,13 @@ def prioritize(report: Report) -> None:
 
 def priorities(report: Report) -> dict[str, list[sdt_priority.Priority]]:
     """category -> the priority of each item as the report lists it: code finding, secret place,
-    package, configuration check (the last two together, as in the Findings Summary)."""
+    upgrade action, configuration check (the last two together, as in the Findings Summary)."""
+    dep_items = ([a.priority for a in report.upgrades if a.priority]
+                 if report.upgrades or not report.dependencies
+                 else [r.priority for r in report.dependencies if r.priority])
     return {"code": [o.priority for g in report.code for o in g.occurrences if o.priority and not o.merged_into],
             "secret": [g.priority for g in group_secrets(report.secrets, report.context)],
-            "dependency": [r.priority for r in report.dependencies + report.config if r.priority]}
+            "dependency": dep_items + [c.priority for c in report.config if c.priority]}
 
 
 def level_counts(items: list[sdt_priority.Priority]) -> str:
@@ -1133,8 +1142,8 @@ def executive_summary(report: Report) -> list[str]:
     lines = [f"Scope: {report.project}, {report.scope}, scanned with {report.source}."]
     every = [p for items in priorities(report).values() for p in items]
     if every:
-        lines.append(f"Priority: {level_counts(every)} (each code finding, secret place, package and configuration "
-                     f"check). Service exposure: {exposure_text(report.context)}; see How Priority Is Set.")
+        lines.append(f"Priority: {level_counts(every)} (each code finding, secret place, upgrade action and "
+                     f"configuration check). Service exposure: {exposure_text(report.context)}; see How Priority Is Set.")
     if report.trend:
         new = sum(v[0] for v in report.trend.values())
         fixed = sum(v[1] for v in report.trend.values())
@@ -1413,8 +1422,9 @@ def _code_action(note: dict | None) -> str:
 
 
 def fix_first(report: Report) -> list[list]:
-    """Open findings at P1 and P2, most urgent first; within a priority code, secrets, packages,
-    configuration, then by severity. Each row: priority, what, where, why, action."""
+    """Open code, secret and configuration findings at P1 and P2, most urgent first.
+    Dependency upgrade actions appear in their own Fix First table (fix_first_upgrades).
+    Each row: priority, what, where, why, action."""
     items = []
 
     def add(p: sdt_priority.Priority | None, kind: int, severity: str, what: str, where: str, action: str) -> None:
@@ -1434,17 +1444,36 @@ def fix_first(report: Report) -> list[list]:
         if g.open:
             add(g.priority, 1, g.severity, f"Secret: {g.kind} ({g.where.lower()})",
                 f"{g.path}:{_short(g.lines, 3)}" if g.path else "-", g.action)
-    for r in report.dependencies:
-        if r.status in OPEN_STATES:
-            target = upgrade_to(r)
-            add(r.priority, 2, r.severity, f"{r.package or '(see advisory)'} {r.installed} ({r.severity}, "
-                f"{plural(len(r.advisories), 'advisory')})", r.manifest or "-",
-                f"Upgrade to {target}" if target else "No fixed version yet: apply the advisory's workaround")
     for c in report.config:
         if c.status in OPEN_STATES:
-            add(c.priority, 3, c.severity, f"{c.check}: {c.message[:120]}", f"{c.path}:{c.line}" if c.line else c.path or "-",
+            add(c.priority, 2, c.severity, f"{c.check}: {c.message[:120]}", f"{c.path}:{c.line}" if c.line else c.path or "-",
                 "Fix the configuration, or record why it is acceptable")
     return [row for _, row in sorted(items, key=lambda item: item[0])]
+
+
+def upgrade_action_rows(actions: list[sdt_upgrades.UpgradeAction]) -> list[list]:
+    """Format UpgradeActions as [Priority, Upgrade, Packages, Effort, Why] rows."""
+    rows = []
+    for action in actions:
+        upgrade = action.title
+        if action.manifest and action.manifest not in upgrade:
+            upgrade = f"{upgrade} ({action.manifest})"
+        sev_parts = ", ".join(f"{n} {sev}" for sev, n in action.counts.items() if n)
+        pkg_text = f"{plural(len(action.packages), 'package')}" + (f" ({sev_parts})" if sev_parts else "")
+        rows.append([
+            action.priority.level if action.priority else "-",
+            upgrade,
+            pkg_text,
+            action.effort,
+            action.priority.why if action.priority else "-",
+        ])
+    return rows
+
+
+def fix_first_upgrades(report: Report) -> list[list]:
+    """Open P1 and P2 dependency upgrade actions for the Fix First 'Dependency upgrades' table."""
+    selected = [a for a in report.upgrades if a.open and a.priority and a.priority.level in FIX_FIRST_LEVELS]
+    return upgrade_action_rows(selected)
 
 
 # --------------------------------------------------------------------- endpoints
@@ -1577,7 +1606,7 @@ def endpoints_section(inv: EndpointsInventory, changes: dict | None = None) -> l
 def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Links]:
     """document.xml body markup, and the external links it uses. `logo` is a ready picture run."""
     links = Links()
-    prioritize(report)
+    prioritize(report, src_root)
     counts = _counts(report)
     ranked = priorities(report)
     bitbucket = report.link_to != "sonar" and bool(report.source_base)
@@ -1614,7 +1643,8 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
     parts.append(section_heading("Executive Summary", 1, "sec_summary"))
     parts += [para(run(text)) for text in executive_summary(report)]
     parts.append(section_heading("Findings Summary", 1, "sec_findings_summary"))
-    rows = [[n, title, counts[key][0], counts[key][1],
+    summary_titles = {"dependency": "Dependencies (packages) & Configuration (Trivy)"}
+    rows = [[n, summary_titles.get(key, title), counts[key][0], counts[key][1],
              (_most_urgent(ranked[key]) or sdt_priority.Priority("-", "")).level, counts[key][2]]
             for n, (key, title) in enumerate(CATEGORY_TITLES, 1)]
     parts.append(data_table([("No.", 700), ("Category", 3480), ("Findings", 1400), ("Highest Severity", 1500),
@@ -1654,17 +1684,27 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
     # ------------------------------------------------ fix first (own page)
     parts.append(section_heading("Fix First", 1, "sec_fix_first", page_break=True))
     todo = fix_first(report)
-    if todo:
+    dep_todo = fix_first_upgrades(report)
+    if todo or dep_todo:
         parts.append(para(run("Open findings at P1 (" + sdt_priority.MEANING["P1"] + ") and P2 ("
-                              + sdt_priority.MEANING["P2"] + "), most urgent first. Priority starts from the severity "
-                              "and moves with what is known about this service and the finding; Why lists each step "
-                              "(↑ raised, ↓ lowered). See How Priority Is Set.")))
-        parts.append(data_table([("No.", 600), ("Priority", 950), ("What", 2450), ("Where", 2100), ("Why", 2080),
-                                 ("Action", 1900)], [[i, *row] for i, row in enumerate(todo[:40], 1)],
-                                advisory_cols=(5,), priority_col=1))
-        if len(todo) > 40:
-            parts.append(para(run(f"{len(todo) - 40} more items at P1 or P2 follow in the sections below, where each "
-                                  "section lists its most urgent findings first.")))
+                              + sdt_priority.MEANING["P2"] + "), most urgent first. Priority starts from the impact "
+                              "class or severity and moves with what is known about this service and the finding; "
+                              "Why lists each step (↑ raised, ↓ lowered). See How Priority Is Set.")))
+        if todo:
+            parts.append(data_table([("No.", 600), ("Priority", 950), ("What", 2450), ("Where", 2100), ("Why", 2080),
+                                     ("Action", 1900)], [[i, *row] for i, row in enumerate(todo[:40], 1)],
+                                    advisory_cols=(5,), priority_col=1))
+            if len(todo) > 40:
+                parts.append(para(run(f"{len(todo) - 40} more items at P1 or P2 follow in the sections below, where each "
+                                      "section lists its most urgent findings first.")))
+        if dep_todo:
+            parts.append(section_heading("Dependency upgrades", 2))
+            parts.append(data_table([("No.", 600), ("Priority", 950), ("Upgrade", 2750), ("Packages", 2150),
+                                     ("Effort", 1100), ("Why", 2530)],
+                                    [[i, *row] for i, row in enumerate(dep_todo[:40], 1)], priority_col=1))
+            if len(dep_todo) > 40:
+                parts.append(para(run(f"{len(dep_todo) - 40} more dependency upgrade actions at P1 or P2 follow in "
+                                      "section 3.")))
     else:
         parts.append(para(run("Nothing open is at P1 or P2. Work through the sections below, most urgent first; "
                               "How Priority Is Set explains each level.")))
@@ -1814,10 +1854,19 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
 
     # ------------------------------------------------ 3. dependencies and configuration
     parts.append(section_heading("3. Dependencies & Configuration (Trivy)", 1, "sec_dependencies", page_break=True))
-    parts.append(section_heading("3.1 Vulnerable Packages", 2))
     if not report.dependencies:
+        parts.append(section_heading("3.1 Vulnerable Packages", 2))
         parts.append(para(run("No dependency advisories.")))
+        cfg_heading = "3.2 Configuration Checks"
     else:
+        parts.append(section_heading("3.1 Upgrade Actions", 2))
+        parts.append(para(run(f"{plural(len(report.upgrades), 'upgrade action')} covering "
+                              f"{plural(len(report.dependencies), 'vulnerable package')}, most urgent first.")))
+        parts.append(data_table([("No.", 600), ("Priority", 950), ("Upgrade", 2750), ("Packages", 2150),
+                                 ("Effort", 1100), ("Why", 2530)],
+                                [[i, *row] for i, row in enumerate(upgrade_action_rows(report.upgrades), 1)],
+                                priority_col=1))
+        parts.append(section_heading("3.2 Vulnerable Packages", 2))
         parts.append(data_table([("No.", 600), ("Package", 1850), ("Upgrade To", 1000), ("Advisories", 1680),
                                  ("Severity", 950), ("Priority", 950), ("Reachable", 1100), ("Manifest", 1050),
                                  ("Status", 900)],
@@ -1828,8 +1877,9 @@ def body(report: Report, src_root: Path | None, logo: str = "") -> tuple[str, Li
         parts.append(para(run("What to do", bold=True), before=120))
         parts += [para(run(f"{i}. ", bold=True) + run(step), before=0, after=0)
                   for i, step in enumerate(GROUP_GUIDANCE_DEPENDENCIES, 1)]
+        cfg_heading = "3.3 Configuration Checks"
     if report.config:
-        parts.append(section_heading("3.2 Configuration Checks", 2))
+        parts.append(section_heading(cfg_heading, 2))
         parts.append(data_table([("No.", 600), ("Check", 1300), ("File", 2400), ("Line", 700), ("Severity", 1000),
                                  ("Priority", 950), ("Finding", 2130), ("Status", 1000)],
                                 [[i, c.check, c.path or "-", c.line or "-", c.severity,
@@ -2185,6 +2235,9 @@ def main() -> int:
     ap.add_argument("--inventory", type=Path, default=Path(os.environ["SDT_INVENTORY"]) if os.environ.get("SDT_INVENTORY")
                     else None, help="tab-separated repository inventory: exposure, criticality and visibility per "
                                     "repository, looked up by --repository (default: $SDT_INVENTORY)")
+    ap.add_argument("--kev", type=Path, default=Path(os.environ["SDT_KEV_FILE"]) if os.environ.get("SDT_KEV_FILE")
+                    else None, help="local CISA Known Exploited Vulnerabilities catalog JSON (default: $SDT_KEV_FILE); "
+                                    "missing path warns and continues without KEV")
     ap.add_argument("--exposure", choices=sdt_priority.EXPOSURES, default="",
                     help="where the service runs; overrides the inventory (default: from the inventory, else unknown)")
     ap.add_argument("--criticality", choices=sdt_priority.CRITICALITIES, default="",
@@ -2250,6 +2303,7 @@ def main() -> int:
         except (OSError, ValueError) as exc:  # without it every priority is still sound, only none is lowered
             print(f"sdt_to_docx: inventory not used ({exc}); service exposure counts as not recorded", file=sys.stderr)
     ctx = sdt_priority.context(inventory, args.repository or name, args.exposure, args.criticality, args.visibility)
+    kev = sdt_upgrades.load_kev(args.kev, warn=lambda m: print(f"sdt_to_docx: {m}", file=sys.stderr))
     endpoints_path = args.endpoints or (args.findings.parent / "endpoints.json" if args.findings else None)
     endpoints = None
     if endpoints_path and endpoints_path.is_file():
@@ -2261,7 +2315,7 @@ def main() -> int:
                     found["code"], found["secret"], found["dependency"], found["config"], date.today(), ai,
                     None, "", coverage_gaps(args.coverage, args.findings),
                     args.source_url or bitbucket_base(args.repository, args.commit), args.link_to, resolved, ctx,
-                    endpoints)
+                    endpoints, kev=kev, src_root=args.src_root)
     state = report_state(report, args.src_root)
     if args.previous_state and args.previous_state.is_file():
         try:
