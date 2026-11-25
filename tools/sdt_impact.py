@@ -611,7 +611,7 @@ CWE: dict[str, RuleEntry] = {
 
 
 # ----------------------------------------------------------------------- key normalisation
-_OPENGREP_PREFIXES = ("external_opengrep:", "opengrep:")
+_OPENGREP_PREFIXES = ("external_opengrep:", "opengrep:", "endpoints:")
 # Mirrors EXTERNAL_ID in tools/sdt_to_docx.py and _rule_key in tools/sdt_to_sonar.py.
 _EXTERNAL_SDT = re.compile(
     r"^external_sdt-(?P<adapter>[A-Za-z0-9_.-]+):sdt-(?P=adapter)-(?P<id>[A-Za-z0-9_.-]+)-(?P<hash>[0-9a-f]{16})$"

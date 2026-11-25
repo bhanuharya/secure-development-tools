@@ -173,6 +173,7 @@ class Group:
     risk: list[str] = field(default_factory=list)
     fixes: list[str] = field(default_factory=list)
     occurrences: list[Occurrence] = field(default_factory=list)
+    cwe: tuple[str, ...] = ()
 
     @property
     def priority(self) -> sdt_priority.Priority | None:
@@ -411,12 +412,24 @@ def from_sonar(sonar: Sonar, project_key: str, branch: str, pull_request: str,
             rules[rule_key] = sonar.get("/api/rules/show", key=rule_key).get("rule", {})
         return rules[rule_key]
 
+    def _rule_cwes(data: dict) -> tuple[str, ...]:
+        seen: list[str] = []
+        raw_items = list(data.get("cwe") or []) + list(data.get("securityStandards") or [])
+        raw_items += list(data.get("sysTags") or []) + list(data.get("tags") or [])
+        for item in raw_items:
+            match = re.search(r"(?i)\bcwe[-:]?(\d+)\b", str(item or ""))
+            if match:
+                cid = f"CWE-{int(match.group(1))}"
+                if cid not in seen:
+                    seen.append(cid)
+        return tuple(seen)
+
     def code(rule_key: str, kind: str, severity: str, occurrence: Occurrence) -> None:
         if rule_key not in groups:
             data = rule(rule_key)
             risk, fixes = rule_texts(data)
             groups[rule_key] = Group(rule_key, sonar_title(rule_key, data.get("name", rule_key), titles),
-                                     kind, severity, risk, fixes)
+                                     kind, severity, risk, fixes, cwe=_rule_cwes(data))
         group = groups[rule_key]
         group.severity = _worse(group.severity, severity)
         group.occurrences.append(occurrence)
@@ -510,9 +523,11 @@ def from_findings(doc: dict, src_root: Path | None = None) -> dict:
             key = f"{adapter}:{rule_id}"
             if key not in groups:
                 guidance = str((f.get("remediation") or {}).get("guidance") or "")
+                cwes = tuple(str(c) for c in (rule.get("cwe") or []) if c)
                 groups[key] = Group(key, str(rule.get("name") or rule_id), "Finding", severity,
                                     [message] if message else [],
-                                    [s.strip() for s in re.split(r"(?<=[.!?])\s+", guidance) if s.strip()])
+                                    [s.strip() for s in re.split(r"(?<=[.!?])\s+", guidance) if s.strip()],
+                                    cwe=cwes)
             group = groups[key]
             group.severity = _worse(group.severity, severity)
             group.occurrences.append(Occurrence(path, line, message, "Not reviewed", ""))
@@ -912,7 +927,7 @@ def prioritize(report: Report) -> None:
         for o in g.occurrences:
             note = o.ai or {}
             o.priority = sdt_priority.code(g.rule, g.name, g.severity, o.path, str(note.get("verdict") or ""),
-                                           str(note.get("confidence") or ""), ctx)
+                                           str(note.get("confidence") or ""), ctx, cwe=g.cwe, kind=g.kind)
     report.code.sort(key=lambda g: (g.priority.rank if g.priority else len(sdt_priority.LEVELS),
                                     SEVERITY_ORDER.index(g.severity), -len(g.occurrences), g.rule))
     for r in report.dependencies:

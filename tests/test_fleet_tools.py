@@ -2682,23 +2682,37 @@ def _priority_report(tmp_path, ctx):
 
 def test_report_ranks_findings_by_priority_and_says_why(tmp_path):
     text, fix_first = _priority_report(tmp_path, sdt_priority.Context("internal", source="inventory"))
-    # The key is P1 although only in history and the service is internal; the weak hash is not lowered
-    # for an internal service; the injection and the unused package are, and leave Fix First.
+    # The key is P1 although only in history and the service is internal; the C1 injection drops from P1
+    # to P2 for an internal service and stays in Fix First; the C3 weak hash hotspot (P4) and unused
+    # package (P3) stay out of Fix First.
     assert "Secret: private-key (git history only)" in fix_first and "working credential by its format" in fix_first
-    assert fix_first.index("private-key") < fix_first.index("Using weak hashing")
-    assert "Database queries" not in fix_first and "lodash" not in fix_first
-    assert "PriorityP1 1, P2 1, P3 2" in text  # the cover
+    assert fix_first.index("private-key") < fix_first.index("Database queries")
+    assert "Using weak hashing" not in fix_first and "lodash" not in fix_first
+    assert "PriorityP1 1, P2 1, P3 1, P4 1" in text  # the cover
     assert "Service ExposureInternal network only, normal business criticality (from the inventory)" in text
-    assert "1.1 Using weak hashing" in text and "1.2 Database queries" in text  # most urgent rule first
-    assert "P3 (High severity; internal service ↓)" in text  # the rule's priority with its reason
+    assert "1.1 Database queries" in text and "1.2 Using weak hashing" in text  # most urgent rule first
+    assert "P2 (Injection (C1), high-precision rule; internal service ↓)" in text  # the rule's priority with its reason
+    assert "P4 (Defence in depth (C3), medium-precision rule)" in text
     assert "How Priority Is Set" in text
     assert "Service exposure: internal network only; business criticality: normal (from the inventory)." in text
     assert "service exposure is not recorded" not in text
 
 
+def test_prioritize_passes_group_cwe_and_kind():
+    cwe_group = sdt_to_docx.Group("custom:cwe-only", "Custom query check", "Security Hotspot", "Low",
+                                  cwe=("CWE-89",))
+    cwe_group.occurrences = [sdt_to_docx.Occurrence("src/query.py", 12, "raw query", "To review", "")]
+    report = sdt_to_docx.Report("app", "ws/app", "branch main", "", "abc", "SDT", [cwe_group], [], [], [],
+                                sdt_to_docx.date(2026, 11, 3))
+    sdt_to_docx.prioritize(report)
+    p = cwe_group.occurrences[0].priority
+    assert p is not None and p.level == "P2"
+    assert p.impact is not None and p.impact.source == "cwe" and p.impact.klass == "C1" and p.impact.precision == "medium"
+
+
 def test_report_without_a_recorded_exposure_lowers_nothing_and_asks_for_it(tmp_path):
     text, fix_first = _priority_report(tmp_path, sdt_priority.Context())
-    assert "Database queries" in fix_first  # High stays P2: an unknown fact never lowers
+    assert "Database queries" in fix_first  # C1 stays P1: an unknown fact never lowers
     assert "Not recorded, so treated as reachable from the internet" in text
     assert "This repository's service exposure is not recorded" in text
 

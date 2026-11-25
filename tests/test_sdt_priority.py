@@ -16,9 +16,9 @@ INTERNAL, INTERNET, UNKNOWN = Context("internal"), Context("internet"), Context(
 
 # ----------------------------------------------------------------------------- code
 def test_code_an_attacker_must_reach_is_one_step_lower_for_an_internal_service():
-    assert prio.code(*SQLI, "High", "src/db.js", ctx=INTERNET).level == "P2"
+    assert prio.code(*SQLI, "High", "src/db.js", ctx=INTERNET).level == "P1"
     internal = prio.code(*SQLI, "High", "src/db.js", ctx=INTERNAL)
-    assert internal.level == "P3" and internal.why == "High severity; internal service ↓"
+    assert internal.level == "P2" and internal.why == "Injection (C1), high-precision rule; internal service ↓"
     assert prio.code(*SQLI, "High", "src/db.js", ctx=Context("none")).why.endswith("not deployed as a service ↓")
     dev_server = prio.code("scp.common.deploy.dev-server-start", "dev server in a deployment", "High", "Dockerfile",
                            ctx=INTERNAL)
@@ -27,30 +27,33 @@ def test_code_an_attacker_must_reach_is_one_step_lower_for_an_internal_service()
 
 def test_an_exposure_that_is_not_recorded_lowers_nothing():
     assert prio.code(*SQLI, "High", "src/db.js", ctx=UNKNOWN) == prio.code(*SQLI, "High", "src/db.js", ctx=INTERNET)
-    assert prio.code(*SQLI, "High", "src/db.js").level == "P2"
+    assert prio.code(*SQLI, "High", "src/db.js").level == "P1"
 
 
-@pytest.mark.parametrize("rule,name", [
-    ("scp.javascript.secrets.env-fallback-literal", "secret with a literal fallback"),
-    ("java:S2068", "Hard-coded passwords are security-sensitive"),
-    ("java:S4790", "Using weak hashing algorithms is security-sensitive"),
-    ("java:S4830", "Server certificates should be verified during SSL/TLS connections"),
-    ("javascript:S4502", "Disabling CSRF protections is security-sensitive"),
+@pytest.mark.parametrize("rule,name,level", [
+    ("scp.javascript.secrets.env-fallback-literal", "secret with a literal fallback", "P1"),
+    ("java:S2068", "Hard-coded passwords are security-sensitive", "P2"),
+    ("java:S4790", "Using weak hashing algorithms is security-sensitive", "P4"),
+    ("java:S4830", "Server certificates should be verified during SSL/TLS connections", "P2"),
+    ("javascript:S4502", "Disabling CSRF protections is security-sensitive", "P3"),
 ])
-def test_credentials_cryptography_and_csrf_are_not_lowered_for_an_internal_service(rule, name):
-    assert prio.code(rule, name, "High", "src/app.js", ctx=INTERNAL).level == "P2"
+def test_credentials_cryptography_and_csrf_are_not_lowered_for_an_internal_service(rule, name, level):
+    internal = prio.code(rule, name, "High", "src/app.js", ctx=INTERNAL)
+    assert internal == prio.code(rule, name, "High", "src/app.js", ctx=INTERNET)
+    assert internal.level == level
 
 
 def test_a_review_can_raise_a_finding_but_never_lower_it():
-    real = prio.code(*SQLI, "High", "src/db.js", "likely_true_positive", "high")
+    medium_sqli = ("java:S2077", "Formatting SQL queries is security-sensitive")
+    real = prio.code(*medium_sqli, "High", "src/db.js", "likely_true_positive", "high")
     assert real.level == "P1" and "review judged it real ↑" in real.why
-    assert prio.code(*SQLI, "High", "src/db.js", "likely_true_positive", "low").level == "P2"
-    assert prio.code(*SQLI, "High", "src/db.js", "likely_false_positive", "high").level == "P2"
+    assert prio.code(*medium_sqli, "High", "src/db.js", "likely_true_positive", "low").level == "P2"
+    assert prio.code(*medium_sqli, "High", "src/db.js", "likely_false_positive", "high").level == "P2"
 
 
 def test_criticality_high_cancels_the_internal_step_low_lowers_but_not_credentials():
-    assert prio.code(*SQLI, "High", "src/db.js", ctx=Context("internal", "high")).level == "P2"
-    assert prio.code(*SQLI, "High", "src/db.js", ctx=Context("internet", "low")).level == "P3"
+    assert prio.code(*SQLI, "High", "src/db.js", ctx=Context("internal", "high")).level == "P1"
+    assert prio.code(*SQLI, "High", "src/db.js", ctx=Context("internet", "low")).level == "P2"
     assert prio.code("java:S2068", "Hard-coded passwords", "High", "src/A.java", ctx=Context("internal", "low")).level == "P2"
 
 
@@ -194,3 +197,123 @@ def test_a_template_env_file_with_a_bot_check_key_is_planned_not_urgent():
     names = ["NUXT_PUBLIC_CONTACT_FORM_RECAPTCHA_SITE_KEY=[REDACTED]", "CONTACT_FORM_RECAPTCHA_SECRET_KEY=[REDACTED]"]
     p = prio.secret("generic-api-key", ".env.example", names=names)
     assert p.level == "P3" and p.why == "generic key or token; test, example or documentation file ↓"
+
+
+# ------------------------------------------------------------------ impact classes (N02)
+def _legacy_code(rule: str, name: str, severity: str, path: str, verdict: str = "", confidence: str = "",
+                 ctx: Context = Context()) -> prio.Priority:
+    """Copy of pre-N02 severity-only code() to verify unclassified rules keep identical output."""
+    start, base = prio._severity(severity)
+    raises, lowers = [], []
+    if verdict == "likely_true_positive" and str(confidence).lower() != "low":
+        raises.append("review judged it real")
+    if prio.place(path) == "not shipped":
+        lowers.append("test, example or documentation file")
+    text = f"{rule} {name}"
+    if prio.CREDENTIAL_CODE.search(text):
+        pass
+    elif prio.REACH_NEEDED.search(text) and not prio.NO_ATTACKER_NEEDED.search(text):
+        prio._service(ctx, lowers)
+    elif ctx.criticality == "low":
+        lowers.append("low business criticality")
+    return prio.decide(start, base, raises, lowers)
+
+
+def test_c1_high_precision_is_p1_without_review_for_internet_or_unknown_exposure():
+    rule = "scp.java.authz.credential-change-by-request-id"
+    for ctx in (INTERNET, UNKNOWN):
+        p = prio.code(rule, "Credential change for an account named in the URL", "Medium",
+                      "src/UserController.java", ctx=ctx)
+        assert p.level == "P1"
+        assert p.base == "Account takeover (C1), high-precision rule"
+        assert p.why == "Account takeover (C1), high-precision rule"
+        assert p.impact is not None and p.impact.klass == "C1" and p.impact.label == "Account takeover"
+
+
+def test_c1_medium_precision_starts_at_p2_and_review_real_raises_to_p1():
+    rule = "scp.java.authz.commented-out-rule"
+    base = prio.code(rule, "Authorization rule commented out", "Medium", "src/SecurityConfig.java")
+    assert base.level == "P2" and base.base == "Authentication bypass (C1), medium-precision rule"
+    raised = prio.code(rule, "Authorization rule commented out", "Medium", "src/SecurityConfig.java",
+                       verdict="likely_true_positive", confidence="high")
+    assert raised.level == "P1" and "review judged it real ↑" in raised.why
+
+
+def test_c2_high_precision_stays_at_p2_ceiling_with_review_real_and_records_no_raise():
+    rule = "scp.endpoints.bola-unscoped-object-access"
+    p = prio.code(rule, "Unscoped object access", "Medium", "src/OrderController.java",
+                  verdict="likely_true_positive", confidence="high")
+    assert p.level == "P2"
+    assert p.why == "Data exposure (C2), high-precision rule"
+    assert "review judged it real" not in p.why
+
+
+def test_c2_medium_precision_starts_at_p3_and_review_real_raises_to_p2():
+    rule = "scp.java.logic.mass-assignment-beanutils"
+    base = prio.code(rule, "Mass assignment", "Medium", "src/UserService.java")
+    assert base.level == "P3" and base.base == "Logic abuse (C2), medium-precision rule"
+    raised = prio.code(rule, "Mass assignment", "Medium", "src/UserService.java",
+                       verdict="likely_true_positive", confidence="medium")
+    assert raised.level == "P2" and "review judged it real ↑" in raised.why
+
+
+def test_c3_medium_debug_hotspot_starts_at_p4_and_review_real_caps_at_p3():
+    base = prio.code("java:S4507", "Delivering code in production with debug features activated", "High",
+                     "src/App.java", kind="Security Hotspot")
+    assert base.level == "P4" and base.base == "Defence in depth (C3), medium-precision rule"
+    raised = prio.code("java:S4507", "Delivering code in production with debug features activated", "High",
+                       "src/App.java", verdict="likely_true_positive", confidence="high", kind="Security Hotspot")
+    assert raised.level == "P3" and "review judged it real ↑" in raised.why
+
+
+def test_internal_service_lowers_account_takeover_but_not_credential_exposure():
+    ato = prio.code("scp.java.authz.credential-change-by-request-id", "Credential change", "Medium",
+                    "src/UserController.java", ctx=INTERNAL)
+    assert ato.level == "P2" and "internal service ↓" in ato.why
+
+    cred_yaml = prio.code("scp.yaml.spring.prod-literal-password", "Literal password", "High",
+                          "src/main/resources/application-prod.yml", ctx=Context("internal", "low"))
+    assert cred_yaml.level == "P1" and cred_yaml.steps == ()
+
+    cred_sonar = prio.code("java:S6437", "Revoke and change this password", "Critical",
+                           "src/Auth.java", ctx=Context("internal", "low"), kind="Vulnerability")
+    assert cred_sonar.level == "P1" and cred_sonar.steps == ()
+
+
+def test_impact_class_lowers_at_most_two_steps_with_three_facts():
+    p = prio.code("scp.java.authz.credential-change-by-request-id", "Credential change", "Medium",
+                  "tests/UserControllerTest.java", ctx=Context("internal", "low"))
+    assert p.level == "P3"
+    assert [s.reason for s in p.steps] == ["test, example or documentation file", "internal service"]
+
+
+def test_likely_false_positive_never_lowers_classified_findings():
+    assert prio.code("scp.java.authz.credential-change-by-request-id", "Credential change", "Medium",
+                     "src/UserController.java", verdict="likely_false_positive", confidence="high").level == "P1"
+    assert prio.code("scp.java.authz.commented-out-rule", "Commented rule", "Medium",
+                     "src/SecurityConfig.java", verdict="likely_false_positive", confidence="high").level == "P2"
+    assert prio.code("scp.java.crypto.recoverable-password", "Recoverable password", "Medium",
+                     "src/User.java", verdict="likely_false_positive", confidence="high").level == "P2"
+
+
+@pytest.mark.parametrize("rule,name,severity,path,verdict,confidence,ctx", [
+    ("custom:unclassified-sql", "Unclassified SQL check", "High", "src/db.py", "", "", INTERNET),
+    ("custom:unclassified-sql", "Unclassified SQL check", "High", "src/db.py", "", "", INTERNAL),
+    ("custom:unclassified-rule", "General finding", "Medium", "tests/unit_test.py", "likely_true_positive", "high", INTERNET),
+    ("custom:unclassified-rule", "General finding", "Critical", "src/app.py", "likely_false_positive", "high", Context("internal", "low")),
+    ("custom:unclassified-rule", "General finding", "Low", "src/app.py", "", "", UNKNOWN),
+])
+def test_unclassified_rule_matches_legacy_priority_exactly(rule, name, severity, path, verdict, confidence, ctx):
+    got = prio.code(rule, name, severity, path, verdict, confidence, ctx)
+    want = _legacy_code(rule, name, severity, path, verdict, confidence, ctx)
+    assert got == want and got.impact is None
+
+
+def test_rules_text_explains_impact_classes_ceilings_and_review_rule():
+    lines = prio.rules_text(Context())
+    joined = " ".join(lines)
+    assert "C1 Direct compromise (P1)" in joined
+    assert "class ceiling" in joined
+    assert "never above its class ceiling" in joined
+    assert "never lowers" in joined
+
