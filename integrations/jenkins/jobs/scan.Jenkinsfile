@@ -8,7 +8,7 @@ properties([
   parameters([
     string(name: 'reponame', defaultValue: '', description: 'Repository slug in the Bitbucket workspace'),
     choice(name: 'scan_type', choices: ['branch', 'pull-request'],
-           description: 'branch: scan the whole branch. pull-request: scan only what the PR adds (fill pr_id and pr_base).'),
+           description: 'branch: scan the whole branch. pull-request: report what the PR adds, and the whole source branch next to it (fill pr_id and pr_base).'),
     string(name: 'branch', defaultValue: 'main', description: 'Branch to scan; for a pull request, its source branch'),
     string(name: 'pr_id', defaultValue: '', description: 'Pull request only: the PR number'),
     string(name: 'pr_base', defaultValue: 'main', description: 'Pull request only: the target branch'),

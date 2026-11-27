@@ -1,4 +1,5 @@
-"""A pull request scan also reports its target branch from the baseline scan (reports.sh)."""
+"""On request (SDT_PR_BASE_REPORT=1), a pull request scan also reports its target branch from the baseline scan
+(reports.sh). Off by default: sdtScan reports the whole source branch instead (out/source-branch/)."""
 from __future__ import annotations
 
 import os
@@ -57,7 +58,7 @@ def scan(tmp_path: Path, baseline: bool = True, **extra) -> tuple[subprocess.Com
 
 
 def test_pull_request_scan_writes_a_target_branch_report_from_the_baseline(tmp_path):
-    done, out, calls = scan(tmp_path)
+    done, out, calls = scan(tmp_path, SDT_PR_BASE_REPORT="1")
     assert done.returncode == 0, done.stdout + done.stderr
     reports = list((out / "target-branch").glob("*.docx"))
     assert len(reports) == 1 and reports[0].name.startswith("SAST Report - shop - PR 42 - target release_2.0 - ")
@@ -70,14 +71,17 @@ def test_pull_request_scan_writes_a_target_branch_report_from_the_baseline(tmp_p
     assert len(list(out.glob("SAST Report - shop - PR 42 - *.docx"))) == 1
 
 
-def test_target_branch_report_can_be_turned_off_and_needs_a_baseline(tmp_path):
+def test_target_branch_report_is_off_by_default_and_needs_a_baseline(tmp_path):
+    done, out, calls = scan(tmp_path)
+    assert done.returncode == 0 and not (out / "target-branch").exists()
+    assert str(out / "base" / "findings.json") not in calls
     done, out, calls = scan(tmp_path, SDT_PR_BASE_REPORT="0")
     assert done.returncode == 0 and not (out / "target-branch").exists()
-    done, out, calls = scan(tmp_path, baseline=False)
+    done, out, calls = scan(tmp_path, baseline=False, SDT_PR_BASE_REPORT="1")
     assert done.returncode == 0 and not list((out / "target-branch").glob("*.docx"))
 
 
 def test_branch_scan_writes_no_target_branch_report(tmp_path):
-    done, out, calls = scan(tmp_path, PR_ID="", BRANCH="main")
+    done, out, calls = scan(tmp_path, PR_ID="", BRANCH="main", SDT_PR_BASE_REPORT="1")
     assert done.returncode == 0, done.stderr
     assert not (out / "target-branch").exists() and str(out / "base" / "findings.json") not in calls

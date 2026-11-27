@@ -90,8 +90,8 @@ and set `SDT_HOME` (and `FLUTTER_HOME`) in the agent's environment.
    **Library Path** `integrations/jenkins/`, default version a tag (for example `v1.0.0`).
 5. Jobs: *Pipeline script from SCM* → the secure-development-tools repository → script path:
    - `integrations/jenkins/jobs/scan.Jenkinsfile`: on-demand. Pick `scan_type`:
-     `branch` scans the whole branch (gate reported); `pull-request` scans only what the PR adds over
-     `pr_base`, using the target branch as the baseline (gate enforced).
+     `branch` scans the whole branch (gate reported); `pull-request` reports what the PR adds over
+     `pr_base`, using the target branch as the baseline (gate enforced), and the whole source branch next to it.
      For a pull request that is already merged, also give `merge_commit`: the scan compares that
      commit with its first parent. It works for merge and squash commits, not for a fast-forward of several commits.
      Builds of this job run side by side, up to the agent's executors; two scans of the same repository wait
@@ -154,12 +154,18 @@ next scan) and linked from the comment, because Bitbucket Cloud has no API to at
 are readable by everyone who can read the repository, so a repository that is not private never gets the upload:
 its comment links the build artifact instead. `SDT_PR_REPORT_UPLOAD=0` turns the upload off everywhere.
 
-A pull request usually adds few findings or none, so its report is short. The scan already scans the target branch
-for the baseline, so it also writes a **target branch report** from that scan (`out/target-branch/SAST Report -
-<repo> - PR <id> - target <branch> - <time>.docx`, with the target branch's files for the code excerpts). It is
-uploaded and linked next to the pull request's report, and replaced with it by the next scan. It covers
-OpenGrep, Gitleaks and Trivy; SonarQube's own rules and review decisions are in the branch's own report.
-`SDT_PR_BASE_REPORT=0` turns it off; a failure is logged and never fails the build.
+A pull request's report lists only what the pull request adds, so it is often short. The same build therefore
+also scans the **whole source branch**, exactly as a branch scan of it would (its own SonarQube branch analysis,
+report history and review decisions), and writes that branch's report to `out/source-branch/SAST Report - <repo> -
+<time>.docx`. A pull request build gives two reports: the full source branch, and the pull request's changes. The
+source branch report is uploaded and linked next to the pull request's report (in Downloads as `SAST Report - <repo>
+- PR <id> - source branch - <time>.docx`), and replaced with it by the next scan. Its quality gate does not decide
+the build; a failure marks the build unstable. It roughly doubles the build's time; `SDT_PR_SOURCE_REPORT=0` turns
+it off. A merged pull request (`merge_commit`) never gets one: its source branch may be gone.
+
+The target branch is still scanned for the baseline (what already exists there is not new). With
+`SDT_PR_BASE_REPORT=1` that scan is reported too, as a **target branch report** (`out/target-branch/SAST Report -
+<repo> - PR <id> - target <branch> - <time>.docx`; OpenGrep, Gitleaks and Trivy only). It is off by default.
 
 ### Reports repository
 

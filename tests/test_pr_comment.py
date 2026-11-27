@@ -451,3 +451,59 @@ def test_published_pull_request_folder_holds_the_target_branch_report(out, repor
     assert publish(out, reports, PR_ID="42").returncode == 0
     folder = git("--git-dir", str(bare(reports)), "ls-tree", "--name-only", "main", "shop/pull-requests/42/")
     assert "SAST Report - target branch.docx" not in folder and "SAST Report.docx" in folder
+
+
+# ------------------------------------------------------------------ the source branch report
+# sdtScan scans the pull request's source branch as a branch scan would, into out/source-branch/; that scan
+# names its report like any branch report.
+SOURCE = "SAST Report - shop - 271126-1030.docx"
+
+
+def with_source(out):
+    (out / "source-branch").mkdir()
+    (out / "source-branch" / SOURCE).write_bytes(b"PK-source-bytes")
+    return out
+
+
+def test_source_branch_report_is_uploaded_under_the_pull_requests_name_and_linked(out):
+    with_source(out)
+    fake = FakeBitbucket()
+    fake.downloads = ["SAST Report - shop - PR 42 - source branch - 261126-0900.docx", "SAST Report - shop - 261126-0900.docx"]
+    assert run(fake, out).returncode == 0
+    names = [r[3].split(b'filename="', 1)[1].split(b'"', 1)[0].decode() for r in fake.uploads()]
+    assert names == ["SAST Report - shop - PR 42.docx", "SAST Report - shop - PR 42 - source branch - 271126-1030.docx"]
+    text = fake.comment_text("POST")
+    assert ("[Source branch report (.docx)](https://bitbucket.org/ws/shop/downloads/"
+            "SAST%20Report%20-%20shop%20-%20PR%2042%20-%20source%20branch%20-%20271126-1030.docx)") in text
+    assert text.index("Full report (.docx)") < text.index("Source branch report (.docx)")
+    deleted = [urllib.parse.unquote(r[1].split("/downloads/", 1)[1]) for r in fake.sent("DELETE")]
+    # The older source branch report of this pull request goes; a branch scan's own report is not this one's.
+    assert deleted == ["SAST Report - shop - PR 42 - source branch - 261126-0900.docx"]
+
+
+def test_public_repository_links_the_source_branch_artifact_before_the_target(out):
+    with_target(with_source(out))
+    fake = FakeBitbucket(private=False)
+    assert run(fake, out).returncode == 0
+    text = fake.comment_text("POST")
+    assert ("https://ci.example/job/x/9/artifact/out/source-branch/"
+            "SAST%20Report%20-%20shop%20-%20271126-1030.docx") in text
+    assert text.index("Source branch report (.docx)") < text.index("Target branch report (.docx)")
+
+
+def test_published_pull_request_folder_holds_the_source_branch_report(out, reports):
+    with_source(out)
+    assert publish(out, reports, PR_ID="42").returncode == 0
+    assert published(reports, "shop/pull-requests/42/SAST Report - source branch.docx") == "PK-source-bytes"
+    text = published(reports, "shop/pull-requests/42/report.md")
+    assert "[SAST Report - source branch.docx](SAST%20Report%20-%20source%20branch.docx)" in text
+    assert "target branch.docx" not in text
+    fake = FakeBitbucket()
+    assert run(fake, out).returncode == 0
+    url = (out / "report-url.txt").read_text().strip()
+    assert (f"[Source branch report (.docx)]({url[:-len('report.md')]}SAST%20Report%20-%20source%20branch.docx)"
+            in fake.comment_text("POST"))
+    (out / "source-branch" / SOURCE).unlink()
+    assert publish(out, reports, PR_ID="42").returncode == 0
+    folder = git("--git-dir", str(bare(reports)), "ls-tree", "--name-only", "main", "shop/pull-requests/42/")
+    assert "SAST Report - source branch.docx" not in folder
