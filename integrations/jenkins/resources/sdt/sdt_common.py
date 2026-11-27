@@ -87,10 +87,31 @@ def report_docx(out, repo):
 
 TARGET_REPORT_DIR = "target-branch"
 TARGET_PUBLISHED_NAME = "SAST Report - target branch.docx"  # its name in the reports repository
+SOURCE_REPORT_DIR = "source-branch"
+SOURCE_PUBLISHED_NAME = "SAST Report - source branch.docx"
 
 
 def target_report_docx(out):
-    """A pull request build's report of its target branch (reports.sh writes it to out/target-branch/),
-    or "" when there is none."""
+    """A pull request build's report of its target branch (reports.sh writes it to out/target-branch/ when
+    SDT_PR_BASE_REPORT=1), or "" when there is none."""
     found = glob.glob(os.path.join(glob.escape(out), TARGET_REPORT_DIR, "*.docx"))
     return max(found, key=os.path.getmtime) if found else ""
+
+
+def source_report_docx(out):
+    """A pull request build's report of its whole source branch (sdtScan scans it as a branch into
+    out/source-branch/), or "" when there is none."""
+    found = glob.glob(os.path.join(glob.escape(out), SOURCE_REPORT_DIR, "*.docx"))
+    return max(found, key=os.path.getmtime) if found else ""
+
+
+def branch_reports(out):
+    """The whole-branch reports a pull request build wrote next to its own report, as
+    (kind, path, folder under out, name in the reports repository): the source branch's, then the target
+    branch's, each only when it exists."""
+    found = []
+    for kind_, path, folder, published in (("source", source_report_docx(out), SOURCE_REPORT_DIR, SOURCE_PUBLISHED_NAME),
+                                           ("target", target_report_docx(out), TARGET_REPORT_DIR, TARGET_PUBLISHED_NAME)):
+        if path:
+            found.append((kind_, path, folder, published))
+    return found

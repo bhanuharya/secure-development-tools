@@ -37,6 +37,8 @@
  *   SDT_BITBUCKET_API_USER    the account email, when that token is an API token; empty for an access token
  *   SDT_REPORTS_REPO          repository (slug, or workspace/slug) every scan commits its report to, with the
  *                             same token; the pull-request comment then links it. Empty: no reports repository
+ *   SDT_PR_SOURCE_REPORT      "1" (default): a pull request scan also scans its whole source branch, as a branch
+ *                             scan would, and reports it in out/source-branch/. "0": the pull request report only
  */
 def call(Map args = [:]) {
   def cfg = [
@@ -62,6 +64,7 @@ def call(Map args = [:]) {
     prCommentCredentials: args.prCommentCredentials ?: env.SDT_BITBUCKET_API_CREDENTIALS ?: '',
     prCommentUser   : args.prCommentUser ?: env.SDT_BITBUCKET_API_USER ?: '',
     reportsRepo     : args.reportsRepo ?: env.SDT_REPORTS_REPO ?: '',
+    sourceReport    : (args.containsKey('sourceReport') ? args.sourceReport : (env.SDT_PR_SOURCE_REPORT ?: '1')).toString(),
   ]
   if (!cfg.branch && !cfg.prId) { error('sdtScan: give branch, or prId + prBranch + prBase') }
   if (cfg.prMergeCommit && !(cfg.prId && cfg.prBase)) { error('sdtScan: prMergeCommit needs prId and prBase') }
@@ -147,6 +150,18 @@ def call(Map args = [:]) {
             stage('reports') {
               if (runScript('bash .sdt/reports.sh') != 0 && outcome == 'SUCCESS') { outcome = 'UNSTABLE' }
             }
+            if (cfg.prId && !cfg.prMergeCommit && cfg.sourceReport == '1') {
+              stage('source branch') {
+                // The pull request's report lists only what it adds. The whole source branch is scanned too,
+                // exactly as a branch scan of it would be (its own SonarQube branch analysis, history and
+                // report), into out/source-branch/. Its quality gate does not decide this build.
+                withEnv(["OUT=${pwd()}/out/source-branch", "SDT_SCAN_BRANCH=${cfg.prBranch}", 'SDT_SCAN_PR_ID=',
+                         'SDT_SCAN_PR_BRANCH=', 'SDT_SCAN_PR_BASE=', 'SDT_QUEUE_MS=', 'SDT_CHECKOUT_MS=',
+                         "SCOPE_URL=https://bitbucket.org/${cfg.workspace}/${cfg.repo}/src/${cfg.prBranch}"]) {
+                  if (!sourceBranchScan() && outcome == 'SUCCESS') { outcome = 'UNSTABLE' }
+                }
+              }
+            }
             if (cfg.prCommentCredentials && (cfg.reportsRepo || cfg.prId)) {
               stage('publish') {
                 // The report in the reports repository, then pass or fail on the pull request.
@@ -167,6 +182,8 @@ def call(Map args = [:]) {
       }
     } finally {
       archiveArtifacts artifacts: 'out/*.docx, out/target-branch/*.docx, out/*.xlsx, out/fleet/*.pdf, out/fleet/*.xlsx, ' +
+                                  'out/source-branch/*.docx, out/source-branch/sdt/findings.json, ' +
+                                  'out/source-branch/quality-gate.txt, out/source-branch/timings.tsv, ' +
                                   'out/sdt/findings.json, out/sdt/findings-new.json, out/sdt/findings.sarif, ' +
                                   'out/sdt/endpoints.json, out/sdt/run-manifest.json, ' +
                                   'out/sbom.cdx.json, out/triage.json, out/quality-gate.txt, out/sonar-scanner.log, out/timings.tsv, ' +
@@ -239,6 +256,26 @@ private String updateMirror(Map cfg, String url) {
     return ''
   }
   return mirror
+}
+
+/**
+ * The branch scan of a pull request's source branch, after the pull request's own scan (sdtScan, stage
+ * 'source branch'; OUT and the scope are set by the caller). That scan left files in the checkout (its
+ * baseline, the scanner's work folder, fetched packages), so the checkout is restored to the commit first.
+ * Returns false when no report came out; a failed quality gate is not a failure here.
+ */
+private boolean sourceBranchScan() {
+  if (sh(script: 'git -C source reset -q --hard && git -C source clean -qffdx', returnStatus: true) != 0) {
+    echo 'sdtScan: the checkout could not be restored; the source branch is not scanned'
+    return false
+  }
+  int rc = runScript('bash .sdt/scan.sh')
+  if (rc != 0 && rc != 2) { sh 'rm -f "$OUT/sonar-project-key"' }  // report from the SDT findings, as above
+  if (runScript('bash .sdt/reports.sh') != 0) {
+    echo 'sdtScan: the source branch report failed (the pull request report is complete)'
+    return false
+  }
+  return true
 }
 
 /** Run a .sdt script with BRANCH / PR_* restored from SDT_SCAN_*; returns the exit code. */

@@ -9,8 +9,8 @@
 #           SDT_SCAN_NICE (priority of everything this script starts, as in scan.sh),
 #           SDT_INVENTORY (repository inventory for finding priority; default $SDT_STATE_DIR/inventory.tsv when present),
 #           SDT_KEV_FILE (optional local CISA KEV catalog JSON; allows P1 on imported vulnerable packages),
-#           PR_BASE + SDT_PR_BASE_REPORT (1|0: a pull request scan also reports its target branch, from the
-#           baseline scan, in out/target-branch/)
+#           PR_BASE + SDT_PR_BASE_REPORT (0|1: a pull request scan also reports its target branch, from the
+#           baseline scan, in out/target-branch/; off by default, sdtScan reports the source branch instead)
 set -euo pipefail
 set +x
 : "${SRC:?}" "${OUT:?}" "${REPO_SLUG:?}"
@@ -90,13 +90,13 @@ else
 fi
 timing report
 
-# A pull request usually adds few findings or none, so its report is short. scan.sh scanned the target branch
-# for the baseline anyway: report that branch too, from the same scan, with the target branch's files as the
-# source (OpenGrep, Gitleaks and Trivy; SonarQube's own rules and review decisions are in that branch's own
-# report). In out/target-branch/, so it is never taken for the pull request's report. SDT_PR_BASE_REPORT=0
-# turns it off; it never fails the build.
+# Opt-in (SDT_PR_BASE_REPORT=1): scan.sh scanned the target branch for the baseline, so that branch can be
+# reported too, from the same scan, with the target branch's files as the source (OpenGrep, Gitleaks and Trivy;
+# SonarQube's own rules and review decisions are in that branch's own report). In out/target-branch/, so it is
+# never taken for the pull request's report; it never fails the build. Off by default: sdtScan scans and
+# reports the pull request's source branch in full (out/source-branch/), which is what a reviewer asks for.
 rm -rf "$OUT/target-branch"
-if [ -n "${PR_ID:-}" ] && [ -n "${PR_BASE:-}" ] && [ "${SDT_PR_BASE_REPORT:-1}" = 1 ] && [ -s "$OUT/base/findings.json" ]; then
+if [ -n "${PR_ID:-}" ] && [ -n "${PR_BASE:-}" ] && [ "${SDT_PR_BASE_REPORT:-0}" = 1 ] && [ -s "$OUT/base/findings.json" ]; then
   BASE_TREE="$OUT/target-branch-src"
   rm -rf "$BASE_TREE"; mkdir -p "$BASE_TREE" "$OUT/target-branch"
   BASE_SRC_ARGS=()

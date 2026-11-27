@@ -29,7 +29,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
-from sdt_common import TARGET_PUBLISHED_NAME, TARGET_REPORT_DIR, report_docx, target_report_docx, cell, gate, kind, log, place_of, rank, reported, required, scanned_commit, severity
+from sdt_common import branch_reports, report_docx, cell, gate, kind, log, place_of, rank, reported, required, scanned_commit, severity
 
 MARKER = "### SDT security scan"
 MAX_ROWS = 15
@@ -378,8 +378,8 @@ def body(result, conditions, rows, gone, links, commit, base):
 
 
 def prune_downloads(client, quoted, repo, pr_id, keep):
-    """Delete this pull request's older reports from Downloads (its target branch report included, whose
-    name starts the same). Report names carry the scan time, so without this every scan of a pull request
+    """Delete this pull request's older reports from Downloads (its whole-branch reports included, whose
+    names start the same). Report names carry the scan time, so without this every scan of a pull request
     would leave one more file behind. `keep`: the names this scan uploaded."""
     keep = {keep} if isinstance(keep, str) else set(keep)
     prefix = f"SAST Report - {repo} - PR {pr_id}"
@@ -398,14 +398,24 @@ def prune_downloads(client, quoted, repo, pr_id, keep):
         log(f"older reports not removed from Downloads: {err}")
 
 
-TARGET_LABEL = "Target branch report (.docx)"
+BRANCH_LABELS = {"source": "Source branch report (.docx)", "target": "Target branch report (.docx)"}
+
+
+def download_name(path, repo, pr_id):
+    """The name a whole-branch report gets in Downloads: it starts like the pull request's own report, so the
+    next scan's prune_downloads replaces it too. The source branch report is named like a branch scan's
+    ('SAST Report - <repo> - <time>.docx') and gets the pull request and 'source branch' put in."""
+    name, prefix = os.path.basename(path), f"SAST Report - {repo} - PR {pr_id}"
+    if name == prefix + ".docx" or name.startswith(prefix + " - "):
+        return name
+    return f"{prefix} - source branch - {name.rsplit(' - ', 1)[-1]}"
 
 
 def report_links(client, quoted, out, repo, workspace, pr_id, build_url, upload):
-    """Where the report can be read, as (label, address) pairs: the pull request's report, then the report
-    of its target branch when reports.sh wrote one (a pull request often adds nothing, so its own report is
-    short)."""
-    report, target = report_docx(out, repo), target_report_docx(out)
+    """Where the report can be read, as (label, address) pairs: the pull request's report, then the whole-branch
+    reports the build wrote next to it (the source branch's, and the target branch's when asked for): a pull
+    request often adds nothing, so its own report is short."""
+    report, branches = report_docx(out, repo), branch_reports(out)
     try:
         # publish_report.py committed the report to the reports repository.
         published = open(os.path.join(out, "report-url.txt")).read().strip()
@@ -415,8 +425,9 @@ def report_links(client, quoted, out, repo, workspace, pr_id, build_url, upload)
         links = [("Report", published)]
         if published.endswith("/report.md") and os.path.isfile(report):
             links.append(("Word (.docx)", published[:-len("report.md")] + "SAST%20Report.docx"))
-        if published.endswith("/report.md") and target:
-            links.append((TARGET_LABEL, published[:-len("report.md")] + urllib.parse.quote(TARGET_PUBLISHED_NAME)))
+        if published.endswith("/report.md"):
+            for kind_, _path, _folder, published_name in branches:
+                links.append((BRANCH_LABELS[kind_], published[:-len("report.md")] + urllib.parse.quote(published_name)))
         return links
     if not os.path.isfile(report):
         return []
@@ -428,15 +439,15 @@ def report_links(client, quoted, out, repo, workspace, pr_id, build_url, upload)
                 client.upload(f"{quoted}/downloads", name, open(report, "rb").read())
                 links = [("Full report (.docx)", f"https://bitbucket.org/{workspace}/{repo}/downloads/{urllib.parse.quote(name)}")]
                 kept = {name}
-                if target:
-                    target_name = os.path.basename(target)
+                for kind_, path, _folder, _published in branches:
+                    branch_name = download_name(path, repo, pr_id)
                     try:
-                        client.upload(f"{quoted}/downloads", target_name, open(target, "rb").read())
-                        kept.add(target_name)
-                        links.append((TARGET_LABEL, f"https://bitbucket.org/{workspace}/{repo}/downloads/"
-                                                    f"{urllib.parse.quote(target_name)}"))
+                        client.upload(f"{quoted}/downloads", branch_name, open(path, "rb").read())
+                        kept.add(branch_name)
+                        links.append((BRANCH_LABELS[kind_], f"https://bitbucket.org/{workspace}/{repo}/downloads/"
+                                                            f"{urllib.parse.quote(branch_name)}"))
                     except RuntimeError as err:
-                        log(f"target branch report not uploaded: {err}")
+                        log(f"{kind_} branch report not uploaded: {err}")
                 prune_downloads(client, quoted, repo, pr_id, keep=kept)
                 return links
             log("repository is not private: the report is not put in its Downloads")
@@ -444,9 +455,9 @@ def report_links(client, quoted, out, repo, workspace, pr_id, build_url, upload)
             log(f"report not uploaded: {err}")
     if build_url:
         links = [("Full report (.docx)", f"{build_url}artifact/out/{urllib.parse.quote(os.path.basename(report))}")]
-        if target:
-            links.append((TARGET_LABEL, f"{build_url}artifact/out/{TARGET_REPORT_DIR}/"
-                                        f"{urllib.parse.quote(os.path.basename(target))}"))
+        for kind_, path, folder, _published in branches:
+            links.append((BRANCH_LABELS[kind_], f"{build_url}artifact/out/{folder}/"
+                                                f"{urllib.parse.quote(os.path.basename(path))}"))
         return links
     return []
 

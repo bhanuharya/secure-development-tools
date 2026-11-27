@@ -27,7 +27,7 @@ import sys
 import tempfile
 import urllib.parse
 
-from sdt_common import TARGET_PUBLISHED_NAME, report_docx, target_report_docx, cell, gate, kind, log, place_of, rank, reported, required, scanned_commit, severity
+from sdt_common import SOURCE_PUBLISHED_NAME, TARGET_PUBLISHED_NAME, branch_reports, report_docx, cell, gate, kind, log, place_of, rank, reported, required, scanned_commit, severity
 
 IDENTITY = ["-c", "user.name=SDT security scan", "-c", "user.email=sdt-security-scan@localhost"]
 ATTEMPTS = 5
@@ -42,7 +42,7 @@ def findings(out, pull_request):
     return None
 
 
-def markdown(repo, scope, scope_url, commit, result, items, pull_request, target_report=False):
+def markdown(repo, scope, scope_url, commit, result, items, pull_request, target_report=False, source_report=False):
     lines = [f"# Security scan: {repo}", "",
              f"**{result}** · {f'[{scope}]({scope_url})' if scope_url else scope}" + (f" · commit `{commit}`" if commit else ""), ""]
     if items is None:
@@ -61,8 +61,10 @@ def markdown(repo, scope, scope_url, commit, result, items, pull_request, target
             lines.append(f"| {cell(severity(item).capitalize())} | {cell(label)} | {cell(rule)} | `{cell(place_of(item))}` | {what} |")
     if pull_request:
         lines += ["", "Findings that already exist on the target branch are not listed."
-                  + (f" They are in [{TARGET_PUBLISHED_NAME}]({urllib.parse.quote(TARGET_PUBLISHED_NAME)}), the report"
-                     " of the target branch from the same build." if target_report else "")]
+                  + (f" The whole source branch, those included, is in [{SOURCE_PUBLISHED_NAME}]"
+                     f"({urllib.parse.quote(SOURCE_PUBLISHED_NAME)}), from the same build." if source_report else "")
+                  + (f" The target branch's are in [{TARGET_PUBLISHED_NAME}]({urllib.parse.quote(TARGET_PUBLISHED_NAME)}),"
+                     " the report of the target branch from the same build." if target_report else "")]
     lines += ["", "Review decisions (safe, false positive, accepted) are made in SonarQube. "
               "The full report is [SAST Report.docx](SAST%20Report.docx) in this folder."]
     return "\n".join(lines) + "\n"
@@ -106,9 +108,9 @@ def main():
     commit = scanned_commit(env.get("SRC", ""))
     result = gate(out)[0]
     docx = report_docx(out, repo)
-    target = target_report_docx(out) if pr_id else ""
+    branches = {kind_: path for kind_, path, _folder, _published in (branch_reports(out) if pr_id else [])}
     text = markdown(repo, scope, env.get("SCOPE_URL", ""), commit, result, findings(out, bool(pr_id)), bool(pr_id),
-                    bool(target))
+                    "target" in branches, "source" in branches)
 
     work = tempfile.mkdtemp(prefix="sdt-reports-")
     try:
@@ -137,12 +139,13 @@ def main():
                 handle.write(text)
             if os.path.isfile(docx):
                 shutil.copyfile(docx, os.path.join(destination, "SAST Report.docx"))
-            # The target branch report of an earlier scan would describe an older target branch.
-            target_copy = os.path.join(destination, TARGET_PUBLISHED_NAME)
-            if target:
-                shutil.copyfile(target, target_copy)
-            elif os.path.isfile(target_copy):
-                os.remove(target_copy)
+            # A whole-branch report of an earlier scan would describe an older branch.
+            for kind_, published in (("source", SOURCE_PUBLISHED_NAME), ("target", TARGET_PUBLISHED_NAME)):
+                copy = os.path.join(destination, published)
+                if kind_ in branches:
+                    shutil.copyfile(branches[kind_], copy)
+                elif os.path.isfile(copy):
+                    os.remove(copy)
             # Scans used to publish a PDF as well: one left here would describe an older scan.
             stale = os.path.join(destination, "security-report.pdf")
             if os.path.isfile(stale):

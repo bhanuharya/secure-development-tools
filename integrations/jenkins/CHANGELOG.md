@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-27
+
+- A pull request scan gives two reports: the pull request's changes (as before) and its whole source branch, scanned
+  in the same build exactly as a branch scan of it would be (SonarQube branch analysis included), in
+  `out/source-branch/`. The pull request comment and the reports repository link it next to the pull request's
+  report. `SDT_PR_SOURCE_REPORT=0` turns it off; a merged pull request never gets one.
+- The target branch report (`out/target-branch/`) is off by default now; `SDT_PR_BASE_REPORT=1` turns it back on.
+  The target branch is still scanned for the baseline.
+
 ## 2026-11-25
 
 - The SAST report ranks by what an attacker can do (ADR 0010). Code findings get an impact class (account
